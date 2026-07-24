@@ -10,6 +10,7 @@ router = APIRouter()
 class RegisterBody(BaseModel):
     username: str = Field(..., min_length=4, max_length=16, description="用户名")
     password: str = Field(..., min_length=8, max_length=32, description="密码")
+    public_key: str | None = Field(None, description="E2E 加密公钥（Base64编码）")
 
 
 class LoginBody(BaseModel):
@@ -20,7 +21,7 @@ class LoginBody(BaseModel):
 @router.post("/register")
 async def api_register(body: RegisterBody):
     """用户注册"""
-    result = auth_service.register(body.username, body.password)
+    result = auth_service.register(body.username, body.password, body.public_key)
     if not result["success"]:
         raise HTTPException(status_code=400, detail=result["message"])
     return result

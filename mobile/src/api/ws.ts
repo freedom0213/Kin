@@ -70,9 +70,9 @@ class KinWebSocket {
     }
   }
 
-  /** 发送聊天消息 */
-  sendMessage(to: string, content: string, msgId: string) {
-    this.send({ type: "chat_message", to, content, msg_id: msgId });
+  /** 发送聊天消息（encrypted=true 表示内容已 E2E 加密） */
+  sendMessage(to: string, content: string, msgId: string, encrypted = false) {
+    this.send({ type: "chat_message", to, content, msg_id: msgId, encrypted });
   }
 
   /** 发送已读回执 */

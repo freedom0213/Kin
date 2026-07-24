@@ -48,8 +48,8 @@ export interface AuthResult {
   token: string;
 }
 
-export function register(username: string, password: string) {
-  return request<AuthResult>("POST", "/api/auth/register", { username, password });
+export function register(username: string, password: string, publicKey?: string) {
+  return request<AuthResult>("POST", "/api/auth/register", { username, password, public_key: publicKey });
 }
 
 export function login(username: string, password: string) {
@@ -71,6 +71,7 @@ export interface Friend {
   meet_at: string;
   is_online: boolean;
   last_seen: number | null;
+  public_key: string | null;  // E2E 加密公钥
 }
 
 export function generateNfcToken() {

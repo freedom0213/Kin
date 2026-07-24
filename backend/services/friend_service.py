@@ -126,6 +126,7 @@ def get_friend_list(user_id: str) -> list[dict]:
                 users_table.c.nickname,
                 users_table.c.avatar,
                 users_table.c.status_msg,
+                users_table.c.public_key,
             )
             .select_from(
                 friends_table.join(
@@ -145,6 +146,7 @@ def get_friend_list(user_id: str) -> list[dict]:
             "avatar": row["avatar"],
             "status_msg": row["status_msg"],
             "meet_at": row["meet_at"],
+            "public_key": row["public_key"],
         }
         for row in rows
     ]

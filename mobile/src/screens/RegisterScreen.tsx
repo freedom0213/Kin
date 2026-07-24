@@ -1,4 +1,4 @@
-/** 注册页面 */
+/** 注册页面 — 生成 E2E 密钥对并上传公钥 */
 
 import React, { useState } from "react";
 import {
@@ -7,6 +7,7 @@ import {
 } from "react-native";
 import { register } from "../api/client";
 import { useAuth } from "../stores/AuthContext";
+import { generateAndStoreKeyPair } from "../services/keys";
 
 export default function RegisterScreen({ navigation }: any) {
   const { loginAction } = useAuth();
@@ -21,7 +22,11 @@ export default function RegisterScreen({ navigation }: any) {
     }
     setLoading(true);
     try {
-      const result = await register(username.trim(), password);
+      // 1. 本地生成 E2E 密钥对，私钥存入 SecureStore
+      const { publicKey } = await generateAndStoreKeyPair();
+
+      // 2. 注册并上传公钥
+      const result = await register(username.trim(), password, publicKey);
       if (result.success) {
         // 注册成功直接登录
         await loginAction(result.token, {

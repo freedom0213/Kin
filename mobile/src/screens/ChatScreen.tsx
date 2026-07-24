@@ -1,4 +1,4 @@
-/** 聊天页面 — 文字消息 + 在线状态 */
+/** 聊天页面 — E2E 加密文字消息 + 在线状态 */
 
 import { useState, useEffect, useRef } from "react";
 import {
@@ -7,11 +7,13 @@ import {
 } from "react-native";
 import { kinWS } from "../api/ws";
 import { useAuth } from "../stores/AuthContext";
+import { encrypt, decrypt } from "../services/encryption";
+import { getSecretKey } from "../services/keys";
 
 interface Message {
   id: string;
   from: string;
-  content: string;
+  content: string;       // 显示用明文（自己发的存原文，收到的经解密后存）
   type: string;
   is_read: boolean;
   created_at: string;
@@ -23,7 +25,7 @@ function genMsgId(): string {
 }
 
 export default function ChatScreen({ route, navigation }: any) {
-  const { friend } = route.params; // friend 包含 user_id, username, is_online 等
+  const { friend } = route.params; // friend 含 user_id, username, public_key 等
   const { state } = useAuth();
   const myId = state.user?.id || "";
 
@@ -32,17 +34,38 @@ export default function ChatScreen({ route, navigation }: any) {
   const [isOnline, setIsOnline] = useState(friend.is_online);
   const flatListRef = useRef<FlatList>(null);
 
-  // 加载本地消息（MVP 阶段用内存，后续接入 SQLite）
-  // const loadMessages = async () => { ... }
+  // 缓存密钥（避免每次加解密都读 SecureStore）
+  const [mySecretKey, setMySecretKey] = useState<string | null>(null);
+  const friendPublicKey: string | null = friend.public_key || null;
+
+  // 启动时加载自己的私钥
+  useEffect(() => {
+    getSecretKey().then(setMySecretKey);
+  }, []);
 
   // WebSocket 消息监听
   useEffect(() => {
     const onMessage = (data: any) => {
       if (data.from === friend.user_id && data.type === "chat_message") {
+        // 处理加密/明文消息
+        let displayContent: string;
+
+        if (data.encrypted && friendPublicKey && mySecretKey) {
+          try {
+            // 用对方公钥 + 自己私钥解密
+            displayContent = decrypt(data.content, friendPublicKey, mySecretKey);
+          } catch {
+            displayContent = "[解密失败，密钥不匹配]";
+          }
+        } else {
+          // 明文消息（对方未开启加密时的降级）
+          displayContent = data.content;
+        }
+
         const msg: Message = {
           id: data.msg_id || genMsgId(),
           from: data.from,
-          content: data.content,
+          content: displayContent,
           type: "text",
           is_read: false,
           created_at: new Date().toISOString(),
@@ -59,7 +82,7 @@ export default function ChatScreen({ route, navigation }: any) {
       } else if (data.type === "friend_status" && data.user_id === friend.user_id) {
         setIsOnline(data.is_online);
       } else if (data.type === "error" && data.code === "OFFLINE") {
-        // 对方离线 → 标记最新一条消息为未送达
+        // 对方离线 → 消息未送达
       }
     };
 
@@ -76,17 +99,32 @@ export default function ChatScreen({ route, navigation }: any) {
       kinWS.off("friend_status", onMessage);
       kinWS.off("error", onMessage);
     };
-  }, [friend.user_id]);
+  }, [friend.user_id, friendPublicKey, mySecretKey]);
 
   const sendMessage = () => {
     const text = inputText.trim();
     if (!text) return;
 
     const msgId = genMsgId();
+    let contentToSend: string;
+    let isEncrypted = false;
+
+    // 双方都有密钥 → E2E 加密
+    if (friendPublicKey && mySecretKey) {
+      try {
+        contentToSend = encrypt(text, friendPublicKey, mySecretKey);
+        isEncrypted = true;
+      } catch {
+        contentToSend = text; // 加密失败降级为明文
+      }
+    } else {
+      contentToSend = text;
+    }
+
     const msg: Message = {
       id: msgId,
       from: myId,
-      content: text,
+      content: text, // 本地显示明文
       type: "text",
       is_read: false,
       created_at: new Date().toISOString(),
@@ -94,7 +132,7 @@ export default function ChatScreen({ route, navigation }: any) {
 
     setMessages((prev) => [...prev, msg]);
     setInputText("");
-    kinWS.sendMessage(friend.user_id, text, msgId);
+    kinWS.sendMessage(friend.user_id, contentToSend, msgId, isEncrypted);
   };
 
   const renderMessage = ({ item }: { item: Message }) => {
@@ -126,9 +164,14 @@ export default function ChatScreen({ route, navigation }: any) {
         </TouchableOpacity>
         <View style={styles.headerCenter}>
           <Text style={styles.headerName}>{friend.nickname || friend.username}</Text>
-          <Text style={[styles.onlineStatus, isOnline ? styles.online : styles.offline]}>
-            {isOnline ? "在线" : "离线"}
-          </Text>
+          <View style={styles.headerInfo}>
+            <Text style={[styles.onlineStatus, isOnline ? styles.online : styles.offline]}>
+              {isOnline ? "在线" : "离线"}
+            </Text>
+            {friendPublicKey ? (
+              <Text style={styles.encryptedBadge}>🔒 E2E</Text>
+            ) : null}
+          </View>
         </View>
         <View style={{ width: 50 }} />
       </View>
@@ -147,7 +190,7 @@ export default function ChatScreen({ route, navigation }: any) {
       <View style={styles.inputBar}>
         <TextInput
           style={styles.input}
-          placeholder="说点什么..."
+          placeholder={friendPublicKey ? "加密消息..." : "说点什么..."}
           value={inputText}
           onChangeText={setInputText}
           multiline
@@ -175,9 +218,11 @@ const styles = StyleSheet.create({
   backBtn: { color: "#fff", fontSize: 16 },
   headerCenter: { flex: 1, alignItems: "center" },
   headerName: { color: "#fff", fontSize: 17, fontWeight: "600" },
-  onlineStatus: { fontSize: 12, marginTop: 2 },
+  headerInfo: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 2 },
+  onlineStatus: { fontSize: 12 },
   online: { color: "#4cd964" },
   offline: { color: "#aaa" },
+  encryptedBadge: { fontSize: 11, color: "rgba(255,255,255,0.6)" },
   msgList: { padding: 14 },
   msgBubble: {
     maxWidth: "75%", paddingHorizontal: 14, paddingVertical: 10,

@@ -67,7 +67,7 @@ def decode_token(token: str) -> dict | None:
         return None
 
 
-def register(username: str, password: str) -> dict:
+def register(username: str, password: str, public_key: str | None = None) -> dict:
     """注册新用户，返回 {success, message, user}"""
     # 校验输入
     err = _validate_username(username)
@@ -97,6 +97,7 @@ def register(username: str, password: str) -> dict:
                 id=user_id,
                 username=username,
                 password_hash=password_hash,
+                public_key=public_key,
             )
         )
         conn.commit()
