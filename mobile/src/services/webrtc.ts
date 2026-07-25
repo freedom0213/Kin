@@ -29,6 +29,8 @@ class WebRTCService {
   private localStream: MediaStream | null = null;
   private handlers: CallHandlers | null = null;
   private _sendSignal: ((data: any) => void) | null = null;
+  // 存储来电的 SDP，供 VoiceCallScreen 接听时使用
+  private _pendingOffer: { callerId: string; sdp: any; callerName: string } | null = null;
 
   /** 注入信令发送函数 */
   setSignalSender(sendFn: (data: any) => void) {
@@ -40,9 +42,21 @@ class WebRTCService {
     this.handlers = h as CallHandlers;
   }
 
+  /** 存储来电 SDP 供后续接听使用 */
+  saveIncomingOffer(callerId: string, callerName: string, sdp: any) {
+    this._pendingOffer = { callerId, callerName, sdp };
+  }
+
+  /** 获取并清除待处理的来电 */
+  getPendingOffer() {
+    const offer = this._pendingOffer;
+    this._pendingOffer = null;
+    return offer;
+  }
+
   // -- 发起呼叫 --
 
-  async startCall(targetUserId: string): Promise<void> {
+  async startCall(targetUserId: string, callerName?: string): Promise<void> {
     try {
       // 获取本地音频流
       this.localStream = await mediaDevices.getUserMedia({
@@ -79,11 +93,12 @@ class WebRTCService {
       const offer = await this.pc.createOffer({ offerToReceiveAudio: true });
       await this.pc.setLocalDescription(offer);
 
-      // 发送呼叫请求（含 SDP）
+      // 发送呼叫请求（含 SDP + 呼叫方名称）
       this._sendSignal?.({
         type: "call_request",
         to: targetUserId,
         sdp: offer,
+        caller_name: callerName || "",
       });
     } catch (e: any) {
       console.log("发起呼叫失败", e);

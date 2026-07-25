@@ -72,12 +72,15 @@ class KinWebSocket {
     }
   }
 
-  // -- WebRTC 信令分发 --  /** 收到 WebSocket 消息时自动处理通话信令 */
+  // -- WebRTC 信令分发 --
+
+  /** 收到 WebSocket 消息时自动处理通话信令 */
   private _handleCallSignaling(data: any) {
     const { type } = data;
 
     if (type === "call_request") {
-      // 收到来电 → 通知用户
+      // 存储来电 SDP，然后通知 UI
+      webrtcService.saveIncomingOffer(data.from, data.caller_name || "", data.sdp);
       this._dispatch("incoming_call", data);
     } else if (type === "call_accepted") {
       // 对方接听 → 设置远端 SDP

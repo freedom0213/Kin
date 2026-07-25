@@ -6,13 +6,13 @@ import {
 } from "react-native";
 import { RTCView, MediaStream } from "react-native-webrtc";
 import { webrtcService } from "../services/webrtc";
-import { useAuth } from "../stores/AuthContext";
 
 type CallState = "calling" | "ringing" | "connected" | "ended";
 
 export default function VoiceCallScreen({ route, navigation }: any) {
   const { direction, targetId, targetName } = route.params;
-  const { state } = useAuth();
+  // incoming 场景的 offer SDP（由 WS 消息处理存入 webrtcService 后获取）
+  const [remoteSdp, setRemoteSdp] = useState<any>(null);
 
   const [callState, setCallState] = useState<CallState>(
     direction === "incoming" ? "ringing" : "calling"
@@ -35,7 +35,7 @@ export default function VoiceCallScreen({ route, navigation }: any) {
     };
   }, [callState]);
 
-  // 注册 WebRTC 事件
+  // 注册 WebRTC 事件 + 获取来电 SDP
   useEffect(() => {
     webrtcService.setHandlers({
       onIncomingCall: () => {},
@@ -53,9 +53,15 @@ export default function VoiceCallScreen({ route, navigation }: any) {
       },
     });
 
-    // 如果是呼出方，开始呼叫
     if (direction === "outgoing") {
-      webrtcService.startCall(targetId);
+      // 呼出方：开始呼叫
+      webrtcService.startCall(targetId, targetName);
+    } else {
+      // 来电方：从 service 取出之前 WS 存储的 SDP
+      const pending = webrtcService.getPendingOffer();
+      if (pending) {
+        setRemoteSdp(pending.sdp);
+      }
     }
 
     return () => {
@@ -69,9 +75,15 @@ export default function VoiceCallScreen({ route, navigation }: any) {
     };
   }, []);
 
-  // 接听
-  const handleAccept = () => {
-    // answerCall 在 ws 消息处理中触发（收到 offer 后）
+  // 接听 — 创建 WebRTC answer
+  const handleAccept = async () => {
+    if (remoteSdp) {
+      try {
+        await webrtcService.answerCall(targetId, remoteSdp);
+      } catch {
+        // answerCall 内部已处理异常
+      }
+    }
     setCallState("connected");
   };
 

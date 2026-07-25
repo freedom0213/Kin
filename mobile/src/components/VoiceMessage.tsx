@@ -5,6 +5,7 @@ import {
   TouchableOpacity, Text, View, StyleSheet, ActivityIndicator,
 } from "react-native";
 import { Audio } from "expo-av";
+import { Paths, File } from "expo-file-system";
 
 interface VoiceRecorderProps {
   onRecordComplete: (base64Audio: string, duration: number) => void;
@@ -16,7 +17,6 @@ export function VoiceRecorder({ onRecordComplete }: VoiceRecorderProps) {
   const recordingRef = useRef<Audio.Recording | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pressStartRef = useRef<number>(0);
-  const fileUriRef = useRef<string>("");
 
   // 开始录音
   const startRecording = useCallback(async () => {
@@ -64,10 +64,17 @@ export function VoiceRecorder({ onRecordComplete }: VoiceRecorderProps) {
 
       if (!uri) return;
 
-      // 读取录音文件为 base64
-      const { readAsStringAsync, EncodingType } = require("expo-file-system");
-      const base64 = await readAsStringAsync(uri, {
-        encoding: EncodingType.Base64,
+      // 用 fetch + FileReader 读取录音文件为 base64（兼容 expo-file-system v18+）
+      const response = await fetch(uri);
+      const blob = await response.blob();
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const dataUrl = reader.result as string;
+          resolve(dataUrl.split(",")[1] || "");
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
       });
 
       const duration = (Date.now() - pressStartRef.current) / 1000;
@@ -131,15 +138,12 @@ export function VoiceMessageBubble({
 
     setLoading(true);
     try {
-      // 将 base64 写入临时文件然后播放
-      const { writeAsStringAsync, cacheDirectory, EncodingType } = require("expo-file-system");
-      const tmpUri = cacheDirectory + `voice_${Date.now()}.m4a`;
-      await writeAsStringAsync(tmpUri, audioBase64, {
-        encoding: EncodingType.Base64,
-      });
+      // 将 base64 写入缓存临时文件然后播放（使用 expo-file-system v18+ File API）
+      const tmpFile = new File(Paths.cache, `voice_${Date.now()}.m4a`);
+      await tmpFile.write(audioBase64, { encoding: "base64" } as any);
 
       const { sound } = await Audio.Sound.createAsync(
-        { uri: tmpUri },
+        { uri: tmpFile.uri },
         { shouldPlay: true },
         (status) => {
           if (status.isLoaded && status.didJustFinish) {

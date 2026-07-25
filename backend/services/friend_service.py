@@ -32,7 +32,7 @@ def generate_nfc_token(user_id: str) -> dict:
 
 
 def resolve_nfc_token(token: str) -> str | None:
-    """根据 NFC token 查找发起方 user_id，token 过期返回 None"""
+    """根据 NFC token 查找发起方 user_id，token 过期返回 None。使用后删除防止重放"""
     table = get_table("nfc_tokens")
 
     with engine.connect() as conn:
@@ -49,6 +49,11 @@ def resolve_nfc_token(token: str) -> str | None:
     if expires_at < datetime.utcnow():
         _cleanup_expired_tokens()
         return None
+
+    # 使用后立即删除 token，防止重放
+    with engine.connect() as conn:
+        conn.execute(delete(table).where(table.c.token == token))
+        conn.commit()
 
     # 注：nfc_tokens.username 列实际存储 user_id（UUID）
     return row["username"]

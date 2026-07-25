@@ -52,23 +52,25 @@ export async function saveMessage(msg: LocalMessage): Promise<void> {
   );
 }
 
-/** 批量保存消息 */
+/** 批量保存消息（事务包裹） */
 export async function saveMessages(msgs: LocalMessage[]): Promise<void> {
   const db = await getDb();
-  for (const msg of msgs) {
-    await db.runAsync(
-      `INSERT OR REPLACE INTO messages (id, chat_id, sender_id, type, content, duration, is_read, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      msg.id,
-      msg.chat_id,
-      msg.sender_id,
-      msg.type,
-      msg.content,
-      msg.duration ?? null,
-      msg.is_read ? 1 : 0,
-      msg.created_at
-    );
-  }
+  await db.withTransactionAsync(async () => {
+    for (const msg of msgs) {
+      await db.runAsync(
+        `INSERT OR REPLACE INTO messages (id, chat_id, sender_id, type, content, duration, is_read, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        msg.id,
+        msg.chat_id,
+        msg.sender_id,
+        msg.type,
+        msg.content,
+        msg.duration ?? null,
+        msg.is_read ? 1 : 0,
+        msg.created_at
+      );
+    }
+  });
 }
 
 /** 读取与某人的历史消息（分页） */

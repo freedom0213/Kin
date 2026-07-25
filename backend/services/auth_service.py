@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 import bcrypt as _bcrypt
 import jwt
-from sqlalchemy import select, text
+from sqlalchemy import select
 
 import config
 from database import engine, get_table

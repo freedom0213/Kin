@@ -1,6 +1,5 @@
 """Kin 后端入口 — FastAPI 应用"""
 
-import json
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
 from fastapi.middleware.cors import CORSMiddleware

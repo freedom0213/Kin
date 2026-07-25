@@ -1,6 +1,6 @@
 /** 好友列表页面 */
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect } from "react";
 import {
   View, Text, FlatList, TouchableOpacity,
   StyleSheet, Alert, RefreshControl,
@@ -9,6 +9,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import { getFriendList, deleteFriend, Friend } from "../api/client";
 import { useAuth } from "../stores/AuthContext";
 import { exportMessagesToFile } from "../services/export";
+import { kinWS } from "../api/ws";
 
 export default function FriendListScreen({ navigation }: any) {
   const { state, logoutAction } = useAuth();
@@ -26,6 +27,21 @@ export default function FriendListScreen({ navigation }: any) {
   useFocusEffect(
     useCallback(() => { loadFriends(); }, [loadFriends])
   );
+
+  // 监听来电（WebRTC incoming call）
+  useEffect(() => {
+    const onIncomingCall = (data: any) => {
+      const callerName = data.caller_name || "未知用户";
+      // 跳转到语音通话页面（来电方）
+      navigation.navigate("VoiceCall", {
+        direction: "incoming",
+        targetId: data.from,
+        targetName: callerName,
+      });
+    };
+    kinWS.on("incoming_call", onIncomingCall);
+    return () => { kinWS.off("incoming_call", onIncomingCall); };
+  }, [navigation]);
 
   const onRefresh = async () => {
     setRefreshing(true);
