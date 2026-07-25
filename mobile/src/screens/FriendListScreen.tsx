@@ -8,6 +8,7 @@ import {
 import { useFocusEffect } from "@react-navigation/native";
 import { getFriendList, deleteFriend, Friend } from "../api/client";
 import { useAuth } from "../stores/AuthContext";
+import { exportMessagesToFile } from "../services/export";
 
 export default function FriendListScreen({ navigation }: any) {
   const { state, logoutAction } = useAuth();
@@ -30,6 +31,15 @@ export default function FriendListScreen({ navigation }: any) {
     setRefreshing(true);
     await loadFriends();
     setRefreshing(false);
+  };
+
+  // 导出聊天记录
+  const handleExport = async () => {
+    try {
+      await exportMessagesToFile();
+    } catch (e: any) {
+      Alert.alert("导出失败", e.message);
+    }
   };
 
   const handleDelete = (friend: Friend) => {
@@ -74,6 +84,9 @@ export default function FriendListScreen({ navigation }: any) {
           Kin · {state.user?.username}
         </Text>
         <View style={styles.headerRight}>
+          <TouchableOpacity onPress={handleExport}>
+            <Text style={styles.logoutText}>导出</Text>
+          </TouchableOpacity>
           <TouchableOpacity
             style={styles.addBtn}
             onPress={() => navigation.navigate("AddFriend")}

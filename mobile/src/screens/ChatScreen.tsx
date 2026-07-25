@@ -1,4 +1,4 @@
-/** 聊天页面 — E2E 加密/文字/语音消息 + 在线状态 + 语音通话入口 */
+/** 聊天页面 — E2E 加密/文字/语音消息 + 在线状态 + 语音通话入口 + 本地存储 */
 
 import { useState, useEffect, useRef } from "react";
 import {
@@ -11,6 +11,7 @@ import { useAuth } from "../stores/AuthContext";
 import { encrypt, decrypt } from "../services/encryption";
 import { getSecretKey } from "../services/keys";
 import { VoiceRecorder, VoiceMessageBubble } from "../components/VoiceMessage";
+import { saveMessage, getMessages } from "../services/db";
 
 interface Message {
   id: string;
@@ -40,9 +41,24 @@ export default function ChatScreen({ route }: any) {
 
   const [mySecretKey, setMySecretKey] = useState<string | null>(null);
   const friendPublicKey: string | null = friend.public_key || null;
+  const [loadingHistory, setLoadingHistory] = useState(true);
 
+  // 加载私钥 + 本地历史消息
   useEffect(() => {
     getSecretKey().then(setMySecretKey);
+    (async () => {
+      try {
+        const history = await getMessages(friend.user_id, 50);
+        if (history.length > 0) {
+          setMessages(history.map((m) => ({
+            id: m.id, from: m.sender_id, content: m.content,
+            type: m.type, duration: m.duration,
+            is_read: m.is_read, created_at: m.created_at,
+          })));
+        }
+      } catch { /* 本地加载失败不阻塞 */ }
+      setLoadingHistory(false);
+    })();
   }, []);
 
   // WebSocket 消息监听
@@ -74,6 +90,12 @@ export default function ChatScreen({ route }: any) {
         };
         setMessages((prev) => [...prev, msg]);
         kinWS.sendReadReceipt(friend.user_id, msg.id);
+        // 存入本地 SQLite
+        saveMessage({
+          id: msg.id, chat_id: friend.user_id, sender_id: msg.from,
+          type: msg.type, content: msg.content, duration: msg.duration,
+          is_read: false, created_at: msg.created_at,
+        }).catch(() => {});
       } else if (data.type === "delivered" && data.to === friend.user_id) {
         // 消息已送达
       } else if (data.type === "read_receipt" && data.from === friend.user_id) {
@@ -132,6 +154,11 @@ export default function ChatScreen({ route }: any) {
     setMessages((prev) => [...prev, msg]);
     setInputText("");
     kinWS.sendMessage(friend.user_id, contentToSend, msgId, isEncrypted);
+    // 存入本地 SQLite
+    saveMessage({
+      id: msg.id, chat_id: friend.user_id, sender_id: myId,
+      type: "text", content: text, is_read: false, created_at: msg.created_at,
+    }).catch(() => {});
   };
 
   // 语音录制完成回调
@@ -156,6 +183,12 @@ export default function ChatScreen({ route }: any) {
     };
     setMessages((prev) => [...prev, msg]);
     kinWS.sendVoiceMessage(friend.user_id, contentToSend, duration, msgId, isEncrypted);
+    // 存入本地 SQLite
+    saveMessage({
+      id: msg.id, chat_id: friend.user_id, sender_id: myId,
+      type: "voice", content: base64Audio, duration,
+      is_read: false, created_at: msg.created_at,
+    }).catch(() => {});
   };
 
   // 发起语音通话
