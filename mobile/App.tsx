@@ -11,6 +11,7 @@ import RegisterScreen from "./src/screens/RegisterScreen";
 import FriendListScreen from "./src/screens/FriendListScreen";
 import ChatScreen from "./src/screens/ChatScreen";
 import AddFriendScreen from "./src/screens/AddFriendScreen";
+import VoiceCallScreen from "./src/screens/VoiceCallScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -33,6 +34,14 @@ function AppNavigator() {
             <Stack.Screen name="FriendList" component={FriendListScreen} />
             <Stack.Screen name="Chat" component={ChatScreen} />
             <Stack.Screen name="AddFriend" component={AddFriendScreen} />
+            <Stack.Screen
+              name="VoiceCall"
+              component={VoiceCallScreen}
+              options={{
+                animation: "slide_from_bottom",
+                gestureEnabled: false,
+              }}
+            />
           </>
         ) : (
           <>

@@ -1,4 +1,4 @@
-"""WebSocket 连接管理 + 消息路由"""
+"""WebSocket 连接管理 + 消息路由 + 通话信令"""
 
 import asyncio
 import json
@@ -80,14 +80,22 @@ class ConnectionManager:
         elif msg_type == "chat_message":
             await self._handle_chat_message(from_id, data)
 
+        elif msg_type == "voice_message":
+            await self._handle_chat_message(from_id, data)  # 与文字消息相同转发逻辑
+
         elif msg_type == "read_receipt":
             await self._handle_read_receipt(from_id, data)
 
         elif msg_type == "typing":
             await self._handle_typing(from_id, data)
 
+        # -- WebRTC 通话信令（纯转发） --
+        elif msg_type in ("call_request", "call_accepted", "call_rejected",
+                          "ice_candidate", "call_end"):
+            await self._handle_call_signaling(from_id, data)
+
     async def _handle_chat_message(self, from_id: str, data: dict):
-        """转发聊天消息（同步模式：接收方离线则拒绝）"""
+        """转发聊天/语音消息（同步模式：接收方离线则拒绝）"""
         to_id = data.get("to")
         if not to_id:
             await self.send_json(from_id, {"type": "error", "detail": "缺少接收方"})
@@ -126,6 +134,24 @@ class ConnectionManager:
         to_id = data.get("to")
         if not to_id:
             return
+        data["from"] = from_id
+        await self.send_json(to_id, data)
+
+    async def _handle_call_signaling(self, from_id: str, data: dict):
+        """转发 WebRTC 通话信令（服务器不解密，只转发）"""
+        to_id = data.get("to")
+        if not to_id:
+            return
+
+        if not self.is_online(to_id):
+            await self.send_json(from_id, {
+                "type": "call_rejected",
+                "detail": "对方不在线",
+                "from": to_id,
+            })
+            return
+
+        # 添加发送方信息后转发
         data["from"] = from_id
         await self.send_json(to_id, data)
 

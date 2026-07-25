@@ -1,20 +1,23 @@
-/** 聊天页面 — E2E 加密文字消息 + 在线状态 */
+/** 聊天页面 — E2E 加密/文字/语音消息 + 在线状态 + 语音通话入口 */
 
 import { useState, useEffect, useRef } from "react";
 import {
   View, Text, TextInput, TouchableOpacity,
   FlatList, StyleSheet, KeyboardAvoidingView, Platform,
 } from "react-native";
+import { useNavigation } from "@react-navigation/native";
 import { kinWS } from "../api/ws";
 import { useAuth } from "../stores/AuthContext";
 import { encrypt, decrypt } from "../services/encryption";
 import { getSecretKey } from "../services/keys";
+import { VoiceRecorder, VoiceMessageBubble } from "../components/VoiceMessage";
 
 interface Message {
   id: string;
   from: string;
-  content: string;       // 显示用明文（自己发的存原文，收到的经解密后存）
-  type: string;
+  content: string;
+  type: "text" | "voice";
+  duration?: number;  // 语音消息时长（秒）
   is_read: boolean;
   created_at: string;
 }
@@ -24,21 +27,20 @@ function genMsgId(): string {
   return `${Date.now()}_${++_msgCounter}`;
 }
 
-export default function ChatScreen({ route, navigation }: any) {
-  const { friend } = route.params; // friend 含 user_id, username, public_key 等
+export default function ChatScreen({ route }: any) {
+  const { friend } = route.params;
   const { state } = useAuth();
   const myId = state.user?.id || "";
+  const navigation = useNavigation<any>();
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
   const [isOnline, setIsOnline] = useState(friend.is_online);
   const flatListRef = useRef<FlatList>(null);
 
-  // 缓存密钥（避免每次加解密都读 SecureStore）
   const [mySecretKey, setMySecretKey] = useState<string | null>(null);
   const friendPublicKey: string | null = friend.public_key || null;
 
-  // 启动时加载自己的私钥
   useEffect(() => {
     getSecretKey().then(setMySecretKey);
   }, []);
@@ -46,35 +48,34 @@ export default function ChatScreen({ route, navigation }: any) {
   // WebSocket 消息监听
   useEffect(() => {
     const onMessage = (data: any) => {
-      if (data.from === friend.user_id && data.type === "chat_message") {
-        // 处理加密/明文消息
-        let displayContent: string;
+      if (data.from !== friend.user_id) return;
 
-        if (data.encrypted && friendPublicKey && mySecretKey) {
+      if (data.type === "chat_message" || data.type === "voice_message") {
+        let displayContent: string = data.content;
+        const isVoice = data.type === "voice_message";
+
+        // E2E 解密（语音和文字统一处理）
+        if (data.encrypted && friendPublicKey && mySecretKey && displayContent) {
           try {
-            // 用对方公钥 + 自己私钥解密
             displayContent = decrypt(data.content, friendPublicKey, mySecretKey);
           } catch {
-            displayContent = "[解密失败，密钥不匹配]";
+            displayContent = isVoice ? "" : "[解密失败]";
           }
-        } else {
-          // 明文消息（对方未开启加密时的降级）
-          displayContent = data.content;
         }
 
         const msg: Message = {
           id: data.msg_id || genMsgId(),
           from: data.from,
           content: displayContent,
-          type: "text",
+          type: isVoice ? "voice" : "text",
+          duration: isVoice ? (data.duration || 0) : undefined,
           is_read: false,
           created_at: new Date().toISOString(),
         };
         setMessages((prev) => [...prev, msg]);
-        // 自动发送已读回执
         kinWS.sendReadReceipt(friend.user_id, msg.id);
       } else if (data.type === "delivered" && data.to === friend.user_id) {
-        // 标记消息已送达
+        // 消息已送达
       } else if (data.type === "read_receipt" && data.from === friend.user_id) {
         setMessages((prev) =>
           prev.map((m) => (m.id === data.msg_id ? { ...m, is_read: true } : m))
@@ -82,11 +83,12 @@ export default function ChatScreen({ route, navigation }: any) {
       } else if (data.type === "friend_status" && data.user_id === friend.user_id) {
         setIsOnline(data.is_online);
       } else if (data.type === "error" && data.code === "OFFLINE") {
-        // 对方离线 → 消息未送达
+        // 对方离线
       }
     };
 
     kinWS.on("chat_message", onMessage);
+    kinWS.on("voice_message", onMessage);
     kinWS.on("delivered", onMessage);
     kinWS.on("read_receipt", onMessage);
     kinWS.on("friend_status", onMessage);
@@ -94,6 +96,7 @@ export default function ChatScreen({ route, navigation }: any) {
 
     return () => {
       kinWS.off("chat_message", onMessage);
+      kinWS.off("voice_message", onMessage);
       kinWS.off("delivered", onMessage);
       kinWS.off("read_receipt", onMessage);
       kinWS.off("friend_status", onMessage);
@@ -101,7 +104,8 @@ export default function ChatScreen({ route, navigation }: any) {
     };
   }, [friend.user_id, friendPublicKey, mySecretKey]);
 
-  const sendMessage = () => {
+  // 发送文字消息
+  const sendTextMessage = () => {
     const text = inputText.trim();
     if (!text) return;
 
@@ -109,39 +113,77 @@ export default function ChatScreen({ route, navigation }: any) {
     let contentToSend: string;
     let isEncrypted = false;
 
-    // 双方都有密钥 → E2E 加密
     if (friendPublicKey && mySecretKey) {
       try {
         contentToSend = encrypt(text, friendPublicKey, mySecretKey);
         isEncrypted = true;
       } catch {
-        contentToSend = text; // 加密失败降级为明文
+        contentToSend = text;
       }
     } else {
       contentToSend = text;
     }
 
     const msg: Message = {
-      id: msgId,
-      from: myId,
-      content: text, // 本地显示明文
-      type: "text",
-      is_read: false,
+      id: msgId, from: myId, content: text,
+      type: "text", is_read: false,
       created_at: new Date().toISOString(),
     };
-
     setMessages((prev) => [...prev, msg]);
     setInputText("");
     kinWS.sendMessage(friend.user_id, contentToSend, msgId, isEncrypted);
   };
 
+  // 语音录制完成回调
+  const handleVoiceRecord = (base64Audio: string, duration: number) => {
+    const msgId = genMsgId();
+    let contentToSend = base64Audio;
+    let isEncrypted = false;
+
+    if (friendPublicKey && mySecretKey) {
+      try {
+        contentToSend = encrypt(base64Audio, friendPublicKey, mySecretKey);
+        isEncrypted = true;
+      } catch {
+        // 加密失败降级
+      }
+    }
+
+    const msg: Message = {
+      id: msgId, from: myId, content: base64Audio,
+      type: "voice", duration, is_read: false,
+      created_at: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, msg]);
+    kinWS.sendVoiceMessage(friend.user_id, contentToSend, duration, msgId, isEncrypted);
+  };
+
+  // 发起语音通话
+  const startCall = () => {
+    navigation.navigate("VoiceCall", {
+      direction: "outgoing",
+      targetId: friend.user_id,
+      targetName: friend.nickname || friend.username,
+    });
+  };
+
+  // 渲染消息气泡
   const renderMessage = ({ item }: { item: Message }) => {
     const isMine = item.from === myId;
+    const bubbleStyle = isMine ? styles.msgMine : styles.msgOther;
+    const textStyle = isMine ? styles.msgTextMine : styles.msgTextOther;
+
     return (
-      <View style={[styles.msgBubble, isMine ? styles.msgMine : styles.msgOther]}>
-        <Text style={isMine ? styles.msgTextMine : styles.msgTextOther}>
-          {item.content}
-        </Text>
+      <View style={[styles.msgBubble, bubbleStyle]}>
+        {item.type === "voice" ? (
+          <VoiceMessageBubble
+            duration={item.duration || 0}
+            audioBase64={item.content}
+            isMine={isMine}
+          />
+        ) : (
+          <Text style={textStyle}>{item.content}</Text>
+        )}
         {isMine && (
           <Text style={styles.readStatus}>
             {item.is_read ? "已读" : "送达"}
@@ -157,13 +199,15 @@ export default function ChatScreen({ route, navigation }: any) {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
     >
-      {/* 顶部 */}
+      {/* 顶部栏 */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Text style={styles.backBtn}>← 返回</Text>
         </TouchableOpacity>
         <View style={styles.headerCenter}>
-          <Text style={styles.headerName}>{friend.nickname || friend.username}</Text>
+          <Text style={styles.headerName}>
+            {friend.nickname || friend.username}
+          </Text>
           <View style={styles.headerInfo}>
             <Text style={[styles.onlineStatus, isOnline ? styles.online : styles.offline]}>
               {isOnline ? "在线" : "离线"}
@@ -173,7 +217,14 @@ export default function ChatScreen({ route, navigation }: any) {
             ) : null}
           </View>
         </View>
-        <View style={{ width: 50 }} />
+        {/* 语音通话按钮 */}
+        {isOnline ? (
+          <TouchableOpacity onPress={startCall} style={styles.callBtn}>
+            <Text style={styles.callBtnText}>📞</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={{ width: 44 }} />
+        )}
       </View>
 
       {/* 消息列表 */}
@@ -186,11 +237,12 @@ export default function ChatScreen({ route, navigation }: any) {
         onContentSizeChange={() => flatListRef.current?.scrollToEnd()}
       />
 
-      {/* 输入栏 */}
+      {/* 输入栏：文字 + 语音 */}
       <View style={styles.inputBar}>
+        <VoiceRecorder onRecordComplete={handleVoiceRecord} />
         <TextInput
           style={styles.input}
-          placeholder={friendPublicKey ? "加密消息..." : "说点什么..."}
+          placeholder="说点什么..."
           value={inputText}
           onChangeText={setInputText}
           multiline
@@ -198,7 +250,7 @@ export default function ChatScreen({ route, navigation }: any) {
         />
         <TouchableOpacity
           style={[styles.sendBtn, !inputText.trim() && styles.sendBtnDisabled]}
-          onPress={sendMessage}
+          onPress={sendTextMessage}
           disabled={!inputText.trim()}
         >
           <Text style={styles.sendBtnText}>发送</Text>
@@ -223,6 +275,12 @@ const styles = StyleSheet.create({
   online: { color: "#4cd964" },
   offline: { color: "#aaa" },
   encryptedBadge: { fontSize: 11, color: "rgba(255,255,255,0.6)" },
+  callBtn: {
+    width: 44, height: 44, borderRadius: 22,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    alignItems: "center", justifyContent: "center",
+  },
+  callBtnText: { fontSize: 20 },
   msgList: { padding: 14 },
   msgBubble: {
     maxWidth: "75%", paddingHorizontal: 14, paddingVertical: 10,
@@ -237,7 +295,7 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "flex-end",
     paddingHorizontal: 12, paddingVertical: 8,
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#ddd",
-    backgroundColor: "#fff",
+    backgroundColor: "#fff", gap: 6,
   },
   input: {
     flex: 1, borderWidth: 1, borderColor: "#e0e0e0", borderRadius: 20,
@@ -246,7 +304,7 @@ const styles = StyleSheet.create({
   },
   sendBtn: {
     backgroundColor: "#1a1a2e", borderRadius: 20,
-    paddingHorizontal: 18, paddingVertical: 10, marginLeft: 8,
+    paddingHorizontal: 18, paddingVertical: 10,
   },
   sendBtnDisabled: { opacity: 0.4 },
   sendBtnText: { color: "#fff", fontSize: 15, fontWeight: "600" },
