@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, Pressable, Alert,
   FlatList, StyleSheet, KeyboardAvoidingView, Platform, Keyboard,
-  Animated, AccessibilityInfo,
+  Animated, AccessibilityInfo, Easing,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -139,6 +139,134 @@ function TypingIndicator() {
   );
 }
 
+type RippleSide = "mine" | "other";
+
+function ChatAmbientBackground({
+  isOnline,
+  pulseKey,
+  pulseSide,
+}: {
+  isOnline: boolean;
+  pulseKey: number;
+  pulseSide: RippleSide;
+}) {
+  const driftOne = useRef(new Animated.Value(0)).current;
+  const driftTwo = useRef(new Animated.Value(1)).current;
+  const onlineLayer = useRef(new Animated.Value(isOnline ? 1 : 0)).current;
+  const ripple = useRef(new Animated.Value(0)).current;
+  const [reduceMotion, setReduceMotion] = useState(false);
+
+  useEffect(() => {
+    AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
+    const subscription = AccessibilityInfo.addEventListener(
+      "reduceMotionChanged",
+      setReduceMotion
+    );
+    return () => subscription.remove();
+  }, []);
+
+  useEffect(() => {
+    Animated.timing(onlineLayer, {
+      toValue: isOnline ? 1 : 0,
+      duration: reduceMotion ? 0 : 450,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [isOnline, onlineLayer, reduceMotion]);
+
+  useEffect(() => {
+    if (reduceMotion) {
+      driftOne.stopAnimation();
+      driftTwo.stopAnimation();
+      driftOne.setValue(0.35);
+      driftTwo.setValue(0.65);
+      return;
+    }
+
+    const duration = isOnline ? 11_000 : 17_000;
+    const motion = Animated.parallel([
+      Animated.loop(Animated.sequence([
+        Animated.timing(driftOne, {
+          toValue: 1, duration, easing: Easing.inOut(Easing.ease), useNativeDriver: true,
+        }),
+        Animated.timing(driftOne, {
+          toValue: 0, duration, easing: Easing.inOut(Easing.ease), useNativeDriver: true,
+        }),
+      ])),
+      Animated.loop(Animated.sequence([
+        Animated.timing(driftTwo, {
+          toValue: 0, duration: duration + 2400,
+          easing: Easing.inOut(Easing.ease), useNativeDriver: true,
+        }),
+        Animated.timing(driftTwo, {
+          toValue: 1, duration: duration + 2400,
+          easing: Easing.inOut(Easing.ease), useNativeDriver: true,
+        }),
+      ])),
+    ]);
+    motion.start();
+    return () => motion.stop();
+  }, [driftOne, driftTwo, isOnline, reduceMotion]);
+
+  useEffect(() => {
+    if (pulseKey === 0 || reduceMotion) return;
+    ripple.stopAnimation();
+    ripple.setValue(0);
+    Animated.timing(ripple, {
+      toValue: 1,
+      duration: 620,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [pulseKey, reduceMotion, ripple]);
+
+  const driftOneStyle = {
+    transform: [
+      { translateX: driftOne.interpolate({ inputRange: [0, 1], outputRange: [-18, 32] }) },
+      { translateY: driftOne.interpolate({ inputRange: [0, 1], outputRange: [-10, 28] }) },
+      { scale: driftOne.interpolate({ inputRange: [0, 1], outputRange: [0.94, 1.08] }) },
+    ],
+  };
+  const driftTwoStyle = {
+    transform: [
+      { translateX: driftTwo.interpolate({ inputRange: [0, 1], outputRange: [24, -28] }) },
+      { translateY: driftTwo.interpolate({ inputRange: [0, 1], outputRange: [18, -24] }) },
+      { scale: driftTwo.interpolate({ inputRange: [0, 1], outputRange: [1.06, 0.92] }) },
+    ],
+  };
+  const rippleStyle = {
+    opacity: ripple.interpolate({ inputRange: [0, 0.18, 1], outputRange: [0, 0.32, 0] }),
+    transform: [{
+      scale: ripple.interpolate({ inputRange: [0, 1], outputRange: [0.4, 3.4] }),
+    }],
+  };
+
+  return (
+    <View
+      pointerEvents="none"
+      importantForAccessibility="no-hide-descendants"
+      style={styles.ambientRoot}
+    >
+      <View style={styles.ambientBase} />
+      <Animated.View style={[styles.ambientBlob, styles.ambientBlobMutedOne, driftOneStyle]} />
+      <Animated.View style={[styles.ambientBlob, styles.ambientBlobMutedTwo, driftTwoStyle]} />
+      <Animated.View style={[styles.ambientOnlineLayer, { opacity: onlineLayer }]}>
+        <Animated.View style={[styles.ambientBlob, styles.ambientBlobOnlineOne, driftOneStyle]} />
+        <Animated.View style={[styles.ambientBlob, styles.ambientBlobOnlineTwo, driftTwoStyle]} />
+      </Animated.View>
+      {pulseKey > 0 && !reduceMotion ? (
+        <Animated.View
+          style={[
+            styles.messageRipple,
+            pulseSide === "mine" ? styles.messageRippleMine : styles.messageRippleOther,
+            rippleStyle,
+          ]}
+        />
+      ) : null}
+    </View>
+  );
+}
+
 let _msgCounter = 0;
 function genMsgId(): string {
   return `${Date.now()}_${++_msgCounter}`;
@@ -158,6 +286,10 @@ export default function ChatScreen({ route }: any) {
   const [showEmojiPanel, setShowEmojiPanel] = useState(false);
   const [showEncryptionNotice, setShowEncryptionNotice] = useState(!!friend.public_key);
   const [isTyping, setIsTyping] = useState(false);
+  const [backgroundPulse, setBackgroundPulse] = useState<{
+    key: number;
+    side: RippleSide;
+  }>({ key: 0, side: "other" });
   const flatListRef = useRef<FlatList>(null);
   const pendingMessageIdsRef = useRef<string[]>([]);
   const lastTypingSentRef = useRef(0);
@@ -224,6 +356,7 @@ export default function ChatScreen({ route }: any) {
           created_at: new Date().toISOString(),
         };
         setMessages((prev) => [...prev, msg]);
+        setBackgroundPulse((current) => ({ key: current.key + 1, side: "other" }));
         kinWS.sendReadReceipt(friend.user_id, msg.id);
         // 存入本地 SQLite
         saveMessage({
@@ -324,6 +457,7 @@ export default function ChatScreen({ route }: any) {
     };
     pendingMessageIdsRef.current.push(msgId);
     setMessages((prev) => [...prev, msg]);
+    setBackgroundPulse((current) => ({ key: current.key + 1, side: "mine" }));
     setInputText("");
     kinWS.sendMessage(friend.user_id, contentToSend, msgId, isEncrypted);
     // 存入本地 SQLite
@@ -356,6 +490,7 @@ export default function ChatScreen({ route }: any) {
     };
     pendingMessageIdsRef.current.push(msgId);
     setMessages((prev) => [...prev, msg]);
+    setBackgroundPulse((current) => ({ key: current.key + 1, side: "mine" }));
     kinWS.sendVoiceMessage(friend.user_id, contentToSend, duration, msgId, isEncrypted);
     // 存入本地 SQLite
     saveMessage({
@@ -516,12 +651,19 @@ export default function ChatScreen({ route }: any) {
         </View>
       ) : null}
 
+      <ChatAmbientBackground
+        isOnline={isOnline}
+        pulseKey={backgroundPulse.key}
+        pulseSide={backgroundPulse.side}
+      />
+
       {/* 消息列表 */}
       <FlatList
         ref={flatListRef}
         data={messages}
         keyExtractor={(item) => item.id}
         renderItem={renderMessage}
+        style={styles.messageList}
         contentContainerStyle={styles.msgList}
         onContentSizeChange={() => flatListRef.current?.scrollToEnd()}
         keyboardShouldPersistTaps="handled"
@@ -620,9 +762,45 @@ export default function ChatScreen({ route }: any) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#EEF0ED" },
+  ambientRoot: {
+    position: "absolute", top: 0, right: 0, bottom: 0, left: 0,
+    zIndex: 0, overflow: "hidden",
+  },
+  ambientBase: {
+    position: "absolute", top: 0, right: 0, bottom: 0, left: 0,
+    backgroundColor: "#E8EAE7",
+  },
+  ambientOnlineLayer: {
+    position: "absolute", top: 0, right: 0, bottom: 0, left: 0,
+    backgroundColor: "rgba(238,244,240,0.42)", overflow: "hidden",
+  },
+  ambientBlob: { position: "absolute", borderRadius: 999 },
+  ambientBlobMutedOne: {
+    width: 280, height: 280, top: "9%", left: -96,
+    backgroundColor: "rgba(176,184,179,0.20)",
+  },
+  ambientBlobMutedTwo: {
+    width: 330, height: 330, right: -148, bottom: "7%",
+    backgroundColor: "rgba(187,190,184,0.18)",
+  },
+  ambientBlobOnlineOne: {
+    width: 280, height: 280, top: "9%", left: -96,
+    backgroundColor: "rgba(111,205,170,0.20)",
+  },
+  ambientBlobOnlineTwo: {
+    width: 330, height: 330, right: -148, bottom: "7%",
+    backgroundColor: "rgba(126,165,199,0.14)",
+  },
+  messageRipple: {
+    position: "absolute", top: "42%", width: 72, height: 72, borderRadius: 36,
+    borderWidth: 1.5, borderColor: "rgba(45,173,130,0.62)",
+  },
+  messageRippleMine: { right: -8 },
+  messageRippleOther: { left: -8 },
   header: {
     flexDirection: "row", alignItems: "center",
     paddingHorizontal: 12, paddingBottom: 10,
+    zIndex: 3,
     backgroundColor: "#F4F5F2",
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#DDE0DC",
   },
@@ -661,12 +839,14 @@ const styles = StyleSheet.create({
   moreDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: "#343A40" },
   encryptionNotice: {
     minHeight: 36, flexDirection: "row", alignItems: "center", justifyContent: "center",
+    zIndex: 2,
     gap: 8, backgroundColor: "#E2F2EC",
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#C8E4DA",
   },
   encryptionNoticeText: { color: "#266A54", fontSize: 13, fontWeight: "500" },
   offlineNotice: {
     minHeight: 36, flexDirection: "row", alignItems: "center", justifyContent: "center",
+    zIndex: 2,
     gap: 7, backgroundColor: "#E7E8E5",
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#D7D9D5",
   },
@@ -676,6 +856,7 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: "#878C91",
   },
   offlineNoticeText: { color: "#565B61", fontSize: 13 },
+  messageList: { zIndex: 1 },
   msgList: { paddingHorizontal: 14, paddingTop: 18, paddingBottom: 20 },
   msgBubble: {
     maxWidth: "82%", minWidth: 76,
@@ -705,7 +886,7 @@ const styles = StyleSheet.create({
   deliveryStatusFailed: { color: "#FFAAA4", letterSpacing: 0 },
   typingSlot: {
     minHeight: 30, paddingHorizontal: 14, justifyContent: "center",
-    backgroundColor: "#EEF0ED",
+    zIndex: 1, backgroundColor: "transparent",
   },
   typingBubble: {
     width: 48, height: 24, borderRadius: 12,
@@ -718,6 +899,7 @@ const styles = StyleSheet.create({
   },
   inputBar: {
     flexDirection: "row", alignItems: "flex-end",
+    zIndex: 2,
     paddingHorizontal: 8, paddingTop: 8,
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#DDE0DC",
     backgroundColor: "#FFFFFF", gap: 6,
@@ -755,6 +937,7 @@ const styles = StyleSheet.create({
   sendBtnText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
   emojiPanel: {
     flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between",
+    zIndex: 2,
     paddingHorizontal: 16, paddingVertical: 12, backgroundColor: "#FFFFFF",
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#DDE0DC",
   },
