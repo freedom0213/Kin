@@ -35,6 +35,12 @@ export interface LocalMessage {
   created_at: string;
 }
 
+export interface ConversationSummary {
+  chat_id: string;
+  last_message: LocalMessage;
+  unread_count: number;
+}
+
 /** 保存消息到本地 */
 export async function saveMessage(msg: LocalMessage): Promise<void> {
   const db = await getDb();
@@ -115,6 +121,62 @@ export async function getMessageCount(chatId: string): Promise<number> {
   return row?.cnt || 0;
 }
 
+/** 批量读取会话列表所需的最后消息和本地未读数 */
+export async function getConversationSummaries(
+  chatIds: string[],
+  currentUserId: string
+): Promise<Record<string, ConversationSummary>> {
+  if (chatIds.length === 0) return {};
+
+  const db = await getDb();
+  const placeholders = chatIds.map(() => "?").join(", ");
+  const rows = await db.getAllAsync(
+    `WITH ranked AS (
+       SELECT messages.*,
+              ROW_NUMBER() OVER (
+                PARTITION BY chat_id
+                ORDER BY created_at DESC, id DESC
+              ) AS row_number
+       FROM messages
+       WHERE chat_id IN (${placeholders})
+     ), unread AS (
+       SELECT chat_id, COUNT(*) AS unread_count
+       FROM messages
+       WHERE chat_id IN (${placeholders})
+         AND sender_id != ?
+         AND is_read = 0
+       GROUP BY chat_id
+     )
+     SELECT ranked.*, COALESCE(unread.unread_count, 0) AS unread_count
+     FROM ranked
+     LEFT JOIN unread ON unread.chat_id = ranked.chat_id
+     WHERE ranked.row_number = 1`,
+    ...chatIds,
+    ...chatIds,
+    currentUserId
+  );
+
+  const summaries: Record<string, ConversationSummary> = {};
+  for (const rawRow of rows as any[]) {
+    summaries[rawRow.chat_id] = {
+      chat_id: rawRow.chat_id,
+      last_message: {
+        id: rawRow.id,
+        chat_id: rawRow.chat_id,
+        sender_id: rawRow.sender_id,
+        type: rawRow.type,
+        content: rawRow.content,
+        duration: rawRow.duration,
+        is_read: !!rawRow.is_read,
+        created_at: rawRow.created_at,
+      },
+      unread_count: Number(rawRow.unread_count) || 0,
+    };
+  }
+
+  return summaries;
+}
+
 /** 删除与某人的所有消息 */
 export async function clearMessages(chatId: string): Promise<void> {
   const db = await getDb();
@@ -125,6 +187,21 @@ export async function clearMessages(chatId: string): Promise<void> {
 export async function markAsRead(msgId: string): Promise<void> {
   const db = await getDb();
   await db.runAsync("UPDATE messages SET is_read = 1 WHERE id = ?", msgId);
+}
+
+/** 进入会话后，将对方发送给我的本地消息统一标记为已读 */
+export async function markChatAsRead(
+  chatId: string,
+  currentUserId: string
+): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    `UPDATE messages
+     SET is_read = 1
+     WHERE chat_id = ? AND sender_id != ? AND is_read = 0`,
+    chatId,
+    currentUserId
+  );
 }
 
 /** 导出所有消息（用于备份） */

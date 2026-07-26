@@ -11,7 +11,7 @@ import { useAuth } from "../stores/AuthContext";
 import { encrypt, decrypt } from "../services/encryption";
 import { getSecretKey } from "../services/keys";
 import { VoiceRecorder, VoiceMessageBubble } from "../components/VoiceMessage";
-import { saveMessage, getMessages } from "../services/db";
+import { saveMessage, getMessages, markChatAsRead } from "../services/db";
 
 interface Message {
   id: string;
@@ -56,6 +56,7 @@ export default function ChatScreen({ route }: any) {
             is_read: m.is_read, created_at: m.created_at,
           })));
         }
+        await markChatAsRead(friend.user_id, myId);
       } catch { /* 本地加载失败不阻塞 */ }
       setLoadingHistory(false);
     })();
@@ -85,7 +86,7 @@ export default function ChatScreen({ route }: any) {
           content: displayContent,
           type: isVoice ? "voice" : "text",
           duration: isVoice ? (data.duration || 0) : undefined,
-          is_read: false,
+          is_read: true,
           created_at: new Date().toISOString(),
         };
         setMessages((prev) => [...prev, msg]);
@@ -94,7 +95,7 @@ export default function ChatScreen({ route }: any) {
         saveMessage({
           id: msg.id, chat_id: friend.user_id, sender_id: msg.from,
           type: msg.type, content: msg.content, duration: msg.duration,
-          is_read: false, created_at: msg.created_at,
+          is_read: true, created_at: msg.created_at,
         }).catch(() => {});
       } else if (data.type === "delivered" && data.to === friend.user_id) {
         // 消息已送达
