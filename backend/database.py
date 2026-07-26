@@ -55,6 +55,26 @@ nfc_tokens = Table(
     Column("created_at", TIMESTAMP, server_default=text("CURRENT_TIMESTAMP")),
 )
 
+# -- NFC 双方确认配对会话 --
+pairing_sessions = Table(
+    "pairing_sessions", metadata,
+    Column("id", Text, primary_key=True),
+    Column("token", Text, unique=True, nullable=False),
+    Column("initiator_id", Text, nullable=False),
+    Column("receiver_id", Text, nullable=True),
+    Column("initiator_confirmed", Integer, nullable=False, server_default=text("0")),
+    Column("receiver_confirmed", Integer, nullable=False, server_default=text("0")),
+    Column("status", Text, nullable=False, server_default=text("'awaiting_peer'")),
+    Column("failure_reason", Text, nullable=True),
+    Column("expires_at", Float, nullable=False),
+    Column("created_at", Float, nullable=False),
+    Column("updated_at", Float, nullable=False),
+)
+Index("idx_pairing_token", pairing_sessions.c.token)
+Index("idx_pairing_initiator_status", pairing_sessions.c.initiator_id, pairing_sessions.c.status)
+Index("idx_pairing_receiver_status", pairing_sessions.c.receiver_id, pairing_sessions.c.status)
+Index("idx_pairing_expires", pairing_sessions.c.expires_at)
+
 # -- 离线加密消息 --
 # 接收设备确认保存后 content 会被置空，只保留最小状态元数据用于送达/已读同步。
 offline_messages = Table(

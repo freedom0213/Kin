@@ -4,10 +4,34 @@ from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel
 
 from services import friend_service, status_service
+from services.pairing_service import PairingError, pairing_service
 from routers._auth_helper import get_user_id
 from websocket.handler import manager
 
 router = APIRouter()
+
+
+def _pairing_http_error(error: PairingError) -> HTTPException:
+    if error.code == "PAIRING_NOT_FOUND":
+        status_code = 404
+    elif error.code == "PAIRING_FORBIDDEN":
+        status_code = 403
+    elif error.code in ("PAIRING_CLOSED", "PAIRING_TAKEN", "ALREADY_FRIENDS"):
+        status_code = 409
+    else:
+        status_code = 400
+    return HTTPException(status_code=status_code, detail={"code": error.code, "message": str(error)})
+
+
+async def _notify_pairing_participants(session: dict):
+    for user_id in (session.get("initiator_id"), session.get("receiver_id")):
+        if not user_id:
+            continue
+        try:
+            snapshot = pairing_service.get(session["id"], user_id)
+        except PairingError:
+            continue
+        await manager.send_json(user_id, {"type": "pairing_updated", "pairing": snapshot})
 
 
 # -- NFC Token --
@@ -52,6 +76,66 @@ async def api_friend_request(body: FriendRequest, authorization: str = Header(..
     })
 
     return result
+
+
+# -- NFC 双方确认配对 --
+
+class PairingJoinRequest(BaseModel):
+    token: str
+
+
+@router.post("/pairings")
+async def api_create_pairing(authorization: str = Header(...)):
+    user_id = get_user_id(authorization)
+    return pairing_service.create(user_id)
+
+
+@router.post("/pairings/join")
+async def api_join_pairing(body: PairingJoinRequest, authorization: str = Header(...)):
+    user_id = get_user_id(authorization)
+    try:
+        session = pairing_service.join(user_id, body.token)
+    except PairingError as error:
+        raise _pairing_http_error(error) from error
+    await _notify_pairing_participants(session)
+    return session
+
+
+@router.get("/pairings/{session_id}")
+async def api_get_pairing(session_id: str, authorization: str = Header(...)):
+    user_id = get_user_id(authorization)
+    try:
+        return pairing_service.get(session_id, user_id)
+    except PairingError as error:
+        raise _pairing_http_error(error) from error
+
+
+@router.post("/pairings/{session_id}/confirm")
+async def api_confirm_pairing(session_id: str, authorization: str = Header(...)):
+    user_id = get_user_id(authorization)
+    try:
+        session = pairing_service.confirm(session_id, user_id)
+    except PairingError as error:
+        raise _pairing_http_error(error) from error
+    await _notify_pairing_participants(session)
+    if session["status"] == "completed":
+        for participant_id in (session["initiator_id"], session["receiver_id"]):
+            await manager.send_json(participant_id, {
+                "type": "friend_added",
+                "user_id": session["receiver_id"] if participant_id == session["initiator_id"] else session["initiator_id"],
+            })
+    return session
+
+
+@router.post("/pairings/{session_id}/cancel")
+async def api_cancel_pairing(session_id: str, authorization: str = Header(...)):
+    user_id = get_user_id(authorization)
+    try:
+        session = pairing_service.cancel(session_id, user_id)
+    except PairingError as error:
+        raise _pairing_http_error(error) from error
+    await _notify_pairing_participants(session)
+    return session
 
 
 # -- 好友列表 --
