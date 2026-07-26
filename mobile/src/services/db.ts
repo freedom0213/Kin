@@ -76,6 +76,11 @@ export interface ConversationSummary {
   unread_count: number;
 }
 
+export interface LocalMessageStats {
+  messageCount: number;
+  conversationCount: number;
+}
+
 /** 保存消息到本地 */
 export async function saveMessage(msg: LocalMessage): Promise<void> {
   const db = await getDb();
@@ -228,6 +233,23 @@ export async function getConversationSummaries(
 export async function clearMessages(chatId: string): Promise<void> {
   const db = await getDb();
   await db.runAsync("DELETE FROM messages WHERE chat_id = ?", chatId);
+}
+
+/** 获取设置页展示所需的本地消息统计。 */
+export async function getLocalMessageStats(): Promise<LocalMessageStats> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<{
+    message_count: number;
+    conversation_count: number;
+  }>(
+    `SELECT COUNT(*) AS message_count,
+            COUNT(DISTINCT chat_id) AS conversation_count
+     FROM messages`
+  );
+  return {
+    messageCount: Number(row?.message_count) || 0,
+    conversationCount: Number(row?.conversation_count) || 0,
+  };
 }
 
 /** 标记消息已读 */

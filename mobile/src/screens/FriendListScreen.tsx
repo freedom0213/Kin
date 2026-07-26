@@ -11,7 +11,6 @@ import type { ImageStyle } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { getFriendList, deleteFriend, Friend } from "../api/client";
 import { useAuth } from "../stores/AuthContext";
-import { exportMessagesToFile } from "../services/export";
 import { kinWS } from "../api/ws";
 import {
   ConversationSummary, getConversationSummaries,
@@ -144,7 +143,7 @@ function FriendAvatar({
 }
 
 export default function FriendListScreen({ navigation }: any) {
-  const { state, logoutAction } = useAuth();
+  const { state } = useAuth();
   const [friends, setFriends] = useState<Friend[]>([]);
   const [summaries, setSummaries] = useState<Record<string, ConversationSummary>>({});
   const [refreshing, setRefreshing] = useState(false);
@@ -215,15 +214,6 @@ export default function FriendListScreen({ navigation }: any) {
     setRefreshing(true);
     await loadFriends();
     setRefreshing(false);
-  };
-
-  // 导出聊天记录
-  const handleExport = async () => {
-    try {
-      await exportMessagesToFile();
-    } catch (e: any) {
-      Alert.alert("导出失败", e.message);
-    }
   };
 
   const handleDelete = (friend: Friend) => {
@@ -311,21 +301,27 @@ export default function FriendListScreen({ navigation }: any) {
     <View style={styles.container}>
       {/* 顶部栏 */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>
-          Kin · {state.user?.username}
-        </Text>
+        <Text style={styles.headerTitle}>Kin</Text>
         <View style={styles.headerRight}>
-          <TouchableOpacity onPress={handleExport}>
-            <Text style={styles.logoutText}>导出</Text>
-          </TouchableOpacity>
           <TouchableOpacity
             style={styles.addBtn}
             onPress={() => navigation.navigate("AddFriend")}
+            accessibilityRole="button"
+            accessibilityLabel="添加好友"
           >
             <Text style={styles.addBtnText}>+ 添加</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={logoutAction}>
-            <Text style={styles.logoutText}>退出</Text>
+          <TouchableOpacity
+            style={styles.settingsBtn}
+            onPress={() => navigation.navigate("Settings")}
+            accessibilityRole="button"
+            accessibilityLabel="打开设置"
+          >
+            <View style={styles.moreIcon}>
+              <View style={styles.moreDot} />
+              <View style={styles.moreDot} />
+              <View style={styles.moreDot} />
+            </View>
           </TouchableOpacity>
         </View>
       </View>
@@ -378,7 +374,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14, borderRadius: 22,
   },
   addBtnText: { color: "#157454", fontSize: 14, fontWeight: "700" },
-  logoutText: { color: COLORS.muted, fontSize: 14 },
+  settingsBtn: {
+    width: 44, height: 44, borderRadius: 22,
+    alignItems: "center", justifyContent: "center",
+    backgroundColor: "#ECEEEC",
+  },
+  moreIcon: { flexDirection: "row", gap: 3 },
+  moreDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: COLORS.ink },
   list: { paddingBottom: 28 },
   sectionHeader: {
     flexDirection: "row", alignItems: "center",
