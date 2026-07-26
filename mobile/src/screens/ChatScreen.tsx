@@ -513,12 +513,12 @@ export default function ChatScreen({ route }: any) {
 
   const showConversationDetails = () => {
     setShowMore(false);
-    const meetDate = friend.meet_at?.slice(0, 10) || "未知";
-    Alert.alert(
-      friend.nickname || friend.username,
-      `用户名：${friend.username}\n相识时间：${meetDate}\n${friendPublicKey ? "仅你和对方可读取消息" : "当前未建立加密保护"}`
-    );
+    navigation.navigate("ConversationDetails", { friend });
   };
+
+  useEffect(() => {
+    if (route.params?.historyClearedAt) setMessages([]);
+  }, [route.params?.historyClearedAt]);
 
   const showEncryptionDetails = () => {
     Alert.alert(

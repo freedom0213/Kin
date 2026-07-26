@@ -2,7 +2,9 @@
 
 import { File, Paths } from "expo-file-system";
 import * as Sharing from "expo-sharing";
-import { exportAllMessages, importMessages, LocalMessage } from "./db";
+import {
+  exportAllMessages, exportConversationMessages, importMessages, LocalMessage,
+} from "./db";
 
 /** 导出所有消息为 JSON 文件并通过系统分享 */
 export async function exportMessagesToFile(): Promise<void> {
@@ -30,6 +32,40 @@ export async function exportMessagesToFile(): Promise<void> {
       dialogTitle: "导出 Kin 聊天记录",
     });
   }
+}
+
+/** 导出指定会话为 JSON 文件并通过系统分享 */
+export async function exportConversationToFile(
+  chatId: string,
+  displayName: string
+): Promise<number> {
+  const messages = await exportConversationMessages(chatId);
+  if (messages.length === 0) return 0;
+
+  const exportData = {
+    app: "Kin",
+    version: 1,
+    scope: "conversation",
+    conversation_with: {
+      user_id: chatId,
+      display_name: displayName,
+    },
+    exported_at: new Date().toISOString(),
+    message_count: messages.length,
+    messages,
+  };
+
+  const file = new File(Paths.document, `kin_conversation_${chatId}.json`);
+  await file.write(JSON.stringify(exportData, null, 2));
+
+  const canShare = await Sharing.isAvailableAsync();
+  if (!canShare) throw new Error("当前设备不支持系统分享");
+
+  await Sharing.shareAsync(file.uri, {
+    mimeType: "application/json",
+    dialogTitle: `导出与${displayName}的聊天记录`,
+  });
+  return messages.length;
 }
 
 /** 从 JSON 文件导入消息 */

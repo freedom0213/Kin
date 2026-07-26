@@ -220,6 +220,25 @@ export async function exportAllMessages(): Promise<LocalMessage[]> {
   }));
 }
 
+/** 导出单个会话的全部本地消息 */
+export async function exportConversationMessages(chatId: string): Promise<LocalMessage[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync(
+    "SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at, id",
+    chatId
+  );
+  return (rows as any[]).map((row) => ({
+    id: row.id,
+    chat_id: row.chat_id,
+    sender_id: row.sender_id,
+    type: row.type,
+    content: row.content,
+    duration: row.duration,
+    is_read: !!row.is_read,
+    created_at: row.created_at,
+  }));
+}
+
 /** 导入消息（增量合并） */
 export async function importMessages(msgs: LocalMessage[]): Promise<number> {
   await saveMessages(msgs);
