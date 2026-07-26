@@ -107,8 +107,16 @@ export function VoiceRecorder({ onRecordComplete }: VoiceRecorderProps) {
         onPressIn={onPressIn}
         onPressOut={onPressOut}
         activeOpacity={0.7}
+        accessibilityRole="button"
+        accessibilityLabel={isRecording ? "松开发送语音" : "按住录制语音"}
+        accessibilityHint="按住录音，松开发送"
       >
-        <Text style={styles.micIcon}>🎤</Text>
+        <View style={styles.micIcon}>
+          <View style={styles.micCapsule} />
+          <View style={styles.micArc} />
+          <View style={styles.micStem} />
+          <View style={styles.micBase} />
+        </View>
       </TouchableOpacity>
     </View>
   );
@@ -172,9 +180,16 @@ export function VoiceMessageBubble({
       {loading ? (
         <ActivityIndicator size="small" color={isMine ? "#fff" : "#1a1a2e"} />
       ) : (
-        <Text style={[styles.playIcon, isMine && styles.playIconMine]}>
-          {playing ? "⏸" : "▶"}
-        </Text>
+        <View style={styles.playIconFrame}>
+          {playing ? (
+            <View style={styles.pauseIcon}>
+              <View style={[styles.pauseBar, isMine && styles.iconShapeMine]} />
+              <View style={[styles.pauseBar, isMine && styles.iconShapeMine]} />
+            </View>
+          ) : (
+            <View style={[styles.playTriangle, isMine && styles.playTriangleMine]} />
+          )}
+        </View>
       )}
       <Text style={[styles.durationText, isMine && styles.durationTextMine]}>
         {Math.round(duration)}″
@@ -184,30 +199,51 @@ export function VoiceMessageBubble({
 }
 
 const styles = StyleSheet.create({
-  container: { flexDirection: "row", alignItems: "center" },
+  container: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
   micBtn: {
-    width: 40, height: 40, borderRadius: 20,
-    backgroundColor: "#f0f0f0", alignItems: "center", justifyContent: "center",
+    width: 44, height: 44, borderRadius: 22,
+    backgroundColor: "#F0F2EF", alignItems: "center", justifyContent: "center",
   },
-  micBtnActive: { backgroundColor: "#ff4444" },
-  micIcon: { fontSize: 20 },
+  micBtnActive: { backgroundColor: "#F9DCD9" },
+  micIcon: { width: 22, height: 24, alignItems: "center" },
+  micCapsule: {
+    width: 8, height: 13, borderRadius: 4,
+    borderWidth: 1.7, borderColor: "#4E555B",
+  },
+  micArc: {
+    position: "absolute", top: 5, width: 15, height: 11,
+    borderWidth: 1.7, borderTopWidth: 0, borderColor: "#4E555B",
+    borderBottomLeftRadius: 8, borderBottomRightRadius: 8,
+  },
+  micStem: { width: 1.7, height: 5, backgroundColor: "#4E555B" },
+  micBase: { width: 10, height: 1.7, borderRadius: 1, backgroundColor: "#4E555B" },
   recordingIndicator: {
+    position: "absolute", left: 0, bottom: 52, width: 178,
     flexDirection: "row", alignItems: "center",
-    marginRight: 8, paddingHorizontal: 10, paddingVertical: 6,
-    backgroundColor: "#fff0f0", borderRadius: 12,
+    paddingHorizontal: 10, paddingVertical: 8,
+    backgroundColor: "#FFFFFF", borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: "#E3BDB9",
   },
   recordingDot: {
     width: 8, height: 8, borderRadius: 4,
-    backgroundColor: "#ff4444", marginRight: 6,
+    backgroundColor: "#C84E46", marginRight: 6,
   },
-  recordingText: { fontSize: 12, color: "#ff4444" },
+  recordingText: { fontSize: 12, color: "#9D3731" },
   voiceBubble: {
     flexDirection: "row", alignItems: "center",
-    paddingHorizontal: 10, paddingVertical: 6,
+    paddingHorizontal: 2, paddingVertical: 4,
     minWidth: 70,
   },
-  playIcon: { fontSize: 14, color: "#1a1a2e", marginRight: 6 },
-  playIconMine: { color: "#fff" },
-  durationText: { fontSize: 13, color: "#1a1a2e" },
-  durationTextMine: { color: "#fff" },
+  playIconFrame: { width: 22, height: 22, alignItems: "center", justifyContent: "center", marginRight: 6 },
+  playTriangle: {
+    width: 0, height: 0, marginLeft: 2,
+    borderTopWidth: 6, borderBottomWidth: 6, borderLeftWidth: 9,
+    borderTopColor: "transparent", borderBottomColor: "transparent", borderLeftColor: "#273A34",
+  },
+  playTriangleMine: { borderLeftColor: "#FFFFFF" },
+  pauseIcon: { flexDirection: "row", gap: 4 },
+  pauseBar: { width: 3, height: 12, borderRadius: 1, backgroundColor: "#273A34" },
+  iconShapeMine: { backgroundColor: "#FFFFFF" },
+  durationText: { fontSize: 13, color: "#171A1F" },
+  durationTextMine: { color: "#FFFFFF" },
 });
