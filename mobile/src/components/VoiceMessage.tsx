@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useCallback } from "react";
 import {
-  TouchableOpacity, Text, View, StyleSheet, ActivityIndicator,
+  TouchableOpacity, Text, View, StyleSheet, ActivityIndicator, PanResponder,
 } from "react-native";
 import { Audio } from "expo-av";
 import { Paths, File } from "expo-file-system";
@@ -13,10 +13,20 @@ interface VoiceRecorderProps {
 
 export function VoiceRecorder({ onRecordComplete }: VoiceRecorderProps) {
   const [isRecording, setIsRecording] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const recordingRef = useRef<Audio.Recording | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pressStartRef = useRef<number>(0);
+  const gestureActiveRef = useRef(false);
+  const cancelRequestedRef = useRef(false);
+
+  const clearTimer = useCallback(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
 
   // 开始录音
   const startRecording = useCallback(async () => {
@@ -33,6 +43,13 @@ export function VoiceRecorder({ onRecordComplete }: VoiceRecorderProps) {
       const { recording } = await Audio.Recording.createAsync(
         Audio.RecordingOptionsPresets.HIGH_QUALITY
       );
+
+      // 权限弹窗可能让用户先松手；此时直接丢弃刚创建的录音，避免后台持续录制。
+      if (!gestureActiveRef.current) {
+        await recording.stopAndUnloadAsync();
+        return;
+      }
+
       recordingRef.current = recording;
       pressStartRef.current = Date.now();
       setIsRecording(true);
@@ -47,22 +64,19 @@ export function VoiceRecorder({ onRecordComplete }: VoiceRecorderProps) {
     }
   }, []);
 
-  // 停止录音并回调
-  const stopRecording = useCallback(async () => {
-    if (!recordingRef.current) return;
-
+  // 停止录音：正常松手发送，上滑后松手则丢弃。
+  const finishRecording = useCallback(async (cancelled: boolean) => {
     setIsRecording(false);
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
+    setIsCancelling(false);
+    clearTimer();
+    if (!recordingRef.current) return;
 
     try {
       await recordingRef.current.stopAndUnloadAsync();
       const uri = recordingRef.current.getURI();
       recordingRef.current = null;
 
-      if (!uri) return;
+      if (cancelled || !uri) return;
 
       // 用 fetch + FileReader 读取录音文件为 base64（兼容 expo-file-system v18+）
       const response = await fetch(uri);
@@ -86,30 +100,66 @@ export function VoiceRecorder({ onRecordComplete }: VoiceRecorderProps) {
     } catch (e) {
       console.log("录音保存失败", e);
     }
-  }, [onRecordComplete]);
+  }, [clearTimer, onRecordComplete]);
 
-  // 长按录音
-  const onPressIn = () => { startRecording(); };
-  const onPressOut = () => { stopRecording(); };
+  const panResponder = useRef(PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onMoveShouldSetPanResponder: () => true,
+    onPanResponderGrant: () => {
+      gestureActiveRef.current = true;
+      cancelRequestedRef.current = false;
+      setIsCancelling(false);
+      void startRecording();
+    },
+    onPanResponderMove: (_, gestureState) => {
+      const shouldCancel = gestureState.dy <= -56;
+      if (cancelRequestedRef.current !== shouldCancel) {
+        cancelRequestedRef.current = shouldCancel;
+        setIsCancelling(shouldCancel);
+      }
+    },
+    onPanResponderRelease: () => {
+      gestureActiveRef.current = false;
+      void finishRecording(cancelRequestedRef.current);
+    },
+    onPanResponderTerminate: () => {
+      gestureActiveRef.current = false;
+      cancelRequestedRef.current = true;
+      void finishRecording(true);
+    },
+  })).current;
+
+  React.useEffect(() => () => {
+    gestureActiveRef.current = false;
+    clearTimer();
+    const activeRecording = recordingRef.current;
+    recordingRef.current = null;
+    if (activeRecording) void activeRecording.stopAndUnloadAsync();
+  }, [clearTimer]);
 
   return (
     <View style={styles.container}>
       {isRecording ? (
-        <View style={styles.recordingIndicator}>
-          <View style={styles.recordingDot} />
-          <Text style={styles.recordingText}>
-            录音中 {recordingSeconds}s （松开发送）
+        <View style={[styles.recordingIndicator, isCancelling && styles.recordingIndicatorCancel]}>
+          {isCancelling ? <View style={styles.cancelChevron} /> : <View style={styles.recordingDot} />}
+          <Text style={[styles.recordingText, isCancelling && styles.recordingTextCancel]}>
+            {isCancelling
+              ? `松开取消 · ${recordingSeconds}s`
+              : `录音中 ${recordingSeconds}s · 上滑取消`}
           </Text>
         </View>
       ) : null}
-      <TouchableOpacity
-        style={[styles.micBtn, isRecording && styles.micBtnActive]}
-        onPressIn={onPressIn}
-        onPressOut={onPressOut}
-        activeOpacity={0.7}
+      <View
+        {...panResponder.panHandlers}
+        style={[
+          styles.micBtn,
+          isRecording && styles.micBtnActive,
+          isCancelling && styles.micBtnCancel,
+        ]}
+        accessible
         accessibilityRole="button"
-        accessibilityLabel={isRecording ? "松开发送语音" : "按住录制语音"}
-        accessibilityHint="按住录音，松开发送"
+        accessibilityLabel={isCancelling ? "松开取消语音" : isRecording ? "松开发送语音" : "按住录制语音"}
+        accessibilityHint="按住录音，松开发送，上滑后松开取消"
       >
         <View style={styles.micIcon}>
           <View style={styles.micCapsule} />
@@ -117,7 +167,7 @@ export function VoiceRecorder({ onRecordComplete }: VoiceRecorderProps) {
           <View style={styles.micStem} />
           <View style={styles.micBase} />
         </View>
-      </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -205,6 +255,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#F0F2EF", alignItems: "center", justifyContent: "center",
   },
   micBtnActive: { backgroundColor: "#F9DCD9" },
+  micBtnCancel: { backgroundColor: "#E3E6E2" },
   micIcon: { width: 22, height: 24, alignItems: "center" },
   micCapsule: {
     width: 8, height: 13, borderRadius: 4,
@@ -218,17 +269,26 @@ const styles = StyleSheet.create({
   micStem: { width: 1.7, height: 5, backgroundColor: "#4E555B" },
   micBase: { width: 10, height: 1.7, borderRadius: 1, backgroundColor: "#4E555B" },
   recordingIndicator: {
-    position: "absolute", left: 0, bottom: 52, width: 178,
+    position: "absolute", left: 0, bottom: 52, width: 188,
     flexDirection: "row", alignItems: "center",
     paddingHorizontal: 10, paddingVertical: 8,
     backgroundColor: "#FFFFFF", borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth, borderColor: "#E3BDB9",
+  },
+  recordingIndicatorCancel: {
+    backgroundColor: "#F1F2EF", borderColor: "#C7CBC6",
   },
   recordingDot: {
     width: 8, height: 8, borderRadius: 4,
     backgroundColor: "#C84E46", marginRight: 6,
   },
   recordingText: { fontSize: 12, color: "#9D3731" },
+  recordingTextCancel: { color: "#555B58", fontWeight: "600" },
+  cancelChevron: {
+    width: 8, height: 8, marginRight: 8, marginLeft: 1,
+    borderTopWidth: 1.5, borderLeftWidth: 1.5, borderColor: "#626966",
+    transform: [{ rotate: "45deg" }],
+  },
   voiceBubble: {
     flexDirection: "row", alignItems: "center",
     paddingHorizontal: 2, paddingVertical: 4,
