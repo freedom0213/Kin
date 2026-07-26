@@ -182,3 +182,13 @@ def remove_friend(user_id: str, friend_id: str) -> dict:
         conn.commit()
 
     return {"success": True, "message": "好友已删除"}
+
+
+def are_friends(user_id: str, friend_id: str) -> bool:
+    """检查两名用户是否存在好友关系。"""
+    table = get_table("friendships")
+    with engine.connect() as conn:
+        stmt = select(table.c.id).where(
+            and_(table.c.user_id == user_id, table.c.friend_id == friend_id)
+        )
+        return conn.execute(stmt).scalar() is not None

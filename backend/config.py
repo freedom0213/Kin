@@ -28,3 +28,7 @@ MAX_FRIENDS = 100
 
 # NFC token 有效期（秒）
 NFC_TOKEN_TTL = 60
+
+# 离线加密消息
+OFFLINE_MESSAGE_TTL_DAYS = int(os.getenv("KIN_OFFLINE_MESSAGE_TTL_DAYS", "7"))
+MAX_MESSAGE_BYTES = int(os.getenv("KIN_MAX_MESSAGE_BYTES", str(8 * 1024 * 1024)))

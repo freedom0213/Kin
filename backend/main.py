@@ -1,5 +1,6 @@
 """Kin 后端入口 — FastAPI 应用"""
 
+import json
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -60,7 +61,7 @@ async def ws_chat(websocket: WebSocket, token: str = Query(...)):
     except Exception:
         pass
     finally:
-        manager.disconnect(user_id)
+        manager.disconnect(user_id, websocket)
 
 
 # -- 健康检查 --

@@ -1,7 +1,7 @@
 """数据库连接与建表 — SQLAlchemy Core 模式"""
 
 import os
-from sqlalchemy import create_engine, MetaData, Table, Column, Text, Float, Integer, UniqueConstraint, text
+from sqlalchemy import create_engine, MetaData, Table, Column, Text, Float, Integer, UniqueConstraint, Index, text
 from sqlalchemy.types import TIMESTAMP
 import config
 
@@ -54,6 +54,27 @@ nfc_tokens = Table(
     Column("expires_at", TIMESTAMP, nullable=False),
     Column("created_at", TIMESTAMP, server_default=text("CURRENT_TIMESTAMP")),
 )
+
+# -- 离线加密消息 --
+# 接收设备确认保存后 content 会被置空，只保留最小状态元数据用于送达/已读同步。
+offline_messages = Table(
+    "offline_messages", metadata,
+    Column("msg_id", Text, primary_key=True),
+    Column("sender_id", Text, nullable=False),
+    Column("recipient_id", Text, nullable=False),
+    Column("message_type", Text, nullable=False),
+    Column("content", Text, nullable=True),
+    Column("duration", Float, nullable=True),
+    Column("encrypted", Integer, nullable=False, server_default=text("1")),
+    Column("status", Text, nullable=False, server_default=text("'queued'")),
+    Column("created_at", Float, nullable=False),
+    Column("expires_at", Float, nullable=False),
+    Column("delivered_at", Float, nullable=True),
+    Column("read_at", Float, nullable=True),
+)
+Index("idx_offline_recipient_status", offline_messages.c.recipient_id, offline_messages.c.status)
+Index("idx_offline_sender_status", offline_messages.c.sender_id, offline_messages.c.status)
+Index("idx_offline_expires", offline_messages.c.expires_at)
 
 
 def init_db():
