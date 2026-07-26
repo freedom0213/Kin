@@ -117,8 +117,9 @@ async def api_confirm_pairing(session_id: str, authorization: str = Header(...))
         session = pairing_service.confirm(session_id, user_id)
     except PairingError as error:
         raise _pairing_http_error(error) from error
+    completed_now = bool(session.pop("_completed_now", False))
     await _notify_pairing_participants(session)
-    if session["status"] == "completed":
+    if completed_now:
         for participant_id in (session["initiator_id"], session["receiver_id"]):
             await manager.send_json(participant_id, {
                 "type": "friend_added",

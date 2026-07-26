@@ -87,7 +87,7 @@ class PairingServiceTests(unittest.TestCase):
         cancelled = self.service.cancel(created["id"], "bob", now=102)
 
         self.assertEqual("cancelled", cancelled["status"])
-        with self.assertRaisesRegex(PairingError, "等待另一台设备"):
+        with self.assertRaisesRegex(PairingError, "已经结束"):
             self.service.confirm(created["id"], "alice", now=103)
 
     def test_expired_session_cannot_be_joined(self):
@@ -105,6 +105,7 @@ class PairingServiceTests(unittest.TestCase):
         self.service.confirm(created["id"], "bob", now=104)
         completed_again = self.service.confirm(created["id"], "bob", now=105)
         self.assertEqual("completed", completed_again["status"])
+        self.assertFalse(completed_again["_completed_now"])
         self.assertEqual(1, len(self.friendships))
 
 

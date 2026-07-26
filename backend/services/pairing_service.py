@@ -127,7 +127,11 @@ class PairingService:
             if user_id not in (row["initiator_id"], row["receiver_id"]):
                 raise PairingError("PAIRING_FORBIDDEN", "你不是该配对会话的参与者")
             if row["status"] == "completed":
-                return self._snapshot(dict(row), user_id)
+                snapshot = self._snapshot(dict(row), user_id)
+                snapshot["_completed_now"] = False
+                return snapshot
+            if row["status"] in ("cancelled", "expired", "failed"):
+                raise PairingError("PAIRING_CLOSED", "配对会话已经结束")
             if row["status"] != "awaiting_confirmation" or not row["receiver_id"]:
                 raise PairingError("PAIRING_NOT_READY", "请等待另一台设备加入")
 
@@ -145,6 +149,7 @@ class PairingService:
                 select(self._table).where(self._table.c.id == session_id)
             ).mappings().first()
 
+        completed_now = False
         if updated_row["initiator_confirmed"] and updated_row["receiver_confirmed"]:
             result = self._create_friendship(
                 updated_row["initiator_id"], updated_row["receiver_id"]
@@ -153,7 +158,7 @@ class PairingService:
                 updated_row["initiator_id"], updated_row["receiver_id"]
             )
             with self._engine.begin() as conn:
-                conn.execute(
+                transition = conn.execute(
                     update(self._table)
                     .where(and_(
                         self._table.c.id == session_id,
@@ -165,7 +170,10 @@ class PairingService:
                         updated_at=timestamp,
                     )
                 )
-        return self.get(session_id, user_id, now=timestamp)
+                completed_now = completed and (transition.rowcount or 0) > 0
+        snapshot = self.get(session_id, user_id, now=timestamp)
+        snapshot["_completed_now"] = completed_now
+        return snapshot
 
     def cancel(self, session_id: str, user_id: str, now: float | None = None) -> dict:
         timestamp = now if now is not None else time.time()
