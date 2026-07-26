@@ -33,7 +33,11 @@ async function request<T = any>(
   const data = await res.json();
 
   if (!res.ok) {
-    throw new Error(data.detail || "请求失败");
+    const detail = data.detail;
+    const message = typeof detail === "string" ? detail : detail?.message;
+    const error = new Error(message || "请求失败");
+    (error as any).code = typeof detail === "object" ? detail?.code : undefined;
+    throw error;
   }
 
   return data;
@@ -80,6 +84,59 @@ export function generateNfcToken() {
 
 export function addFriendByToken(token: string) {
   return request<{ success: boolean; message: string; meet_at: string }>("POST", "/api/friends/request", { token });
+}
+
+export type PairingStatus =
+  | "awaiting_peer"
+  | "awaiting_confirmation"
+  | "completed"
+  | "cancelled"
+  | "expired"
+  | "failed";
+
+export interface PairingPeer {
+  id: string;
+  username: string;
+  nickname: string | null;
+  avatar: string | null;
+}
+
+export interface PairingSession {
+  id: string;
+  token: string | null;
+  role: "initiator" | "receiver";
+  status: PairingStatus;
+  initiator_id: string;
+  receiver_id: string | null;
+  initiator_confirmed: boolean;
+  receiver_confirmed: boolean;
+  viewer_confirmed: boolean;
+  peer_confirmed: boolean;
+  peer: PairingPeer | null;
+  failure_reason: string | null;
+  expires_at: number;
+  created_at: number;
+  updated_at: number;
+}
+
+export function createPairing() {
+  return request<PairingSession>("POST", "/api/friends/pairings");
+}
+
+export function joinPairing(token: string) {
+  return request<PairingSession>("POST", "/api/friends/pairings/join", { token });
+}
+
+export function getPairing(sessionId: string) {
+  return request<PairingSession>("GET", `/api/friends/pairings/${sessionId}`);
+}
+
+export function confirmPairing(sessionId: string) {
+  return request<PairingSession>("POST", `/api/friends/pairings/${sessionId}/confirm`);
+}
+
+export function cancelPairing(sessionId: string) {
+  return request<PairingSession>("POST", `/api/friends/pairings/${sessionId}/cancel`);
 }
 
 export function getFriendList() {

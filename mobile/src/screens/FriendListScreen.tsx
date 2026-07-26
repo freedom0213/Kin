@@ -210,6 +210,12 @@ export default function FriendListScreen({ navigation }: any) {
     return () => kinWS.off("inbox_message", onInboxMessage);
   }, [loadFriends]);
 
+  useEffect(() => {
+    const onFriendAdded = () => { void loadFriends(); };
+    kinWS.on("friend_added", onFriendAdded);
+    return () => kinWS.off("friend_added", onFriendAdded);
+  }, [loadFriends]);
+
   const onRefresh = async () => {
     setRefreshing(true);
     await loadFriends();
