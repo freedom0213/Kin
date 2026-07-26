@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, Pressable, Alert,
   FlatList, StyleSheet, KeyboardAvoidingView, Platform, Keyboard,
+  Animated, AccessibilityInfo,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -70,6 +71,74 @@ function SmileMark() {
   );
 }
 
+function TypingIndicator() {
+  const dots = useRef([
+    new Animated.Value(0),
+    new Animated.Value(0),
+    new Animated.Value(0),
+  ]).current;
+  const [reduceMotion, setReduceMotion] = useState(false);
+
+  useEffect(() => {
+    AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
+    const subscription = AccessibilityInfo.addEventListener(
+      "reduceMotionChanged",
+      setReduceMotion
+    );
+    return () => subscription.remove();
+  }, []);
+
+  useEffect(() => {
+    if (reduceMotion) {
+      dots.forEach((dot) => dot.setValue(0.55));
+      return;
+    }
+
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.stagger(120, dots.map((dot) => Animated.sequence([
+          Animated.timing(dot, {
+            toValue: 1,
+            duration: 180,
+            useNativeDriver: true,
+          }),
+          Animated.timing(dot, {
+            toValue: 0,
+            duration: 220,
+            useNativeDriver: true,
+          }),
+        ]))),
+        Animated.delay(260),
+      ])
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [dots, reduceMotion]);
+
+  return (
+    <View
+      style={styles.typingBubble}
+      accessibilityLabel="对方正在输入"
+      accessibilityLiveRegion="polite"
+    >
+      {dots.map((dot, index) => (
+        <Animated.View
+          key={index}
+          style={[
+            styles.typingDot,
+            {
+              opacity: dot.interpolate({ inputRange: [0, 1], outputRange: [0.42, 1] }),
+              transform: [{
+                translateY: dot.interpolate({ inputRange: [0, 1], outputRange: [0, -3] }),
+              }],
+            },
+          ]}
+        />
+      ))}
+    </View>
+  );
+}
+
 let _msgCounter = 0;
 function genMsgId(): string {
   return `${Date.now()}_${++_msgCounter}`;
@@ -88,8 +157,11 @@ export default function ChatScreen({ route }: any) {
   const [showMore, setShowMore] = useState(false);
   const [showEmojiPanel, setShowEmojiPanel] = useState(false);
   const [showEncryptionNotice, setShowEncryptionNotice] = useState(!!friend.public_key);
+  const [isTyping, setIsTyping] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const pendingMessageIdsRef = useRef<string[]>([]);
+  const lastTypingSentRef = useRef(0);
+  const typingHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [mySecretKey, setMySecretKey] = useState<string | null>(null);
   const friendPublicKey: string | null = friend.public_key || null;
@@ -128,6 +200,8 @@ export default function ChatScreen({ route }: any) {
     const onMessage = (data: any) => {
       if (data.type === "chat_message" || data.type === "voice_message") {
         if (data.from !== friend.user_id) return;
+        setIsTyping(false);
+        if (typingHideTimerRef.current) clearTimeout(typingHideTimerRef.current);
         let displayContent: string = data.content;
         const isVoice = data.type === "voice_message";
 
@@ -175,6 +249,14 @@ export default function ChatScreen({ route }: any) {
         markAsRead(data.msg_id).catch(() => {});
       } else if (data.type === "friend_status" && data.user_id === friend.user_id) {
         setIsOnline(data.is_online);
+        if (!data.is_online) setIsTyping(false);
+      } else if (data.type === "typing" && data.from === friend.user_id) {
+        setIsTyping(true);
+        if (typingHideTimerRef.current) clearTimeout(typingHideTimerRef.current);
+        typingHideTimerRef.current = setTimeout(() => {
+          setIsTyping(false);
+          typingHideTimerRef.current = null;
+        }, 1800);
       } else if (
         data.type === "error"
         && data.code === "OFFLINE"
@@ -196,6 +278,7 @@ export default function ChatScreen({ route }: any) {
     kinWS.on("delivered", onMessage);
     kinWS.on("read_receipt", onMessage);
     kinWS.on("friend_status", onMessage);
+    kinWS.on("typing", onMessage);
     kinWS.on("error", onMessage);
 
     return () => {
@@ -204,7 +287,12 @@ export default function ChatScreen({ route }: any) {
       kinWS.off("delivered", onMessage);
       kinWS.off("read_receipt", onMessage);
       kinWS.off("friend_status", onMessage);
+      kinWS.off("typing", onMessage);
       kinWS.off("error", onMessage);
+      if (typingHideTimerRef.current) {
+        clearTimeout(typingHideTimerRef.current);
+        typingHideTimerRef.current = null;
+      }
     };
   }, [friend.user_id, friendPublicKey, mySecretKey]);
 
@@ -304,8 +392,21 @@ export default function ChatScreen({ route }: any) {
     );
   };
 
+  const notifyTyping = () => {
+    const now = Date.now();
+    if (!isOnline || now - lastTypingSentRef.current < 900) return;
+    lastTypingSentRef.current = now;
+    kinWS.sendTyping(friend.user_id);
+  };
+
+  const handleInputChange = (text: string) => {
+    setInputText(text);
+    if (text.trim()) notifyTyping();
+  };
+
   const appendEmoji = (emoji: string) => {
     setInputText((current) => `${current}${emoji}`);
+    notifyTyping();
   };
 
   const getStatusMark = (message: Message): string => {
@@ -426,6 +527,10 @@ export default function ChatScreen({ route }: any) {
         keyboardShouldPersistTaps="handled"
       />
 
+      <View style={styles.typingSlot} pointerEvents="none">
+        {isTyping ? <TypingIndicator /> : null}
+      </View>
+
       {showEmojiPanel ? (
         <View style={styles.emojiPanel}>
           {EMOJIS.map((emoji) => (
@@ -448,7 +553,7 @@ export default function ChatScreen({ route }: any) {
           style={styles.input}
           placeholder="说点什么..."
           value={inputText}
-          onChangeText={setInputText}
+          onChangeText={handleInputChange}
           multiline
           maxLength={2000}
           accessibilityLabel="消息输入框"
@@ -598,6 +703,19 @@ const styles = StyleSheet.create({
   },
   deliveryStatusRead: { color: "#75E0B8" },
   deliveryStatusFailed: { color: "#FFAAA4", letterSpacing: 0 },
+  typingSlot: {
+    minHeight: 30, paddingHorizontal: 14, justifyContent: "center",
+    backgroundColor: "#EEF0ED",
+  },
+  typingBubble: {
+    width: 48, height: 24, borderRadius: 12,
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5,
+    backgroundColor: "#FFFFFF",
+    borderWidth: StyleSheet.hairlineWidth, borderColor: "#DDE0DC",
+  },
+  typingDot: {
+    width: 5, height: 5, borderRadius: 3, backgroundColor: "#597168",
+  },
   inputBar: {
     flexDirection: "row", alignItems: "flex-end",
     paddingHorizontal: 8, paddingTop: 8,
