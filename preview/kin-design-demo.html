@@ -299,6 +299,7 @@
     .call-control button { width: 58px; height: 58px; border: 0; border-radius: 50%; display: grid; place-items: center; background: rgba(255, 255, 255, .12); color: white; cursor: pointer; }
     .call-control button.active { background: white; color: var(--ink); }
     .call-control button.hangup { background: #d85149; }
+    .call-control button:disabled { cursor: not-allowed; opacity: .34; }
 
     .settings-intro { padding: 22px 20px 16px; }
     .settings-intro h2 { margin: 0; font-size: 23px; }
@@ -443,7 +444,7 @@
       return phone(`<div class="topbar"><button class="top-action" data-go="home"><span class="back-icon"></span></button><div class="top-title"><strong>添加好友</strong></div><div class="top-action"></div></div><div class="nfc-base"><h2>碰一碰</h2><p>一方发起、一方接收。两台手机都确认后，才会建立好友关系。</p><button class="nfc-trigger" data-pair>开始靠近另一台手机</button><div class="nfc-hint">Kin 在前台时使用应用内半弹窗；位于后台时由系统 NFC 行为或通知唤醒。不会长期保留独立的扫描页面。</div></div>${sheet ? `<div class="sheet-scrim"></div><div class="bottom-sheet"><div class="sheet-handle"></div><div class="pair-person">${avatar("MO", true, "lg")}<h3>Momo</h3><p>${state.pairStage === "confirmed" ? "双方已确认" : "申请加入好友中..."}</p></div>${state.pairStage === "confirmed" ? `<div style="margin:22px 0;text-align:center;color:var(--accent-dark);font-size:13px;font-weight:750">已成为好友</div><button class="primary" style="margin-top:0" data-go="home">开始聊天</button>` : `<div class="pair-progress"><i></i><i></i><i></i></div><div class="sheet-actions"><button class="cancel" data-pair-cancel>取消</button><button class="confirm" data-pair-confirm>确认是本人</button></div>`}</div>` : ""}`);
     }
     function callScreen() {
-      return phone(`<div class="call-body"><div class="call-orbit"><div class="call-avatar">LC</div></div><h2>林迟</h2><div class="call-status">${state.callActive ? "00:42 · 通话中" : "正在呼叫..."}</div><div class="wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="call-controls"><div class="call-control"><button class="${state.muted ? "active" : ""}" data-call="mute">M</button><span>静音</span></div><div class="call-control"><button class="${state.speaker ? "active" : ""}" data-call="speaker">S</button><span>扬声器</span></div><div class="call-control"><button class="hangup" data-go="chat">×</button><span>挂断</span></div></div></div>`, "call-screen");
+      return phone(`<div class="call-body"><div class="call-orbit"><div class="call-avatar">LC</div></div><h2>林迟</h2><div class="call-status">${state.callActive ? "00:42 · 通话中" : "正在等待对方接听"}</div><div class="wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="call-controls"><div class="call-control"><button class="${state.muted ? "active" : ""}" data-call="mute">${state.muted ? "开" : "静"}</button><span>${state.muted ? "取消静音" : "静音"}</span></div><div class="call-control"><button disabled aria-label="扬声器，等待原生音频路由接入">扬</button><span>扬声器</span></div><div class="call-control"><button class="hangup" data-go="chat">×</button><span>挂断</span></div></div></div>`, "call-screen");
     }
     function settingsScreen() {
       const plannedSetting = (title, hint) => `<div class="setting-row"><span><b>${title}</b><span>${hint}</span></span><button class="switch" disabled aria-label="${title}，暂不可用"></button></div>`;

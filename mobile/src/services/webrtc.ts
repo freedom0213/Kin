@@ -22,18 +22,20 @@ export interface CallHandlers {
   onCallRejected: (reason?: string) => void;
   onCallEnded: () => void;
   onRemoteStream: (stream: MediaStream) => void;
+  onConnectionStateChange: (state: RTCPeerConnectionState) => void;
 }
 
 class WebRTCService {
   private pc: RTCPeerConnection | null = null;
   private localStream: MediaStream | null = null;
   private handlers: CallHandlers | null = null;
-  private _sendSignal: ((data: any) => void) | null = null;
+  private _sendSignal: ((data: any) => boolean) | null = null;
+  private pendingIceCandidates: RTCIceCandidate[] = [];
   // 存储来电的 SDP，供 VoiceCallScreen 接听时使用
   private _pendingOffer: { callerId: string; sdp: any; callerName: string } | null = null;
 
   /** 注入信令发送函数 */
-  setSignalSender(sendFn: (data: any) => void) {
+  setSignalSender(sendFn: (data: any) => boolean) {
     this._sendSignal = sendFn;
   }
 
@@ -56,7 +58,7 @@ class WebRTCService {
 
   // -- 发起呼叫 --
 
-  async startCall(targetUserId: string, callerName?: string): Promise<void> {
+  async startCall(targetUserId: string, callerName?: string): Promise<boolean> {
     try {
       // 获取本地音频流
       this.localStream = await mediaDevices.getUserMedia({
@@ -78,6 +80,10 @@ class WebRTCService {
         }
       };
 
+      this.pc.onconnectionstatechange = () => {
+        if (this.pc) this.handlers?.onConnectionStateChange(this.pc.connectionState);
+      };
+
       // ICE 候选 → 通过 WebSocket 发送
       this.pc.onicecandidate = (event: any) => {
         if (event.candidate) {
@@ -94,21 +100,27 @@ class WebRTCService {
       await this.pc.setLocalDescription(offer);
 
       // 发送呼叫请求（含 SDP + 呼叫方名称）
-      this._sendSignal?.({
+      const sent = this._sendSignal?.({
         type: "call_request",
         to: targetUserId,
         sdp: offer,
         caller_name: callerName || "",
-      });
+      }) ?? false;
+      if (!sent) {
+        this.cleanup();
+        return false;
+      }
+      return true;
     } catch (e: any) {
       console.log("发起呼叫失败", e);
       this.cleanup();
+      return false;
     }
   }
 
   // -- 接收呼叫（收到 offer 后调用） --
 
-  async answerCall(callerId: string, remoteSdp: RTCSessionDescription): Promise<void> {
+  async answerCall(callerId: string, remoteSdp: RTCSessionDescription): Promise<boolean> {
     try {
       this.localStream = await mediaDevices.getUserMedia({
         audio: true,
@@ -127,6 +139,10 @@ class WebRTCService {
         }
       };
 
+      this.pc.onconnectionstatechange = () => {
+        if (this.pc) this.handlers?.onConnectionStateChange(this.pc.connectionState);
+      };
+
       this.pc.onicecandidate = (event: any) => {
         if (event.candidate) {
           this._sendSignal?.({
@@ -139,27 +155,51 @@ class WebRTCService {
 
       // 设置远端 SDP + 创建 answer
       await this.pc.setRemoteDescription(new RTCSessionDescription(remoteSdp));
+      await this.flushPendingIceCandidates();
       const answer = await this.pc.createAnswer();
       await this.pc.setLocalDescription(answer);
 
-      this._sendSignal?.({
+      const sent = this._sendSignal?.({
         type: "call_accepted",
         to: callerId,
         sdp: answer,
-      });
+      }) ?? false;
+      if (!sent) {
+        this.cleanup();
+        return false;
+      }
+      return true;
     } catch (e: any) {
       console.log("接听呼叫失败", e);
       this.cleanup();
+      return false;
     }
+  }
+
+  /** 启用或关闭当前通话的本机麦克风。 */
+  setMuted(muted: boolean): boolean {
+    const audioTracks = this.localStream?.getAudioTracks() || [];
+    if (audioTracks.length === 0) return false;
+    audioTracks.forEach((track) => {
+      track.enabled = !muted;
+    });
+    return true;
   }
 
   // -- 处理对方 answer --
 
-  async handleAnswer(remoteSdp: RTCSessionDescription): Promise<void> {
+  async handleAnswer(remoteSdp: RTCSessionDescription): Promise<boolean> {
     try {
-      await this.pc?.setRemoteDescription(new RTCSessionDescription(remoteSdp));
+      if (!this.pc) throw new Error("呼叫连接尚未初始化");
+      await this.pc.setRemoteDescription(new RTCSessionDescription(remoteSdp));
+      await this.flushPendingIceCandidates();
+      this.handlers?.onCallAccepted();
+      return true;
     } catch (e) {
       console.log("设置远端 SDP 失败", e);
+      this.cleanup();
+      this.handlers?.onCallRejected("无法建立远端连接");
+      return false;
     }
   }
 
@@ -167,9 +207,53 @@ class WebRTCService {
 
   async handleIceCandidate(candidate: RTCIceCandidate): Promise<void> {
     try {
-      await this.pc?.addIceCandidate(new RTCIceCandidate(candidate));
+      const normalized = new RTCIceCandidate(candidate);
+      if (!this.pc || !this.pc.remoteDescription) {
+        this.pendingIceCandidates.push(normalized);
+        return;
+      }
+      await this.pc.addIceCandidate(normalized);
     } catch (e) {
       console.log("添加 ICE 候选失败", e);
+    }
+  }
+
+  private async flushPendingIceCandidates(): Promise<void> {
+    if (!this.pc || !this.pc.remoteDescription || this.pendingIceCandidates.length === 0) return;
+    const pending = this.pendingIceCandidates.splice(0);
+    for (const candidate of pending) {
+      await this.pc.addIceCandidate(candidate);
+    }
+  }
+
+  handleRemoteRejected(reason?: string) {
+    this.cleanup();
+    this.handlers?.onCallRejected(reason);
+  }
+
+  handleRemoteEnded() {
+    this.cleanup();
+    this.handlers?.onCallEnded();
+  }
+
+  /** 读取可用的 WebRTC 音频强度；运行时不提供 audioLevel 时返回 0。 */
+  async getAudioLevel(): Promise<number> {
+    if (!this.pc) return 0;
+    try {
+      const reports = await this.pc.getStats();
+      let level = 0;
+      reports.forEach((report: any) => {
+        if (
+          report.type === "inbound-rtp"
+          && (report.kind === "audio" || report.mediaType === "audio")
+          && typeof report.audioLevel === "number"
+        ) {
+          level = Math.max(level, Math.min(1, report.audioLevel));
+        }
+      });
+      return level;
+    } catch {
+      return 0;
     }
   }
 
@@ -199,6 +283,7 @@ class WebRTCService {
     this.localStream = null;
     this.pc?.close();
     this.pc = null;
+    this.pendingIceCandidates = [];
   }
 }
 

@@ -113,15 +113,15 @@ class KinWebSocket {
       this._dispatch("incoming_call", data);
     } else if (type === "call_accepted") {
       // 对方接听 → 设置远端 SDP
-      webrtcService.handleAnswer(data.sdp);
+      void webrtcService.handleAnswer(data.sdp);
       this._dispatch("call_accepted", data);
     } else if (type === "call_rejected") {
-      webrtcService.cleanup();
+      webrtcService.handleRemoteRejected(data.detail);
       this._dispatch("call_rejected", data);
     } else if (type === "ice_candidate" && data.candidate) {
       webrtcService.handleIceCandidate(data.candidate);
     } else if (type === "call_end") {
-      webrtcService.cleanup();
+      webrtcService.handleRemoteEnded();
       this._dispatch("call_end", data);
     }
   }

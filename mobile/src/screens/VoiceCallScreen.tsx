@@ -1,194 +1,462 @@
-/** WebRTC 语音通话页面 */
+/** WebRTC 语音通话页 — 状态圆环、真实静音、失败反馈与结束时长。 */
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
-  View, Text, TouchableOpacity, StyleSheet,
+  AccessibilityInfo, ActivityIndicator, Animated, BackHandler, StyleSheet,
+  Text, TouchableOpacity, View,
 } from "react-native";
-import { RTCView, MediaStream } from "react-native-webrtc";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { webrtcService } from "../services/webrtc";
+import { useAuth } from "../stores/AuthContext";
 
-type CallState = "calling" | "ringing" | "connected" | "ended";
+type CallState = "calling" | "ringing" | "connecting" | "connected" | "ended" | "failed";
+
+const COLORS = {
+  background: "#1D2421",
+  surface: "#2A332F",
+  ink: "#F5F7F5",
+  muted: "rgba(245,247,245,0.62)",
+  faint: "rgba(245,247,245,0.38)",
+  accent: "#70DCB3",
+  accentSoft: "rgba(112,220,179,0.16)",
+  control: "rgba(255,255,255,0.10)",
+  controlActive: "#F5F7F5",
+  danger: "#D85149",
+};
+
+function formatSeconds(total: number): string {
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+}
+
+function ControlButton({
+  label,
+  hint,
+  active = false,
+  disabled = false,
+  destructive = false,
+  onPress,
+}: {
+  label: string;
+  hint: string;
+  active?: boolean;
+  disabled?: boolean;
+  destructive?: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <View style={styles.controlItem}>
+      <TouchableOpacity
+        style={[
+          styles.controlButton,
+          active && styles.controlButtonActive,
+          destructive && styles.controlButtonDanger,
+          disabled && styles.controlButtonDisabled,
+        ]}
+        onPress={onPress}
+        disabled={disabled}
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        accessibilityHint={hint}
+        accessibilityState={{ disabled, selected: active }}
+      >
+        <Text style={[
+          styles.controlMark,
+          active && styles.controlMarkActive,
+          destructive && styles.controlMarkDanger,
+        ]}>
+          {destructive ? "×" : label.slice(0, 1)}
+        </Text>
+      </TouchableOpacity>
+      <Text style={[styles.controlLabel, disabled && styles.controlLabelDisabled]}>{label}</Text>
+    </View>
+  );
+}
 
 export default function VoiceCallScreen({ route, navigation }: any) {
   const { direction, targetId, targetName } = route.params;
-  // incoming 场景的 offer SDP（由 WS 消息处理存入 webrtcService 后获取）
+  const insets = useSafeAreaInsets();
+  const { state } = useAuth();
   const [remoteSdp, setRemoteSdp] = useState<any>(null);
-
   const [callState, setCallState] = useState<CallState>(
     direction === "incoming" ? "ringing" : "calling"
   );
   const [callSeconds, setCallSeconds] = useState(0);
-  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
-  const connectTimeRef = useRef<number>(0);
+  const [muted, setMuted] = useState(false);
+  const [reduceMotion, setReduceMotion] = useState(false);
+  const connectTimeRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const returnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const finishedRef = useRef(false);
+  const ringPulse = useRef(new Animated.Value(0)).current;
+  const voicePulse = useRef(new Animated.Value(0)).current;
 
-  // 计时器
+  const displayName = targetName || "未知用户";
+  const myDisplayName = state.user?.nickname || state.user?.username || "";
+  const initials = Array.from(displayName).slice(0, 2).join("").toUpperCase();
+  const activeCall = ["calling", "ringing", "connecting", "connected"].includes(callState);
+
+  const scheduleReturn = (delay: number) => {
+    if (returnTimerRef.current) clearTimeout(returnTimerRef.current);
+    returnTimerRef.current = setTimeout(() => navigation.goBack(), delay);
+  };
+
+  const finishCall = (state: "ended" | "failed", delay = 1800) => {
+    if (finishedRef.current) return;
+    finishedRef.current = true;
+    setCallState(state);
+    scheduleReturn(delay);
+  };
+
   useEffect(() => {
-    if (callState === "connected") {
-      connectTimeRef.current = Date.now();
-      timerRef.current = setInterval(() => {
-        setCallSeconds(Math.floor((Date.now() - connectTimeRef.current) / 1000));
-      }, 1000);
-    }
+    AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
+    const subscription = AccessibilityInfo.addEventListener("reduceMotionChanged", setReduceMotion);
+    return () => subscription.remove();
+  }, []);
+
+  useEffect(() => {
+    if (callState !== "connected") return;
+    connectTimeRef.current = Date.now();
+    timerRef.current = setInterval(() => {
+      setCallSeconds(Math.floor((Date.now() - connectTimeRef.current) / 1000));
+    }, 1000);
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
+      timerRef.current = null;
     };
   }, [callState]);
 
-  // 注册 WebRTC 事件 + 获取来电 SDP
+  useEffect(() => {
+    if (reduceMotion || !["calling", "ringing", "connecting"].includes(callState)) {
+      ringPulse.stopAnimation();
+      ringPulse.setValue(0);
+      return;
+    }
+    const animation = Animated.loop(
+      Animated.timing(ringPulse, {
+        toValue: 1,
+        duration: 2600,
+        useNativeDriver: true,
+      })
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [callState, reduceMotion, ringPulse]);
+
+  useEffect(() => {
+    if (reduceMotion || callState !== "connected") {
+      voicePulse.stopAnimation();
+      voicePulse.setValue(0);
+      return;
+    }
+    let cancelled = false;
+    let reading = false;
+    const updateLevel = async () => {
+      if (reading) return;
+      reading = true;
+      const level = await webrtcService.getAudioLevel();
+      reading = false;
+      if (cancelled) return;
+      Animated.timing(voicePulse, {
+        toValue: Math.min(1, level * 3),
+        duration: 180,
+        useNativeDriver: true,
+      }).start();
+    };
+    void updateLevel();
+    const levelTimer = setInterval(() => void updateLevel(), 240);
+    return () => {
+      cancelled = true;
+      clearInterval(levelTimer);
+      voicePulse.stopAnimation();
+      voicePulse.setValue(0);
+    };
+  }, [callState, reduceMotion, voicePulse]);
+
+  useEffect(() => {
+    if (callState === "connected") {
+      AccessibilityInfo.announceForAccessibility("语音通话已接通");
+    } else if (callState === "failed") {
+      AccessibilityInfo.announceForAccessibility("暂时无法建立语音通话");
+    } else if (callState === "ended") {
+      AccessibilityInfo.announceForAccessibility("语音通话已结束");
+    }
+  }, [callState]);
+
   useEffect(() => {
     webrtcService.setHandlers({
       onIncomingCall: () => {},
-      onCallAccepted: () => setCallState("connected"),
-      onCallRejected: () => {
-        setCallState("ended");
-        setTimeout(() => navigation.goBack(), 2000);
+      onCallAccepted: () => {
+        if (!finishedRef.current) {
+          setCallState((current) => current === "connected" ? current : "connecting");
+        }
       },
-      onCallEnded: () => {
-        setCallState("ended");
-        setTimeout(() => navigation.goBack(), 2000);
-      },
-      onRemoteStream: (stream) => {
-        setRemoteStream(stream);
+      onCallRejected: () => finishCall("ended"),
+      onCallEnded: () => finishCall("ended"),
+      onRemoteStream: () => {},
+      onConnectionStateChange: (connectionState) => {
+        if (finishedRef.current) return;
+        if (connectionState === "connected") {
+          setCallState("connected");
+        } else if (connectionState === "failed") {
+          finishCall("failed");
+        } else if (connectionState === "disconnected" || connectionState === "closed") {
+          finishCall("ended");
+        }
       },
     });
 
     if (direction === "outgoing") {
-      // 呼出方：开始呼叫
-      webrtcService.startCall(targetId, targetName);
+      void webrtcService.startCall(targetId, myDisplayName).then((started) => {
+        if (!started) finishCall("failed");
+      });
     } else {
-      // 来电方：从 service 取出之前 WS 存储的 SDP
       const pending = webrtcService.getPendingOffer();
       if (pending) {
         setRemoteSdp(pending.sdp);
+      } else {
+        finishCall("failed");
       }
     }
 
     return () => {
+      if (returnTimerRef.current) clearTimeout(returnTimerRef.current);
+      webrtcService.cleanup();
       webrtcService.setHandlers({
         onIncomingCall: () => {},
         onCallAccepted: () => {},
         onCallRejected: () => {},
         onCallEnded: () => {},
         onRemoteStream: () => {},
+        onConnectionStateChange: () => {},
       });
     };
-  }, []);
+  }, [direction, myDisplayName, navigation, targetId]);
 
-  // 接听 — 创建 WebRTC answer
   const handleAccept = async () => {
-    if (remoteSdp) {
-      try {
-        await webrtcService.answerCall(targetId, remoteSdp);
-      } catch {
-        // answerCall 内部已处理异常
-      }
+    if (!remoteSdp || callState !== "ringing") return;
+    setCallState("connecting");
+    const accepted = await webrtcService.answerCall(targetId, remoteSdp);
+    if (!accepted) {
+      finishCall("failed");
     }
-    setCallState("connected");
   };
 
-  // 拒绝/挂断
+  const handleMute = () => {
+    if (callState !== "connected") return;
+    const nextMuted = !muted;
+    if (webrtcService.setMuted(nextMuted)) {
+      setMuted(nextMuted);
+      AccessibilityInfo.announceForAccessibility(nextMuted ? "已静音" : "已取消静音");
+    }
+  };
+
   const handleHangup = () => {
+    if (!activeCall) {
+      navigation.goBack();
+      return;
+    }
     if (direction === "incoming" && callState === "ringing") {
       webrtcService.reject(targetId);
     } else {
       webrtcService.hangup(targetId);
     }
-    setCallState("ended");
-    setTimeout(() => navigation.goBack(), 1500);
+    finishCall("ended", 1600);
   };
 
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("beforeRemove", (event: any) => {
+      if (!activeCall || finishedRef.current) return;
+      event.preventDefault();
+      handleHangup();
+    });
+    return unsubscribe;
+  }, [activeCall, callState, direction, navigation, targetId]);
+
+  useEffect(() => {
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (!activeCall) return false;
+      handleHangup();
+      return true;
+    });
+    return () => subscription.remove();
+  }, [activeCall, callState, direction, targetId]);
+
+  const statusText = (() => {
+    if (callState === "ringing") return "邀请你进行语音通话";
+    if (callState === "calling") return "正在等待对方接听";
+    if (callState === "connecting") return "正在建立安全连接";
+    if (callState === "connected") return formatSeconds(callSeconds);
+    if (callState === "failed") return "暂时无法建立通话";
+    return callSeconds > 0
+      ? `通话结束 · ${formatSeconds(callSeconds)}`
+      : "通话已结束";
+  })();
+
+  const ringStyle = (startScale: number, endScale: number, opacity: number) => ({
+    opacity: ringPulse.interpolate({ inputRange: [0, 1], outputRange: [opacity, 0] }),
+    transform: [{
+      scale: ringPulse.interpolate({ inputRange: [0, 1], outputRange: [startScale, endScale] }),
+    }],
+  });
+
+  const voiceScale = voicePulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.035] });
+
   return (
-    <View style={styles.container}>
-      {/* 静音背景动画区域 */}
-      <View style={styles.callArea}>
-        {remoteStream ? (
-          <RTCView streamURL={remoteStream.toURL()} style={styles.rtcView} />
-        ) : (
-          <View style={styles.avatarPlaceholder}>
-            <Text style={styles.avatarText}>
-              {targetName.slice(0, 2).toUpperCase()}
-            </Text>
+    <View style={[styles.container, { paddingTop: insets.top, paddingBottom: Math.max(insets.bottom, 18) }]}>
+      <View style={styles.content}>
+        <View style={styles.orbitArea}>
+          {callState === "connected" ? (
+            <>
+              <Animated.View style={[styles.orbit, styles.orbitOne, styles.connectedOrbit, { transform: [{ scale: voiceScale }] }]} />
+              <Animated.View style={[styles.orbit, styles.orbitTwo, styles.connectedOrbitSoft, { transform: [{ scale: voiceScale }] }]} />
+              <Animated.View style={[styles.orbit, styles.orbitThree, styles.connectedOrbitFaint, { transform: [{ scale: voiceScale }] }]} />
+            </>
+          ) : (
+            <>
+              <Animated.View style={[styles.orbit, styles.orbitOne, ringStyle(0.82, 1.18, 0.34)]} />
+              <Animated.View style={[styles.orbit, styles.orbitTwo, ringStyle(0.78, 1.12, 0.22)]} />
+              <Animated.View style={[styles.orbit, styles.orbitThree, ringStyle(0.74, 1.08, 0.14)]} />
+            </>
+          )}
+          <Animated.View style={[styles.avatar, callState === "connected" && { transform: [{ scale: voiceScale }] }]}>
+            <Text style={styles.avatarText}>{initials}</Text>
+          </Animated.View>
+        </View>
+
+        <Text style={styles.callerName}>{displayName}</Text>
+        <View style={styles.statusRow}>
+          {callState === "connecting" ? (
+            <ActivityIndicator size="small" color={COLORS.accent} />
+          ) : callState === "connected" ? (
+            <View style={styles.connectedDot} />
+          ) : null}
+          <Text style={[styles.statusText, callState === "failed" && styles.failedText]}>
+            {statusText}
+          </Text>
+        </View>
+
+        {callState === "connected" ? (
+          <View style={styles.voiceBars} accessibilityLabel="通话连接正常">
+            {[0.48, 0.76, 1, 0.7, 0.42].map((height, index) => (
+              <Animated.View
+                key={`${height}-${index}`}
+                style={[
+                  styles.voiceBar,
+                  {
+                    height: 30 * height,
+                    transform: [{
+                      scaleY: voicePulse.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: index % 2 === 0 ? [0.55, 1] : [1, 0.58],
+                      }),
+                    }],
+                  },
+                ]}
+              />
+            ))}
           </View>
-        )}
+        ) : null}
       </View>
 
-      <Text style={styles.callerName}>{targetName}</Text>
-
-      <Text style={styles.statusText}>
-        {callState === "ringing" && "对方邀请你语音通话..."}
-        {callState === "calling" && "等待对方接听..."}
-        {callState === "connected" && formatSeconds(callSeconds)}
-        {callState === "ended" && "通话已结束"}
-      </Text>
-
-      {/* 操作按钮 */}
       <View style={styles.actions}>
         {callState === "ringing" ? (
           <>
-            <TouchableOpacity style={styles.rejectBtn} onPress={handleHangup}>
-              <Text style={styles.btnText}>拒绝</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.acceptBtn} onPress={handleAccept}>
-              <Text style={styles.btnText}>接听</Text>
-            </TouchableOpacity>
+            <ControlButton
+              label="拒绝"
+              hint="拒绝这次语音通话"
+              destructive
+              onPress={handleHangup}
+            />
+            <ControlButton
+              label="接听"
+              hint="接听这次语音通话"
+              active
+              onPress={handleAccept}
+            />
           </>
-        ) : callState === "ended" ? (
-          <TouchableOpacity
-            style={styles.backBtn}
-            onPress={() => navigation.goBack()}
-          >
-            <Text style={styles.btnText}>返回</Text>
-          </TouchableOpacity>
+        ) : activeCall ? (
+          <>
+            <ControlButton
+              label={muted ? "取消静音" : "静音"}
+              hint={muted ? "重新开启麦克风" : "关闭本机麦克风"}
+              active={muted}
+              disabled={callState !== "connected"}
+              onPress={handleMute}
+            />
+            <ControlButton
+              label="扬声器"
+              hint="等待原生音频路由接入"
+              disabled
+              onPress={() => {}}
+            />
+            <ControlButton
+              label="挂断"
+              hint="结束当前语音通话"
+              destructive
+              onPress={handleHangup}
+            />
+          </>
         ) : (
-          <TouchableOpacity style={styles.rejectBtn} onPress={handleHangup}>
-            <Text style={styles.btnText}>挂断</Text>
-          </TouchableOpacity>
+          <ControlButton
+            label="返回"
+            hint="返回聊天页面"
+            onPress={() => navigation.goBack()}
+          />
         )}
       </View>
     </View>
   );
 }
 
-function formatSeconds(total: number): string {
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${m}:${s.toString().padStart(2, "0")}`;
-}
-
 const styles = StyleSheet.create({
   container: {
-    flex: 1, backgroundColor: "#1a1a2e",
+    flex: 1, backgroundColor: COLORS.background,
+    alignItems: "center", justifyContent: "space-between",
+  },
+  content: { flex: 1, width: "100%", alignItems: "center", justifyContent: "center", paddingHorizontal: 28 },
+  orbitArea: { width: 232, height: 232, alignItems: "center", justifyContent: "center" },
+  orbit: {
+    position: "absolute", borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: COLORS.accent,
+  },
+  orbitOne: { width: 226, height: 226 },
+  orbitTwo: { width: 190, height: 190 },
+  orbitThree: { width: 158, height: 158 },
+  connectedOrbit: { opacity: 0.18 },
+  connectedOrbitSoft: { opacity: 0.11 },
+  connectedOrbitFaint: { opacity: 0.07 },
+  avatar: {
+    width: 126, height: 126, borderRadius: 63,
     alignItems: "center", justifyContent: "center",
+    backgroundColor: COLORS.surface,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(255,255,255,0.12)",
   },
-  callArea: {
-    width: 200, height: 200, borderRadius: 100,
-    backgroundColor: "rgba(255,255,255,0.1)",
-    alignItems: "center", justifyContent: "center",
-    marginBottom: 24,
-    overflow: "hidden",
+  avatarText: { color: COLORS.ink, fontSize: 32, fontWeight: "700" },
+  callerName: { marginTop: 18, color: COLORS.ink, fontSize: 25, fontWeight: "700" },
+  statusRow: { minHeight: 26, marginTop: 8, flexDirection: "row", alignItems: "center", gap: 8 },
+  connectedDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: COLORS.accent },
+  statusText: { color: COLORS.muted, fontSize: 14, fontVariant: ["tabular-nums"] },
+  failedText: { color: "#F0A39D" },
+  voiceBars: { height: 34, marginTop: 30, flexDirection: "row", alignItems: "center", gap: 5 },
+  voiceBar: { width: 3, borderRadius: 2, backgroundColor: COLORS.accent },
+  actions: {
+    width: "100%", minHeight: 126, paddingHorizontal: 22,
+    flexDirection: "row", alignItems: "center", justifyContent: "space-around",
   },
-  rtcView: { width: "100%", height: "100%" },
-  avatarPlaceholder: {
-    width: 120, height: 120, borderRadius: 60,
-    backgroundColor: "rgba(255,255,255,0.2)",
-    alignItems: "center", justifyContent: "center",
+  controlItem: { minWidth: 76, alignItems: "center" },
+  controlButton: {
+    width: 64, height: 64, borderRadius: 32,
+    alignItems: "center", justifyContent: "center", backgroundColor: COLORS.control,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(255,255,255,0.13)",
   },
-  avatarText: { fontSize: 40, fontWeight: "700", color: "#fff" },
-  callerName: { fontSize: 24, fontWeight: "600", color: "#fff", marginBottom: 8 },
-  statusText: { fontSize: 15, color: "rgba(255,255,255,0.6)", marginBottom: 60 },
-  actions: { flexDirection: "row", gap: 40 },
-  rejectBtn: {
-    width: 70, height: 70, borderRadius: 35,
-    backgroundColor: "#ff4444", alignItems: "center", justifyContent: "center",
-  },
-  acceptBtn: {
-    width: 70, height: 70, borderRadius: 35,
-    backgroundColor: "#4cd964", alignItems: "center", justifyContent: "center",
-  },
-  backBtn: {
-    paddingHorizontal: 30, paddingVertical: 14, borderRadius: 25,
-    backgroundColor: "rgba(255,255,255,0.15)",
-  },
-  btnText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  controlButtonActive: { backgroundColor: COLORS.controlActive },
+  controlButtonDanger: { backgroundColor: COLORS.danger, borderColor: COLORS.danger },
+  controlButtonDisabled: { opacity: 0.34 },
+  controlMark: { color: COLORS.ink, fontSize: 17, fontWeight: "700" },
+  controlMarkActive: { color: COLORS.background },
+  controlMarkDanger: { color: "#FFFFFF", fontSize: 30, fontWeight: "300", lineHeight: 32 },
+  controlLabel: { marginTop: 9, color: COLORS.muted, fontSize: 12 },
+  controlLabelDisabled: { color: COLORS.faint },
 });
