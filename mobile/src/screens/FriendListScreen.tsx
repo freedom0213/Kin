@@ -15,6 +15,7 @@ import { kinWS } from "../api/ws";
 import {
   ConversationSummary, getConversationSummaries,
 } from "../services/db";
+import { kinFeedback } from "../services/feedback";
 
 const COLORS = {
   background: "#F4F5F2",
@@ -162,6 +163,7 @@ export default function FriendListScreen({ navigation }: any) {
     try {
       const data = await getFriendList();
       setFriends(data.friends);
+      kinFeedback.seedFriendStatuses(data.friends);
       const nextSummaries = await getConversationSummaries(
         data.friends.map((friend) => friend.user_id),
         state.user?.id || ""
@@ -193,6 +195,7 @@ export default function FriendListScreen({ navigation }: any) {
   // 好友状态变化时立即在 Online / Offline 分组之间更新
   useEffect(() => {
     const onFriendStatus = (data: any) => {
+      kinFeedback.handleFriendStatus(data.user_id, !!data.is_online);
       setFriends((current) => current.map((friend) => (
         friend.user_id === data.user_id
           ? { ...friend, is_online: !!data.is_online }

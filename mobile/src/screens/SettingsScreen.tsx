@@ -10,6 +10,12 @@ import { useAuth } from "../stores/AuthContext";
 import { getLocalMessageStats } from "../services/db";
 import { exportMessagesToFile } from "../services/export";
 import { getStoredKeyPair } from "../services/keys";
+import {
+  DEFAULT_PREFERENCES,
+  getPreferences,
+  updatePreference,
+  type KinPreferences,
+} from "../services/preferences";
 
 const COLORS = {
   background: "#F4F5F2",
@@ -25,6 +31,7 @@ const COLORS = {
 };
 
 type BusyAction = "export" | "logout" | null;
+type PreferenceKey = keyof KinPreferences;
 
 function getInitials(name: string): string {
   return Array.from(name).slice(0, 2).join("").toUpperCase();
@@ -44,11 +51,15 @@ function PreferenceRow({
   hint,
   value,
   disabled = false,
+  loading = false,
+  onValueChange,
 }: {
   title: string;
   hint: string;
   value: boolean;
   disabled?: boolean;
+  loading?: boolean;
+  onValueChange?: (value: boolean) => void;
 }) {
   return (
     <View style={styles.row}>
@@ -56,14 +67,19 @@ function PreferenceRow({
         <Text style={styles.rowTitle}>{title}</Text>
         <Text style={styles.rowHint}>{hint}</Text>
       </View>
-      <Switch
-        value={value}
-        disabled={disabled}
-        trackColor={{ false: "#D8DBD7", true: "#A9DEC9" }}
-        thumbColor={value ? COLORS.accent : "#FFFFFF"}
-        accessibilityLabel={title}
-        accessibilityState={{ disabled }}
-      />
+      {loading ? (
+        <ActivityIndicator size="small" color={COLORS.accent} />
+      ) : (
+        <Switch
+          value={value}
+          disabled={disabled}
+          onValueChange={onValueChange}
+          trackColor={{ false: "#D8DBD7", true: "#A9DEC9" }}
+          thumbColor={value ? COLORS.accent : "#FFFFFF"}
+          accessibilityLabel={title}
+          accessibilityState={{ disabled, checked: value }}
+        />
+      )}
     </View>
   );
 }
@@ -123,6 +139,8 @@ export default function SettingsScreen({ navigation }: any) {
   const [messageCount, setMessageCount] = useState<number | null>(null);
   const [conversationCount, setConversationCount] = useState<number | null>(null);
   const [hasKeyPair, setHasKeyPair] = useState<boolean | null>(null);
+  const [preferences, setPreferences] = useState<KinPreferences>(DEFAULT_PREFERENCES);
+  const [busyPreference, setBusyPreference] = useState<PreferenceKey | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
 
@@ -134,7 +152,8 @@ export default function SettingsScreen({ navigation }: any) {
     Promise.allSettled([
       getLocalMessageStats(),
       getStoredKeyPair(),
-    ]).then(([statsResult, keyResult]) => {
+      getPreferences(),
+    ]).then(([statsResult, keyResult, preferencesResult]) => {
       if (!active) return;
       if (statsResult.status === "fulfilled") {
         setMessageCount(statsResult.value.messageCount);
@@ -143,11 +162,30 @@ export default function SettingsScreen({ navigation }: any) {
       if (keyResult.status === "fulfilled") {
         setHasKeyPair(!!keyResult.value);
       }
+      if (preferencesResult.status === "fulfilled") {
+        setPreferences(preferencesResult.value);
+      }
     }).finally(() => {
       if (active) setLoading(false);
     });
     return () => { active = false; };
   }, []);
+
+  const handlePreferenceChange = async (key: PreferenceKey, value: boolean) => {
+    if (busyPreference) return;
+    const previous = preferences[key];
+    setBusyPreference(key);
+    setPreferences((current) => ({ ...current, [key]: value }));
+    try {
+      const saved = await updatePreference(key, value);
+      setPreferences(saved);
+    } catch {
+      setPreferences((current) => ({ ...current, [key]: previous }));
+      Alert.alert("设置未保存", "无法写入这台设备，请检查存储权限后重试。");
+    } finally {
+      setBusyPreference(null);
+    }
+  };
 
   const showEncryptionStatus = () => {
     if (hasKeyPair === null) {
@@ -249,21 +287,27 @@ export default function SettingsScreen({ navigation }: any) {
         <Section title="通知与状态">
           <PreferenceRow
             title="消息提示音"
-            hint="等待通知声音服务接入"
-            value={false}
-            disabled
+            hint="收到新消息时播放一声轻提示"
+            value={preferences.messageSound}
+            disabled={busyPreference !== null}
+            loading={busyPreference === "messageSound"}
+            onValueChange={(value) => { void handlePreferenceChange("messageSound", value); }}
           />
           <PreferenceRow
             title="好友上线提示音"
-            hint="等待上线提醒声音接入"
-            value={false}
-            disabled
+            hint="好友稳定上线后播放提示，短暂掉线不会打扰"
+            value={preferences.friendOnlineSound}
+            disabled={busyPreference !== null}
+            loading={busyPreference === "friendOnlineSound"}
+            onValueChange={(value) => { void handlePreferenceChange("friendOnlineSound", value); }}
           />
           <PreferenceRow
             title="触觉反馈"
-            hint="等待真机触觉反馈接入"
-            value={false}
-            disabled
+            hint="Android 收到消息时提供一次短触觉"
+            value={preferences.hapticFeedback}
+            disabled={busyPreference !== null}
+            loading={busyPreference === "hapticFeedback"}
+            onValueChange={(value) => { void handlePreferenceChange("hapticFeedback", value); }}
           />
           <PreferenceRow
             title="展示在线状态"

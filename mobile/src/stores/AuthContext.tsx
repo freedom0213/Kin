@@ -5,6 +5,7 @@ import * as SecureStore from "expo-secure-store";
 import { setToken, getProfile as apiGetProfile } from "../api/client";
 import { kinWS } from "../api/ws";
 import { messageInbox } from "../services/messageInbox";
+import { kinFeedback } from "../services/feedback";
 
 interface User {
   id: string;
@@ -79,6 +80,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
+  useEffect(() => {
+    const onInboxMessage = () => { void kinFeedback.notifyIncomingMessage(); };
+    kinWS.on("inbox_message", onInboxMessage);
+    return () => kinWS.off("inbox_message", onInboxMessage);
+  }, []);
+
   const loginAction = async (token: string, user: User) => {
     await SecureStore.setItemAsync("kin_token", token);
     setToken(token);
@@ -92,6 +99,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(null);
     kinWS.disconnect();
     messageInbox.stop();
+    kinFeedback.reset();
     dispatch({ type: "LOGOUT" });
   };
 
