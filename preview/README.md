@@ -1,12 +1,18 @@
 # Kin 页面设计 Demo
 
-这是一个独立、可丢弃的静态交互原型，不是生产代码。
+这是一个独立的交互式设计原型，不是生产 App。它由 Vite 提供本地实时预览，保存 HTML、CSS 或 JavaScript 后，浏览器会自动刷新。
 
-启动方式：
+首次使用先安装依赖：
 
 ```powershell
-cd D:\Vibe-coding\Kin
-python -m http.server 4173 --directory preview
+cd D:\Vibe-coding\Kin\preview
+npm.cmd install
+```
+
+启动实时预览：
+
+```powershell
+npm.cmd run dev
 ```
 
 浏览器打开：
@@ -22,3 +28,11 @@ http://localhost:4173/kin-design-demo.html?variant=flow
 - `?variant=lab`：Online / Offline 状态对照
 
 页面底部的切换器或键盘左右方向键可以切换查看方式。
+
+生成静态构建：
+
+```powershell
+npm.cmd run build
+```
+
+构建结果输出到 `preview/dist`，该目录不会提交到 Git。
