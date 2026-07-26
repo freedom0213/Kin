@@ -90,6 +90,8 @@ export async function importMessagesFromFile(
       content: m.content || "",
       duration: m.duration,
       is_read: !!m.is_read,
+      encrypted: !!m.encrypted,
+      delivery_status: m.delivery_status,
       created_at: m.created_at || new Date().toISOString(),
     }));
 

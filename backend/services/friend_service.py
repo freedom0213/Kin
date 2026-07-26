@@ -181,6 +181,10 @@ def remove_friend(user_id: str, friend_id: str) -> dict:
         )
         conn.commit()
 
+    # 好友关系终止后，不再补发双方此前排队的消息。
+    from services.offline_message_store import message_store
+    message_store.delete_between(user_id, friend_id)
+
     return {"success": True, "message": "好友已删除"}
 
 

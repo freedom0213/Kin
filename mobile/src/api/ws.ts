@@ -5,19 +5,31 @@ import { getToken } from "./client";
 import { webrtcService } from "../services/webrtc";
 
 type MessageHandler = (data: any) => void;
+type IncomingMessageProcessor = (data: any) => Promise<any | null>;
 
 class KinWebSocket {
   private ws: WebSocket | null = null;
   private _handlers: Map<string, Set<MessageHandler>> = new Map();
   private _reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private _userId: string | null = null;
+  private _shouldReconnect = false;
+  private _incomingMessageProcessor: IncomingMessageProcessor | null = null;
 
   get userId(): string | null {
     return this._userId;
   }
 
   connect(token: string) {
-    if (this.ws) this.ws.close();
+    this._shouldReconnect = true;
+    if (this._reconnectTimer) {
+      clearTimeout(this._reconnectTimer);
+      this._reconnectTimer = null;
+    }
+    if (this.ws) {
+      this._stopHeartbeat();
+      this.ws.onclose = null;
+      this.ws.close();
+    }
 
     this.ws = new WebSocket(`${WS_BASE}/ws?token=${token}`);
 
@@ -26,14 +38,21 @@ class KinWebSocket {
       this._startHeartbeat();
       // 设置 WebRTC 信令发送函数
       webrtcService.setSignalSender((data) => this.send(data));
+      this._dispatch("connected", { type: "connected" });
     };
 
-    this.ws.onmessage = (event) => {
+    this.ws.onmessage = async (event) => {
       try {
         const data = JSON.parse(event.data);
         const type = data.type;
-        if (type && this._handlers.has(type)) {
-          this._handlers.get(type)!.forEach((fn) => fn(data));
+        if (
+          (type === "chat_message" || type === "voice_message")
+          && this._incomingMessageProcessor
+        ) {
+          const processed = await this._incomingMessageProcessor(data);
+          if (processed) this._dispatch("inbox_message", processed);
+        } else if (type) {
+          this._dispatch(type, data);
         }
         if (this._handlers.has("*")) {
           this._handlers.get("*")!.forEach((fn) => fn(data));
@@ -47,7 +66,7 @@ class KinWebSocket {
       console.log("[WS] 已断开");
       this._stopHeartbeat();
       const t = getToken();
-      if (t) {
+      if (t && this._shouldReconnect) {
         this._reconnectTimer = setTimeout(() => this.connect(t), 3000);
       }
     };
@@ -58,7 +77,11 @@ class KinWebSocket {
   }
 
   disconnect() {
-    if (this._reconnectTimer) clearTimeout(this._reconnectTimer);
+    this._shouldReconnect = false;
+    if (this._reconnectTimer) {
+      clearTimeout(this._reconnectTimer);
+      this._reconnectTimer = null;
+    }
     this._stopHeartbeat();
     if (this.ws) {
       this.ws.close();
@@ -66,10 +89,16 @@ class KinWebSocket {
     }
   }
 
-  send(data: Record<string, any>) {
+  send(data: Record<string, any>): boolean {
     if (this.ws?.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(data));
+      return true;
     }
+    return false;
+  }
+
+  setIncomingMessageProcessor(processor: IncomingMessageProcessor | null) {
+    this._incomingMessageProcessor = processor;
   }
 
   // -- WebRTC 信令分发 --
@@ -124,6 +153,16 @@ class KinWebSocket {
   /** 发送已读回执 */
   sendReadReceipt(to: string, msgId: string) {
     this.send({ type: "read_receipt", to, msg_id: msgId });
+  }
+
+  /** 接收设备已完成去重、解密和本地保存。 */
+  sendMessageReceived(msgId: string) {
+    this.send({ type: "message_received", msg_id: msgId });
+  }
+
+  /** 请求服务端补发消息并恢复 Outbox 状态。 */
+  syncMessages() {
+    this.send({ type: "sync_messages" });
   }
 
   /** 发送正在输入 */

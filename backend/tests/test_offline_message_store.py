@@ -88,6 +88,18 @@ class OfflineMessageStoreTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "端到端加密"):
             self.store.enqueue("alice", "bob", payload, now=100)
 
+    def test_delete_between_removes_both_directions(self):
+        self.store.enqueue("alice", "bob", self.payload("a-to-b"), now=100)
+        self.store.enqueue("bob", "alice", self.payload("b-to-a"), now=101)
+        self.store.enqueue("alice", "carol", self.payload("a-to-c"), now=102)
+
+        removed = self.store.delete_between("alice", "bob")
+
+        self.assertEqual(2, removed)
+        self.assertIsNone(self.store.get("a-to-b"))
+        self.assertIsNone(self.store.get("b-to-a"))
+        self.assertIsNotNone(self.store.get("a-to-c"))
+
 
 if __name__ == "__main__":
     unittest.main()

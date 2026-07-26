@@ -10,14 +10,14 @@ import { useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { kinWS } from "../api/ws";
 import { useAuth } from "../stores/AuthContext";
-import { encrypt, decrypt } from "../services/encryption";
+import { encrypt } from "../services/encryption";
 import { getSecretKey } from "../services/keys";
 import { VoiceRecorder, VoiceMessageBubble } from "../components/VoiceMessage";
 import {
   saveMessage, getMessages, markAsRead, markChatAsRead,
 } from "../services/db";
 
-type DeliveryStatus = "sending" | "delivered" | "read" | "failed";
+type DeliveryStatus = "sending" | "queued" | "delivered" | "read" | "failed";
 
 interface Message {
   id: string;
@@ -269,7 +269,8 @@ function ChatAmbientBackground({
 
 let _msgCounter = 0;
 function genMsgId(): string {
-  return `${Date.now()}_${++_msgCounter}`;
+  const randomPart = Math.random().toString(36).slice(2, 10);
+  return `${Date.now()}_${randomPart}_${++_msgCounter}`;
 }
 
 export default function ChatScreen({ route }: any) {
@@ -291,7 +292,6 @@ export default function ChatScreen({ route }: any) {
     side: RippleSide;
   }>({ key: 0, side: "other" });
   const flatListRef = useRef<FlatList>(null);
-  const pendingMessageIdsRef = useRef<string[]>([]);
   const lastTypingSentRef = useRef(0);
   const typingHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -317,9 +317,14 @@ export default function ChatScreen({ route }: any) {
             type: m.type, duration: m.duration,
             is_read: m.is_read, created_at: m.created_at,
             delivery_status: m.sender_id === myId
-              ? (m.is_read ? "read" : "delivered")
+              ? (m.delivery_status || (m.is_read ? "read" : "delivered"))
               : undefined,
           })));
+        }
+        for (const message of history) {
+          if (message.sender_id !== myId && !message.is_read) {
+            kinWS.sendReadReceipt(friend.user_id, message.id);
+          }
         }
         await markChatAsRead(friend.user_id, myId);
       } catch { /* 本地加载失败不阻塞 */ }
@@ -330,44 +335,31 @@ export default function ChatScreen({ route }: any) {
   // WebSocket 消息监听
   useEffect(() => {
     const onMessage = (data: any) => {
-      if (data.type === "chat_message" || data.type === "voice_message") {
+      if (data.type === "inbox_message") {
         if (data.from !== friend.user_id) return;
         setIsTyping(false);
         if (typingHideTimerRef.current) clearTimeout(typingHideTimerRef.current);
-        let displayContent: string = data.content;
-        const isVoice = data.type === "voice_message";
-
-        // E2E 解密（语音和文字统一处理）
-        if (data.encrypted && friendPublicKey && mySecretKey && displayContent) {
-          try {
-            displayContent = decrypt(data.content, friendPublicKey, mySecretKey);
-          } catch {
-            displayContent = isVoice ? "" : "[解密失败]";
-          }
-        }
 
         const msg: Message = {
           id: data.msg_id || genMsgId(),
           from: data.from,
-          content: displayContent,
-          type: isVoice ? "voice" : "text",
-          duration: isVoice ? (data.duration || 0) : undefined,
+          content: data.content,
+          type: data.message_type === "voice" ? "voice" : "text",
+          duration: data.message_type === "voice" ? (data.duration || 0) : undefined,
           is_read: true,
-          created_at: new Date().toISOString(),
+          created_at: data.created_at || new Date().toISOString(),
         };
-        setMessages((prev) => [...prev, msg]);
+        setMessages((prev) => prev.some((item) => item.id === msg.id) ? prev : [...prev, msg]);
         setBackgroundPulse((current) => ({ key: current.key + 1, side: "other" }));
         kinWS.sendReadReceipt(friend.user_id, msg.id);
-        // 存入本地 SQLite
-        saveMessage({
-          id: msg.id, chat_id: friend.user_id, sender_id: msg.from,
-          type: msg.type, content: msg.content, duration: msg.duration,
-          is_read: true, created_at: msg.created_at,
-        }).catch(() => {});
+        markAsRead(msg.id).catch(() => {});
+      } else if (data.type === "queued" && data.to === friend.user_id) {
+        setMessages((prev) => prev.map((message) => (
+          message.id === data.msg_id
+            ? { ...message, delivery_status: "queued" }
+            : message
+        )));
       } else if (data.type === "delivered" && data.to === friend.user_id) {
-        pendingMessageIdsRef.current = pendingMessageIdsRef.current.filter(
-          (id) => id !== data.msg_id
-        );
         setMessages((prev) => prev.map((message) => (
           message.id === data.msg_id
             ? { ...message, delivery_status: "delivered" }
@@ -380,6 +372,17 @@ export default function ChatScreen({ route }: any) {
             : m))
         );
         markAsRead(data.msg_id).catch(() => {});
+      } else if (data.type === "message_status" && data.to === friend.user_id) {
+        if (!["queued", "delivered", "read"].includes(data.status)) return;
+        setMessages((prev) => prev.map((message) => (
+          message.id === data.msg_id
+            ? {
+              ...message,
+              is_read: data.status === "read" ? true : message.is_read,
+              delivery_status: data.status as DeliveryStatus,
+            }
+            : message
+        )));
       } else if (data.type === "friend_status" && data.user_id === friend.user_id) {
         setIsOnline(data.is_online);
         if (!data.is_online) setIsTyping(false);
@@ -392,10 +395,9 @@ export default function ChatScreen({ route }: any) {
         }, 1800);
       } else if (
         data.type === "error"
-        && data.code === "OFFLINE"
         && data.to === friend.user_id
       ) {
-        const failedId = pendingMessageIdsRef.current.shift();
+        const failedId = data.msg_id;
         if (failedId) {
           setMessages((prev) => prev.map((message) => (
             message.id === failedId
@@ -406,19 +408,21 @@ export default function ChatScreen({ route }: any) {
       }
     };
 
-    kinWS.on("chat_message", onMessage);
-    kinWS.on("voice_message", onMessage);
+    kinWS.on("inbox_message", onMessage);
+    kinWS.on("queued", onMessage);
     kinWS.on("delivered", onMessage);
     kinWS.on("read_receipt", onMessage);
+    kinWS.on("message_status", onMessage);
     kinWS.on("friend_status", onMessage);
     kinWS.on("typing", onMessage);
     kinWS.on("error", onMessage);
 
     return () => {
-      kinWS.off("chat_message", onMessage);
-      kinWS.off("voice_message", onMessage);
+      kinWS.off("inbox_message", onMessage);
+      kinWS.off("queued", onMessage);
       kinWS.off("delivered", onMessage);
       kinWS.off("read_receipt", onMessage);
+      kinWS.off("message_status", onMessage);
       kinWS.off("friend_status", onMessage);
       kinWS.off("typing", onMessage);
       kinWS.off("error", onMessage);
@@ -427,10 +431,10 @@ export default function ChatScreen({ route }: any) {
         typingHideTimerRef.current = null;
       }
     };
-  }, [friend.user_id, friendPublicKey, mySecretKey]);
+  }, [friend.user_id]);
 
   // 发送文字消息
-  const sendTextMessage = () => {
+  const sendTextMessage = async () => {
     const text = inputText.trim();
     if (!text) return;
 
@@ -443,9 +447,14 @@ export default function ChatScreen({ route }: any) {
         contentToSend = encrypt(text, friendPublicKey, mySecretKey);
         isEncrypted = true;
       } catch {
-        contentToSend = text;
+        Alert.alert("发送失败", "消息加密失败，请稍后重试。");
+        return;
       }
     } else {
+      if (!isOnline) {
+        Alert.alert("暂时无法离线发送", "当前会话尚未建立加密保护，无法由服务器安全暂存。");
+        return;
+      }
       contentToSend = text;
     }
 
@@ -455,20 +464,26 @@ export default function ChatScreen({ route }: any) {
       created_at: new Date().toISOString(),
       delivery_status: "sending",
     };
-    pendingMessageIdsRef.current.push(msgId);
     setMessages((prev) => [...prev, msg]);
     setBackgroundPulse((current) => ({ key: current.key + 1, side: "mine" }));
     setInputText("");
-    kinWS.sendMessage(friend.user_id, contentToSend, msgId, isEncrypted);
-    // 存入本地 SQLite
-    saveMessage({
-      id: msg.id, chat_id: friend.user_id, sender_id: myId,
-      type: "text", content: text, is_read: false, created_at: msg.created_at,
-    }).catch(() => {});
+    try {
+      await saveMessage({
+        id: msg.id, chat_id: friend.user_id, sender_id: myId,
+        type: "text", content: text, is_read: false,
+        encrypted: isEncrypted, wire_content: contentToSend,
+        delivery_status: "sending", created_at: msg.created_at,
+      });
+      kinWS.sendMessage(friend.user_id, contentToSend, msgId, isEncrypted);
+    } catch {
+      setMessages((prev) => prev.map((message) => (
+        message.id === msgId ? { ...message, delivery_status: "failed" } : message
+      )));
+    }
   };
 
   // 语音录制完成回调
-  const handleVoiceRecord = (base64Audio: string, duration: number) => {
+  const handleVoiceRecord = async (base64Audio: string, duration: number) => {
     const msgId = genMsgId();
     let contentToSend = base64Audio;
     let isEncrypted = false;
@@ -478,8 +493,12 @@ export default function ChatScreen({ route }: any) {
         contentToSend = encrypt(base64Audio, friendPublicKey, mySecretKey);
         isEncrypted = true;
       } catch {
-        // 加密失败降级
+        Alert.alert("发送失败", "语音消息加密失败，请稍后重试。");
+        return;
       }
+    } else if (!isOnline) {
+      Alert.alert("暂时无法离线发送", "当前会话尚未建立加密保护，无法安全暂存语音消息。");
+      return;
     }
 
     const msg: Message = {
@@ -488,16 +507,21 @@ export default function ChatScreen({ route }: any) {
       created_at: new Date().toISOString(),
       delivery_status: "sending",
     };
-    pendingMessageIdsRef.current.push(msgId);
     setMessages((prev) => [...prev, msg]);
     setBackgroundPulse((current) => ({ key: current.key + 1, side: "mine" }));
-    kinWS.sendVoiceMessage(friend.user_id, contentToSend, duration, msgId, isEncrypted);
-    // 存入本地 SQLite
-    saveMessage({
-      id: msg.id, chat_id: friend.user_id, sender_id: myId,
-      type: "voice", content: base64Audio, duration,
-      is_read: false, created_at: msg.created_at,
-    }).catch(() => {});
+    try {
+      await saveMessage({
+        id: msg.id, chat_id: friend.user_id, sender_id: myId,
+        type: "voice", content: base64Audio, duration,
+        is_read: false, encrypted: isEncrypted, wire_content: contentToSend,
+        delivery_status: "sending", created_at: msg.created_at,
+      });
+      kinWS.sendVoiceMessage(friend.user_id, contentToSend, duration, msgId, isEncrypted);
+    } catch {
+      setMessages((prev) => prev.map((message) => (
+        message.id === msgId ? { ...message, delivery_status: "failed" } : message
+      )));
+    }
   };
 
   // 发起语音通话
@@ -545,7 +569,7 @@ export default function ChatScreen({ route }: any) {
   };
 
   const getStatusMark = (message: Message): string => {
-    if (message.delivery_status === "sending") return "◷";
+    if (message.delivery_status === "sending" || message.delivery_status === "queued") return "◷";
     if (message.delivery_status === "failed") return "!";
     if (message.delivery_status === "read" || message.is_read) return "✓✓";
     return "✓";
@@ -647,7 +671,7 @@ export default function ChatScreen({ route }: any) {
       {!isOnline ? (
         <View style={styles.offlineNotice} accessibilityLiveRegion="polite">
           <Text style={styles.offlineNoticeMark}>!</Text>
-          <Text style={styles.offlineNoticeText}>对方当前离线，暂时无法立即收到消息</Text>
+          <Text style={styles.offlineNoticeText}>对方当前离线，消息将在其上线后送达</Text>
         </View>
       ) : null}
 

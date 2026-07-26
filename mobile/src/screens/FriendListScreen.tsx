@@ -67,6 +67,15 @@ function getMessagePreview(summary?: ConversationSummary): string {
   return message.content || "[空消息]";
 }
 
+function getSummaryStatus(summary: ConversationSummary | undefined, currentUserId: string): string {
+  const message = summary?.last_message;
+  if (!message || message.sender_id !== currentUserId) return "";
+  if (message.delivery_status === "sending" || message.delivery_status === "queued") return "◷";
+  if (message.delivery_status === "failed") return "!";
+  if (message.delivery_status === "read" || message.is_read) return "✓✓";
+  return "✓";
+}
+
 function FriendAvatar({
   friend,
   reduceMotion,
@@ -195,6 +204,13 @@ export default function FriendListScreen({ navigation }: any) {
     return () => kinWS.off("friend_status", onFriendStatus);
   }, []);
 
+  // 全局收件箱在任何页面收到消息后，立即刷新最后消息与未读数。
+  useEffect(() => {
+    const onInboxMessage = () => { void loadFriends(); };
+    kinWS.on("inbox_message", onInboxMessage);
+    return () => kinWS.off("inbox_message", onInboxMessage);
+  }, [loadFriends]);
+
   const onRefresh = async () => {
     setRefreshing(true);
     await loadFriends();
@@ -249,6 +265,7 @@ export default function FriendListScreen({ navigation }: any) {
 
   const renderFriend = ({ item }: { item: Friend }) => {
     const summary = summaries[item.user_id];
+    const statusMark = getSummaryStatus(summary, state.user?.id || "");
     return (
     <TouchableOpacity
       style={styles.friendItem}
@@ -269,6 +286,15 @@ export default function FriendListScreen({ navigation }: any) {
         <Text style={styles.messageTime}>
           {formatConversationTime(summary?.last_message.created_at)}
         </Text>
+        {statusMark ? (
+          <Text style={[
+            styles.summaryStatus,
+            statusMark === "✓✓" && styles.summaryStatusRead,
+            statusMark === "!" && styles.summaryStatusFailed,
+          ]}>
+            {statusMark}
+          </Text>
+        ) : null}
         {summary?.unread_count ? (
           <View style={styles.unreadBadge}>
             <Text style={styles.unreadText}>
@@ -399,6 +425,9 @@ const styles = StyleSheet.create({
   messagePreview: { fontSize: 14, color: COLORS.muted, marginTop: 4 },
   friendMeta: { minWidth: 46, marginLeft: 10, alignItems: "flex-end", alignSelf: "stretch", paddingTop: 5 },
   messageTime: { color: COLORS.faint, fontSize: 12 },
+  summaryStatus: { marginTop: 7, color: COLORS.faint, fontSize: 12 },
+  summaryStatusRead: { color: COLORS.accent },
+  summaryStatusFailed: { color: "#B43A33" },
   unreadBadge: {
     minWidth: 20, height: 20, borderRadius: 10,
     paddingHorizontal: 6, marginTop: 8,

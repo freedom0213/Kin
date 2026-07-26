@@ -3,26 +3,58 @@
 import * as SQLite from "expo-sqlite";
 
 let _db: SQLite.SQLiteDatabase | null = null;
+let _dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
 /** 获取数据库实例（懒初始化） */
 async function getDb(): Promise<SQLite.SQLiteDatabase> {
   if (_db) return _db;
-  _db = await SQLite.openDatabaseAsync("kin_messages.db");
-  await _db.execAsync(`
-    CREATE TABLE IF NOT EXISTS messages (
-      id TEXT PRIMARY KEY,
-      chat_id TEXT NOT NULL,
-      sender_id TEXT NOT NULL,
-      type TEXT NOT NULL DEFAULT 'text',
-      content TEXT,
-      duration REAL,
-      is_read INTEGER DEFAULT 0,
-      created_at TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_msg_chat ON messages(chat_id, created_at);
-  `);
-  return _db;
+  if (!_dbPromise) {
+    _dbPromise = (async () => {
+      const db = await SQLite.openDatabaseAsync("kin_messages.db");
+      await db.execAsync(`
+        CREATE TABLE IF NOT EXISTS messages (
+          id TEXT PRIMARY KEY,
+          chat_id TEXT NOT NULL,
+          sender_id TEXT NOT NULL,
+          type TEXT NOT NULL DEFAULT 'text',
+          content TEXT,
+          duration REAL,
+          is_read INTEGER DEFAULT 0,
+          encrypted INTEGER DEFAULT 0,
+          wire_content TEXT,
+          delivery_status TEXT,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_msg_chat ON messages(chat_id, created_at);
+      `);
+      await ensureMessageColumns(db);
+      _db = db;
+      return db;
+    })();
+  }
+  try {
+    return await _dbPromise;
+  } finally {
+    _dbPromise = null;
+  }
 }
+
+async function ensureMessageColumns(db: SQLite.SQLiteDatabase): Promise<void> {
+  const columns = await db.getAllAsync<{ name: string }>("PRAGMA table_info(messages)");
+  const existing = new Set(columns.map((column) => column.name));
+  const additions = [
+    ["encrypted", "INTEGER DEFAULT 0"],
+    ["wire_content", "TEXT"],
+    ["delivery_status", "TEXT"],
+  ] as const;
+  for (const [name, definition] of additions) {
+    if (!existing.has(name)) {
+      await db.execAsync(`ALTER TABLE messages ADD COLUMN ${name} ${definition}`);
+    }
+  }
+}
+
+export type StoredDeliveryStatus = "sending" | "queued" | "delivered" | "read" | "failed";
 
 export interface LocalMessage {
   id: string;
@@ -32,6 +64,9 @@ export interface LocalMessage {
   content: string;
   duration?: number;
   is_read: boolean;
+  encrypted?: boolean;
+  wire_content?: string | null;
+  delivery_status?: StoredDeliveryStatus;
   created_at: string;
 }
 
@@ -45,8 +80,9 @@ export interface ConversationSummary {
 export async function saveMessage(msg: LocalMessage): Promise<void> {
   const db = await getDb();
   await db.runAsync(
-    `INSERT OR REPLACE INTO messages (id, chat_id, sender_id, type, content, duration, is_read, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT OR REPLACE INTO messages
+     (id, chat_id, sender_id, type, content, duration, is_read, encrypted, wire_content, delivery_status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     msg.id,
     msg.chat_id,
     msg.sender_id,
@@ -54,6 +90,9 @@ export async function saveMessage(msg: LocalMessage): Promise<void> {
     msg.content,
     msg.duration ?? null,
     msg.is_read ? 1 : 0,
+    msg.encrypted ? 1 : 0,
+    msg.wire_content ?? null,
+    msg.delivery_status ?? null,
     msg.created_at
   );
 }
@@ -64,8 +103,9 @@ export async function saveMessages(msgs: LocalMessage[]): Promise<void> {
   await db.withTransactionAsync(async () => {
     for (const msg of msgs) {
       await db.runAsync(
-        `INSERT OR REPLACE INTO messages (id, chat_id, sender_id, type, content, duration, is_read, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO messages
+         (id, chat_id, sender_id, type, content, duration, is_read, encrypted, wire_content, delivery_status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         msg.id,
         msg.chat_id,
         msg.sender_id,
@@ -73,6 +113,9 @@ export async function saveMessages(msgs: LocalMessage[]): Promise<void> {
         msg.content,
         msg.duration ?? null,
         msg.is_read ? 1 : 0,
+        msg.encrypted ? 1 : 0,
+        msg.wire_content ?? null,
+        msg.delivery_status ?? null,
         msg.created_at
       );
     }
@@ -107,6 +150,8 @@ export async function getMessages(
     content: row.content,
     duration: row.duration,
     is_read: !!row.is_read,
+    encrypted: !!row.encrypted,
+    delivery_status: row.delivery_status || undefined,
     created_at: row.created_at,
   })).reverse(); // 反转时间序 → 正序
 }
@@ -168,6 +213,8 @@ export async function getConversationSummaries(
         content: rawRow.content,
         duration: rawRow.duration,
         is_read: !!rawRow.is_read,
+        encrypted: !!rawRow.encrypted,
+        delivery_status: rawRow.delivery_status || undefined,
         created_at: rawRow.created_at,
       },
       unread_count: Number(rawRow.unread_count) || 0,
@@ -187,6 +234,58 @@ export async function clearMessages(chatId: string): Promise<void> {
 export async function markAsRead(msgId: string): Promise<void> {
   const db = await getDb();
   await db.runAsync("UPDATE messages SET is_read = 1 WHERE id = ?", msgId);
+}
+
+/** 更新自己发送消息的服务器投递状态。 */
+export async function updateMessageDeliveryStatus(
+  msgId: string,
+  status: StoredDeliveryStatus
+): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    `UPDATE messages
+     SET delivery_status = ?, is_read = CASE WHEN ? = 'read' THEN 1 ELSE is_read END
+     WHERE id = ?`,
+    status,
+    status,
+    msgId
+  );
+}
+
+/** 判断消息是否已被全局收件箱保存，用于重连补发去重。 */
+export async function messageExists(msgId: string): Promise<boolean> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ id: string }>(
+    "SELECT id FROM messages WHERE id = ? LIMIT 1",
+    msgId
+  );
+  return !!row;
+}
+
+/** 获取需要在 WebSocket 重连后重新提交的本地 Outbox。 */
+export async function getPendingOutgoingMessages(senderId: string): Promise<LocalMessage[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync(
+    `SELECT * FROM messages
+     WHERE sender_id = ?
+       AND delivery_status IN ('sending', 'queued')
+       AND wire_content IS NOT NULL
+     ORDER BY created_at, id`,
+    senderId
+  );
+  return (rows as any[]).map((row) => ({
+    id: row.id,
+    chat_id: row.chat_id,
+    sender_id: row.sender_id,
+    type: row.type,
+    content: row.content,
+    duration: row.duration,
+    is_read: !!row.is_read,
+    encrypted: !!row.encrypted,
+    wire_content: row.wire_content,
+    delivery_status: row.delivery_status,
+    created_at: row.created_at,
+  }));
 }
 
 /** 进入会话后，将对方发送给我的本地消息统一标记为已读 */
@@ -216,6 +315,8 @@ export async function exportAllMessages(): Promise<LocalMessage[]> {
     content: row.content,
     duration: row.duration,
     is_read: !!row.is_read,
+    encrypted: !!row.encrypted,
+    delivery_status: row.delivery_status || undefined,
     created_at: row.created_at,
   }));
 }
@@ -247,8 +348,10 @@ export async function importMessages(msgs: LocalMessage[]): Promise<number> {
 
 /** 关闭数据库 */
 export async function closeDb(): Promise<void> {
+  if (_dbPromise) await _dbPromise;
   if (_db) {
     await _db.closeAsync();
     _db = null;
   }
+  _dbPromise = null;
 }

@@ -70,6 +70,13 @@ class OfflineMessageStore:
                 existing["sender_id"] == sender_id
                 and existing["recipient_id"] == recipient_id
                 and existing["message_type"] == message_type
+                and (
+                    existing["content"] is None
+                    or (
+                        existing["content"] == content
+                        and existing["duration"] == payload.get("duration")
+                    )
+                )
             )
             if not same_message:
                 raise MessageConflictError("消息 ID 已被其他消息使用")
@@ -198,6 +205,23 @@ class OfflineMessageStore:
         with self._engine.begin() as conn:
             result = conn.execute(
                 delete(self._table).where(self._table.c.expires_at <= timestamp)
+            )
+        return result.rowcount or 0
+
+    def delete_between(self, first_user_id: str, second_user_id: str) -> int:
+        """删除两名用户之间尚存的密文和状态元数据。"""
+        with self._engine.begin() as conn:
+            result = conn.execute(
+                delete(self._table).where(
+                    (
+                        (self._table.c.sender_id == first_user_id)
+                        & (self._table.c.recipient_id == second_user_id)
+                    )
+                    | (
+                        (self._table.c.sender_id == second_user_id)
+                        & (self._table.c.recipient_id == first_user_id)
+                    )
+                )
             )
         return result.rowcount or 0
 

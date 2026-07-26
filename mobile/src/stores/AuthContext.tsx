@@ -4,6 +4,7 @@ import React, { createContext, useContext, useReducer, useEffect, ReactNode } fr
 import * as SecureStore from "expo-secure-store";
 import { setToken, getProfile as apiGetProfile } from "../api/client";
 import { kinWS } from "../api/ws";
+import { messageInbox } from "../services/messageInbox";
 
 interface User {
   id: string;
@@ -28,8 +29,8 @@ type AuthAction =
 
 const AuthContext = createContext<{
   state: AuthState;
-  loginAction: (token: string, user: User) => void;
-  logoutAction: () => void;
+  loginAction: (token: string, user: User) => Promise<void>;
+  logoutAction: () => Promise<void>;
 } | null>(null);
 
 function authReducer(state: AuthState, action: AuthAction): AuthState {
@@ -63,9 +64,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (savedToken) {
           setToken(savedToken);
           const profile = await apiGetProfile();
-          dispatch({ type: "RESTORE_TOKEN", token: savedToken, user: profile as User });
-          // 自动连接 WebSocket
+          await messageInbox.start((profile as User).id);
           kinWS.connect(savedToken);
+          dispatch({ type: "RESTORE_TOKEN", token: savedToken, user: profile as User });
         } else {
           dispatch({ type: "LOADING_DONE" });
         }
@@ -81,6 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loginAction = async (token: string, user: User) => {
     await SecureStore.setItemAsync("kin_token", token);
     setToken(token);
+    await messageInbox.start(user.id);
     kinWS.connect(token);
     dispatch({ type: "LOGIN", token, user });
   };
@@ -89,6 +91,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await SecureStore.deleteItemAsync("kin_token");
     setToken(null);
     kinWS.disconnect();
+    messageInbox.stop();
     dispatch({ type: "LOGOUT" });
   };
 
