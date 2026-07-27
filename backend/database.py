@@ -1,7 +1,7 @@
 """数据库连接与建表 — SQLAlchemy Core 模式"""
 
 import os
-from sqlalchemy import create_engine, MetaData, Table, Column, Text, Float, Integer, UniqueConstraint, Index, text
+from sqlalchemy import create_engine, MetaData, Table, Column, Text, Float, Integer, UniqueConstraint, Index, inspect, text
 from sqlalchemy.types import TIMESTAMP
 import config
 
@@ -28,6 +28,7 @@ users = Table(
     Column("public_key", Text, nullable=True),      # E2E 加密公钥
     Column("nickname", Text, nullable=True),
     Column("avatar", Text, nullable=True),
+    Column("profile_banner", Text, nullable=True),
     Column("status_msg", Text, nullable=True),
     Column("created_at", TIMESTAMP, server_default=text("CURRENT_TIMESTAMP")),
 )
@@ -100,6 +101,11 @@ Index("idx_offline_expires", offline_messages.c.expires_at)
 def init_db():
     """创建所有表（幂等：已存在则跳过）"""
     metadata.create_all(engine)
+    # create_all 不会为已有 SQLite 表补列；这里进行一次幂等的轻量迁移。
+    user_columns = {column["name"] for column in inspect(engine).get_columns("users")}
+    if "profile_banner" not in user_columns:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE users ADD COLUMN profile_banner TEXT"))
 
 
 def get_table(name: str) -> Table:

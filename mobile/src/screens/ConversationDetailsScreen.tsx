@@ -7,7 +7,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Friend } from "../api/client";
-import { deleteFriend } from "../api/client";
+import { deleteFriend, resolveMediaUrl } from "../api/client";
 import { clearMessages } from "../services/db";
 import { exportConversationToFile } from "../services/export";
 import { getSecretKey } from "../services/keys";
@@ -224,10 +224,25 @@ export default function ConversationDetailsScreen({ route, navigation }: any) {
         contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, 20) + 20 }]}
       >
         <View style={styles.identity}>
+          <View style={styles.profileBanner}>
+            {friend.profile_banner ? (
+              <Image
+                source={{ uri: resolveMediaUrl(friend.profile_banner) || friend.profile_banner }}
+                style={styles.profileBannerImage}
+                resizeMode="cover"
+                accessibilityLabel={`${name}的背景名片`}
+              />
+            ) : (
+              <View style={styles.profileBannerFallback}>
+                <View style={styles.bannerOrbLarge} />
+                <View style={styles.bannerOrbSmall} />
+              </View>
+            )}
+          </View>
           <View style={styles.avatarFrame}>
             {friend.avatar ? (
               <Image
-                source={{ uri: friend.avatar }}
+                source={{ uri: resolveMediaUrl(friend.avatar) || friend.avatar }}
                 style={styles.avatarImage}
                 accessibilityLabel={`${name}的头像`}
               />
@@ -309,18 +324,30 @@ const styles = StyleSheet.create({
   backMark: { color: COLORS.ink, fontSize: 36, fontWeight: "300", lineHeight: 38 },
   headerTitle: { color: COLORS.ink, fontSize: 17, fontWeight: "700" },
   content: { paddingBottom: 40 },
-  identity: { alignItems: "center", paddingHorizontal: 24, paddingTop: 30, paddingBottom: 32 },
+  identity: { alignItems: "center", paddingBottom: 32, backgroundColor: COLORS.surface },
+  profileBanner: { width: "100%", height: 168, overflow: "hidden", backgroundColor: "#345C50" },
+  profileBannerImage: { width: "100%", height: "100%" },
+  profileBannerFallback: { flex: 1, backgroundColor: "#345C50", overflow: "hidden" },
+  bannerOrbLarge: {
+    position: "absolute", width: 230, height: 230, borderRadius: 115,
+    right: -42, top: -96, backgroundColor: "#5E8B7C",
+  },
+  bannerOrbSmall: {
+    position: "absolute", width: 130, height: 130, borderRadius: 65,
+    left: -28, bottom: -69, backgroundColor: "#203C35",
+  },
   avatarFrame: {
-    width: 78, height: 78, borderRadius: 39,
+    width: 82, height: 82, marginTop: -41, borderRadius: 41,
+    borderWidth: 4, borderColor: COLORS.surface, overflow: "hidden",
     alignItems: "center", justifyContent: "center",
     backgroundColor: "#28313A",
   },
-  avatarImage: { width: 78, height: 78, borderRadius: 39 },
+  avatarImage: { width: "100%", height: "100%" },
   avatarInitials: { color: "#FFFFFF", fontSize: 24, fontWeight: "700" },
   presenceDot: {
     position: "absolute", right: 1, bottom: 4,
     width: 16, height: 16, borderRadius: 8,
-    borderWidth: 3, borderColor: COLORS.background,
+    borderWidth: 3, borderColor: COLORS.surface,
   },
   onlineDot: { backgroundColor: COLORS.accent },
   offlineDot: { backgroundColor: COLORS.faint },

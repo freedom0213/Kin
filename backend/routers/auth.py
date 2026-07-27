@@ -1,7 +1,10 @@
-from fastapi import APIRouter, HTTPException, Header
+from fastapi import APIRouter, HTTPException, Header, Request
 from pydantic import BaseModel, Field
 
+import config
+
 from services import auth_service
+from services import profile_media
 from routers._auth_helper import get_user_id
 
 router = APIRouter()
@@ -61,4 +64,48 @@ async def api_update_me(body: UpdateProfileBody, authorization: str = Header(...
         raise HTTPException(status_code=400, detail=str(error)) from error
     if not profile:
         raise HTTPException(status_code=404, detail="用户不存在")
+    return profile
+
+
+@router.put("/me/profile-banner")
+async def api_update_profile_banner(request: Request, authorization: str = Header(...)):
+    """上传当前用户的背景名片。请求体为 JPEG、PNG 或 WebP 原始字节。"""
+    user_id = get_user_id(authorization)
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > config.MAX_PROFILE_BANNER_BYTES:
+                raise HTTPException(status_code=413, detail="背景图片不能超过 5 MB")
+        except ValueError:
+            raise HTTPException(status_code=400, detail="无效的 Content-Length")
+
+    chunks: list[bytes] = []
+    received = 0
+    async for chunk in request.stream():
+        received += len(chunk)
+        if received > config.MAX_PROFILE_BANNER_BYTES:
+            raise HTTPException(status_code=413, detail="背景图片不能超过 5 MB")
+        chunks.append(chunk)
+    content = b"".join(chunks)
+    try:
+        public_url = profile_media.save_profile_banner(content)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+
+    profile, old_banner = auth_service.update_profile_banner(user_id, public_url)
+    if not profile:
+        profile_media.delete_profile_banner(public_url)
+        raise HTTPException(status_code=404, detail="用户不存在")
+    profile_media.delete_profile_banner(old_banner)
+    return profile
+
+
+@router.delete("/me/profile-banner")
+async def api_delete_profile_banner(authorization: str = Header(...)):
+    """移除当前用户的背景名片。"""
+    user_id = get_user_id(authorization)
+    profile, old_banner = auth_service.update_profile_banner(user_id, None)
+    if not profile:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    profile_media.delete_profile_banner(old_banner)
     return profile

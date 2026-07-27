@@ -137,6 +137,7 @@ def login(username: str, password: str) -> dict:
             "username": row["username"],
             "nickname": row.get("nickname"),
             "avatar": row.get("avatar"),
+            "profile_banner": row.get("profile_banner"),
             "status_msg": row.get("status_msg"),
         },
         "token": token,
@@ -156,6 +157,7 @@ def get_profile(user_id: str) -> dict | None:
         "username": row["username"],
         "nickname": row.get("nickname"),
         "avatar": row.get("avatar"),
+        "profile_banner": row.get("profile_banner"),
         "status_msg": row.get("status_msg"),
     }
 
@@ -183,3 +185,20 @@ def update_profile(user_id: str, nickname: str | None, status_msg: str | None) -
     if result.rowcount == 0:
         return None
     return get_profile(user_id)
+
+
+def update_profile_banner(user_id: str, profile_banner: str | None) -> tuple[dict | None, str | None]:
+    """更新背景名片地址，返回（完整资料，旧地址）。"""
+    table = get_table("users")
+    with engine.begin() as conn:
+        old_banner = conn.execute(
+            select(table.c.profile_banner).where(table.c.id == user_id)
+        ).scalar_one_or_none()
+        result = conn.execute(
+            table.update()
+            .where(table.c.id == user_id)
+            .values(profile_banner=profile_banner)
+        )
+    if result.rowcount == 0:
+        return None, None
+    return get_profile(user_id), old_banner

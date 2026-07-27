@@ -280,8 +280,12 @@
     .menu-row b { display: block; font-size: 13px; }
     .menu-row span { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; }
 
-    .details-identity { padding: 26px 22px 28px; display: flex; flex-direction: column; align-items: center; }
-    .details-identity h2 { margin: 14px 0 3px; font-size: 21px; }
+    .details-identity { padding: 0 0 28px; display: flex; flex-direction: column; align-items: center; background: white; }
+    .details-banner { position: relative; width: 100%; height: 164px; overflow: hidden; background: #5d6d78; }
+    .details-banner::before { content: ""; position: absolute; width: 230px; height: 230px; right: -38px; top: -112px; border-radius: 50%; background: #8797a0; }
+    .details-banner::after { content: ""; position: absolute; width: 150px; height: 150px; left: -42px; bottom: -92px; border-radius: 50%; background: #344750; }
+    .details-avatar-wrap { position: relative; z-index: 1; margin-top: -39px; padding: 4px; border-radius: 50%; background: white; }
+    .details-identity h2 { margin: 10px 0 3px; font-size: 21px; }
     .details-identity p { margin: 4px 0 0; color: var(--muted); font-size: 12px; }
     .data-section { margin-top: 12px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: white; }
     .data-section > b { display: block; padding: 15px 18px 8px; color: var(--faint); font-size: 10px; }
@@ -345,9 +349,20 @@
     .settings-intro.action:hover, .settings-intro.action:focus-visible { background: #fafbf9; outline: none; }
     .settings-intro h2 { margin: 0; font-size: 23px; }
     .settings-intro p { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
-    .profile-preview { padding: 25px 20px 21px; display: grid; justify-items: center; }
-    .profile-preview b { margin-top: 11px; font-size: 13px; }
+    .profile-preview { padding: 0 0 21px; display: grid; justify-items: center; background: white; }
+    .profile-banner { position: relative; width: 100%; height: 164px; overflow: hidden; background: #345c50; }
+    .profile-banner::before, .profile-banner::after { content: ""; position: absolute; border-radius: 50%; }
+    .profile-banner::before { width: 220px; height: 220px; right: -42px; top: -92px; background: #5e8b7c; }
+    .profile-banner::after { width: 130px; height: 130px; left: -28px; bottom: -69px; background: #203c35; }
+    .profile-banner.has-image { background-size: cover; background-position: center; }
+    .profile-banner.has-image::before, .profile-banner.has-image::after { display: none; }
+    .profile-avatar-wrap { position: relative; z-index: 1; margin-top: -39px; padding: 4px; border-radius: 50%; background: white; }
+    .profile-preview b { margin-top: 9px; font-size: 16px; }
     .profile-preview span { margin-top: 4px; color: var(--faint); font-size: 10px; }
+    .profile-banner-actions { margin-top: 14px; display: flex; gap: 8px; }
+    .profile-banner-actions button { min-height: 38px; padding: 0 15px; border-radius: 19px; border: 1px solid var(--line); background: transparent; color: var(--muted); font-weight: 700; cursor: pointer; }
+    .profile-banner-actions button:first-child { border-color: transparent; background: var(--accent-soft); color: var(--accent-dark); }
+    .profile-banner-input { display: none; }
     .profile-form { margin-top: 10px; padding: 16px 18px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: white; }
     .profile-label { display: flex; justify-content: space-between; color: var(--ink); font-size: 11px; font-weight: 750; }
     .profile-label span { color: var(--faint); font-weight: 500; }
@@ -456,7 +471,7 @@
       muted: false,
       speaker: false,
       settings: { messageSound: true, friendOnlineSound: true, haptic: true },
-      profile: { nickname: "freedom", status: null },
+      profile: { nickname: "freedom", status: null, banner: null },
       messageDraft: "晚点见",
       messages: [
         { mine: false, text: "明天下午有时间吗", time: "15:50" },
@@ -514,7 +529,7 @@
       return result;
     }
     function detailsScreen() {
-      return phone(`<div class="topbar"><button class="top-action" data-go="chat"><span class="back-icon"></span></button><div class="top-title"><strong>会话详情</strong></div><div class="top-action"></div></div><div class="scroll"><div class="details-identity">${avatar("LC", true, "lg")}<h2>林迟</h2><p>@linchi</p><p>今天也想去远一点的地方</p></div><div class="data-section"><b>关系</b><div class="data-row"><span>好友备注</span><span>林迟</span></div><div class="data-row"><span>相识时间</span><span>2026年7月18日</span></div><div class="data-row"><span>相识备注</span><span>暂无记录</span></div></div><button class="security-band ${state.encryptionReady ? "" : "unavailable"}" style="width:100%;border-right:0;border-left:0;text-align:left"><span class="lock"></span><span><b>${state.encryptionReady ? "仅你和对方可读取" : "加密保护不可用"}</b><span>${state.encryptionReady ? "查看这段会话如何受到保护" : "当前设备缺少加密密钥"}</span></span></button><div class="data-section"><b>聊天数据</b><button class="data-row action"><span>导出当前会话</span><span>›</span></button><button class="data-row action"><span>清空本地聊天记录</span><span>›</span></button></div><div class="data-section"><b>好友关系</b><button class="data-row action"><span class="danger">删除好友</span><span>›</span></button></div></div>`);
+      return phone(`<div class="topbar"><button class="top-action" data-go="chat"><span class="back-icon"></span></button><div class="top-title"><strong>会话详情</strong></div><div class="top-action"></div></div><div class="scroll"><div class="details-identity"><div class="details-banner"></div><div class="details-avatar-wrap">${avatar("LC", true, "lg")}</div><h2>林迟</h2><p>@linchi</p><p>今天也想去远一点的地方</p></div><div class="data-section"><b>关系</b><div class="data-row"><span>好友备注</span><span>林迟</span></div><div class="data-row"><span>相识时间</span><span>2026年7月18日</span></div><div class="data-row"><span>相识备注</span><span>暂无记录</span></div></div><button class="security-band ${state.encryptionReady ? "" : "unavailable"}" style="width:100%;border-right:0;border-left:0;text-align:left"><span class="lock"></span><span><b>${state.encryptionReady ? "仅你和对方可读取" : "加密保护不可用"}</b><span>${state.encryptionReady ? "查看这段会话如何受到保护" : "当前设备缺少加密密钥"}</span></span></button><div class="data-section"><b>聊天数据</b><button class="data-row action"><span>导出当前会话</span><span>›</span></button><button class="data-row action"><span>清空本地聊天记录</span><span>›</span></button></div><div class="data-section"><b>好友关系</b><button class="data-row action"><span class="danger">删除好友</span><span>›</span></button></div></div>`);
     }
     function nfcScreen(sheet = state.nfcSheet) {
       const completed = state.pairStage === "completed";
@@ -535,7 +550,8 @@
       const nickname = state.profile.nickname || "";
       const status = state.profile.status || "";
       const initials = Array.from(nickname || "freedom").slice(0, 2).join("").toUpperCase();
-      return phone(`<div class="topbar"><button class="top-action" data-go="settings" aria-label="返回设置"><span class="back-icon"></span></button><div class="top-title"><strong>编辑资料</strong></div><button class="profile-save" data-save-profile>保存</button></div><div class="scroll"><div class="profile-preview">${avatar(initials, false, "lg")}<b>@freedom</b><span>头像编辑将在后续版本接入</span></div><div class="profile-form"><label class="profile-label" for="profileNickname">昵称 <span id="nicknameCount">${nickname.length}/24</span></label><input class="profile-input" id="profileNickname" maxlength="24" value="${escapeAttribute(nickname)}" placeholder="freedom"><p class="profile-hint">清空后，Kin 将使用用户名作为显示名称。</p></div><div class="profile-form"><label class="profile-label" for="profileStatus">个性签名 <span id="statusCount">${status.length}/80</span></label><textarea class="profile-input" id="profileStatus" maxlength="80" placeholder="留下一句现在的心情">${escapeAttribute(status)}</textarea></div><div class="profile-privacy"><b>谁能看到？</b><br>昵称和个性签名会展示给已经与你成为好友的人。</div></div>`);
+      const bannerStyle = state.profile.banner ? ` style="background-image:url('${escapeAttribute(state.profile.banner)}')"` : "";
+      return phone(`<div class="topbar"><button class="top-action" data-go="settings" aria-label="返回设置"><span class="back-icon"></span></button><div class="top-title"><strong>编辑资料</strong></div><button class="profile-save" data-save-profile>保存</button></div><div class="scroll"><div class="profile-preview"><div class="profile-banner ${state.profile.banner ? "has-image" : ""}"${bannerStyle}></div><div class="profile-avatar-wrap">${avatar(initials, false, "lg")}</div><b>${escapeAttribute(nickname || "freedom")}</b><span>@freedom</span><div class="profile-banner-actions"><button data-pick-banner>${state.profile.banner ? "更换背景" : "选择背景"}</button>${state.profile.banner ? `<button data-remove-banner>移除</button>` : ""}</div><span>建议使用横向图片，保存后好友也能看到。</span><input class="profile-banner-input" id="profileBannerInput" type="file" accept="image/jpeg,image/png,image/webp"></div><div class="profile-form"><label class="profile-label" for="profileNickname">昵称 <span id="nicknameCount">${nickname.length}/24</span></label><input class="profile-input" id="profileNickname" maxlength="24" value="${escapeAttribute(nickname)}" placeholder="freedom"><p class="profile-hint">清空后，Kin 将使用用户名作为显示名称。</p></div><div class="profile-form"><label class="profile-label" for="profileStatus">个性签名 <span id="statusCount">${status.length}/80</span></label><textarea class="profile-input" id="profileStatus" maxlength="80" placeholder="留下一句现在的心情">${escapeAttribute(status)}</textarea></div><div class="profile-privacy"><b>谁能看到？</b><br>背景名片、昵称和个性签名会展示给已经与你成为好友的人。</div></div>`);
     }
     function renderPage(name) {
       return ({ login: loginScreen, register: registerScreen, home: homeScreen, chat: chatScreen, details: detailsScreen, nfc: nfcScreen, call: callScreen, settings: settingsScreen, profile: profileEditScreen })[name]();
@@ -623,10 +639,19 @@
         render();
         return;
       }
+      if (target.hasAttribute("data-pick-banner")) {
+        document.getElementById("profileBannerInput")?.click();
+        return;
+      }
+      if (target.hasAttribute("data-remove-banner")) {
+        state.profile.banner = null;
+        render();
+        return;
+      }
       if (target.hasAttribute("data-save-profile")) {
         const nickname = document.getElementById("profileNickname")?.value.trim().replace(/\s+/g, " ") || null;
         const status = document.getElementById("profileStatus")?.value.trim().replace(/\s+/g, " ") || null;
-        state.profile = { nickname, status };
+        state.profile = { ...state.profile, nickname, status };
         state.page = "settings";
         render();
         return;
@@ -662,6 +687,15 @@
       if (event.target.id === "profileStatus") {
         const count = document.getElementById("statusCount"); if (count) count.textContent = `${event.target.value.length}/80`;
       }
+    });
+    document.addEventListener("change", event => {
+      if (event.target.id !== "profileBannerInput") return;
+      const file = event.target.files?.[0];
+      if (!file) return;
+      if (file.size > 5 * 1024 * 1024) { window.alert("请选择小于 5 MB 的图片。"); return; }
+      const reader = new FileReader();
+      reader.onload = () => { state.profile.banner = String(reader.result || ""); render(); };
+      reader.readAsDataURL(file);
     });
     let messageHoldTimer = null;
     const openMessageActions = target => {

@@ -4,6 +4,9 @@ import json
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+
+import config
 
 from database import init_db
 from websocket.handler import manager
@@ -32,6 +35,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 开发阶段由 Kin 后端直接托管资料图片；生产环境可把同一路径切换到对象存储/CDN。
+app.mount("/media", StaticFiles(directory=config.MEDIA_ROOT, check_dir=False), name="media")
 
 # -- REST 路由 --
 app.include_router(auth.router, prefix="/api/auth", tags=["认证"])

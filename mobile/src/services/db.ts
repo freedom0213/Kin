@@ -33,6 +33,7 @@ async function getDb(): Promise<SQLite.SQLiteDatabase> {
           username TEXT NOT NULL,
           nickname TEXT,
           avatar TEXT,
+          profile_banner TEXT,
           status_msg TEXT,
           meet_at TEXT NOT NULL,
           last_seen REAL,
@@ -47,6 +48,7 @@ async function getDb(): Promise<SQLite.SQLiteDatabase> {
         );
       `);
       await ensureMessageColumns(db);
+      await ensureContactColumns(db);
       _db = db;
       return db;
     })();
@@ -70,6 +72,13 @@ async function ensureMessageColumns(db: SQLite.SQLiteDatabase): Promise<void> {
     if (!existing.has(name)) {
       await db.execAsync(`ALTER TABLE messages ADD COLUMN ${name} ${definition}`);
     }
+  }
+}
+
+async function ensureContactColumns(db: SQLite.SQLiteDatabase): Promise<void> {
+  const columns = await db.getAllAsync<{ name: string }>("PRAGMA table_info(contacts)");
+  if (!columns.some((column) => column.name === "profile_banner")) {
+    await db.execAsync("ALTER TABLE contacts ADD COLUMN profile_banner TEXT");
   }
 }
 
@@ -109,13 +118,14 @@ export async function cacheFriends(ownerId: string, friends: Friend[]): Promise<
     for (const friend of friends) {
       await db.runAsync(
         `INSERT INTO contacts
-         (owner_id, user_id, username, nickname, avatar, status_msg, meet_at, last_seen, public_key, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (owner_id, user_id, username, nickname, avatar, profile_banner, status_msg, meet_at, last_seen, public_key, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         ownerId,
         friend.user_id,
         friend.username,
         friend.nickname,
         friend.avatar,
+        friend.profile_banner,
         friend.status_msg,
         friend.meet_at,
         friend.last_seen,
@@ -154,6 +164,7 @@ export async function getCachedFriends(ownerId: string): Promise<Friend[]> {
     username: row.username,
     nickname: row.nickname,
     avatar: row.avatar,
+    profile_banner: row.profile_banner,
     status_msg: row.status_msg,
     meet_at: row.meet_at,
     is_online: false,

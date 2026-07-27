@@ -1,25 +1,25 @@
-/** 个人资料编辑 — 昵称与个性签名 */
+/** 个人资料编辑 — 背景名片、昵称与个性签名 */
 
-import React, { useMemo, useState } from "react";
+import React, { useState } from "react";
+import * as ImagePicker from "expo-image-picker";
 import {
   ActivityIndicator, Alert, Image, Keyboard, KeyboardAvoidingView, Platform,
   ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { updateProfile } from "../api/client";
+import {
+  removeProfileBanner, resolveMediaUrl, updateProfile, uploadProfileBanner,
+  type UserProfile,
+} from "../api/client";
 import { useAuth } from "../stores/AuthContext";
 
 const COLORS = {
-  background: "#F4F5F2",
-  surface: "#FFFFFF",
-  ink: "#171A1F",
-  muted: "#70757D",
-  faint: "#9CA19F",
-  line: "#E2E5E1",
-  accent: "#2DAD82",
-  accentDark: "#176B52",
-  accentSoft: "#E2F2EC",
+  background: "#F4F5F2", surface: "#FFFFFF", ink: "#171A1F",
+  muted: "#70757D", faint: "#9CA19F", line: "#E2E5E1",
+  accent: "#2DAD82", accentDark: "#176B52", accentSoft: "#E2F2EC",
 };
+
+const MAX_BANNER_BYTES = 5 * 1024 * 1024;
 
 function normalizeField(value: string): string {
   return value.trim().replace(/\s+/g, " ");
@@ -29,37 +29,94 @@ function getInitials(name: string): string {
   return Array.from(name).slice(0, 2).join("").toUpperCase();
 }
 
+function inferMimeType(asset: ImagePicker.ImagePickerAsset): string {
+  if (asset.mimeType) return asset.mimeType;
+  const extension = asset.uri.split("?")[0].split(".").pop()?.toLowerCase();
+  if (extension === "png") return "image/png";
+  if (extension === "webp") return "image/webp";
+  return "image/jpeg";
+}
+
 export default function ProfileEditScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
   const { state, updateProfileAction } = useAuth();
   const user = state.user;
   const [nickname, setNickname] = useState(user?.nickname || "");
   const [statusMessage, setStatusMessage] = useState(user?.status_msg || "");
+  const [selectedBanner, setSelectedBanner] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [removeBanner, setRemoveBanner] = useState(false);
+  const [selecting, setSelecting] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const normalizedNickname = normalizeField(nickname);
   const normalizedStatus = normalizeField(statusMessage);
-  const hasChanges = useMemo(() => (
-    normalizedNickname !== normalizeField(user?.nickname || "")
-    || normalizedStatus !== normalizeField(user?.status_msg || "")
-  ), [normalizedNickname, normalizedStatus, user?.nickname, user?.status_msg]);
-  const canSave = !!user && hasChanges && !saving;
+  const textChanged = normalizedNickname !== normalizeField(user?.nickname || "")
+    || normalizedStatus !== normalizeField(user?.status_msg || "");
+  const bannerChanged = !!selectedBanner || (removeBanner && !!user?.profile_banner);
+  const hasChanges = textChanged || bannerChanged;
+  const canSave = !!user && hasChanges && !saving && !selecting;
   const displayName = normalizedNickname || user?.username || "Kin";
+  const currentBanner = removeBanner
+    ? null
+    : selectedBanner?.uri || resolveMediaUrl(user?.profile_banner);
+
+  const handleChooseBanner = async () => {
+    if (saving || selecting) return;
+    setSelecting(true);
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert("需要相册权限", "请允许 Kin 访问相册，才能选择背景名片。");
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: [16, 7],
+        quality: 0.82,
+      });
+      if (result.canceled) return;
+
+      const asset = result.assets[0];
+      if (asset.fileSize && asset.fileSize > MAX_BANNER_BYTES) {
+        Alert.alert("图片过大", "请选择小于 5 MB 的图片；裁剪后再试通常可以减小体积。");
+        return;
+      }
+      setSelectedBanner(asset);
+      setRemoveBanner(false);
+    } catch (error: any) {
+      Alert.alert("无法选择图片", error?.message || "请稍后重试。");
+    } finally {
+      setSelecting(false);
+    }
+  };
+
+  const handleRemoveBanner = () => {
+    setSelectedBanner(null);
+    setRemoveBanner(true);
+  };
 
   const handleSave = async () => {
     if (!user || !canSave) return;
     Keyboard.dismiss();
     setSaving(true);
+    let latest: UserProfile = user;
     try {
-      const updated = await updateProfile(
-        normalizedNickname || null,
-        normalizedStatus || null
-      );
-      await updateProfileAction(updated);
+      if (textChanged) {
+        latest = await updateProfile(normalizedNickname || null, normalizedStatus || null);
+        await updateProfileAction(latest);
+      }
+      if (selectedBanner) {
+        latest = await uploadProfileBanner(selectedBanner.uri, inferMimeType(selectedBanner));
+        await updateProfileAction(latest);
+      } else if (removeBanner && user.profile_banner) {
+        latest = await removeProfileBanner();
+        await updateProfileAction(latest);
+      }
       navigation.goBack();
     } catch (error: any) {
       Alert.alert(
-        "资料未保存",
+        "资料未完全保存",
         error?.message || "无法连接 Kin 服务器，请检查网络后重试。"
       );
     } finally {
@@ -90,9 +147,7 @@ export default function ProfileEditScreen({ navigation }: any) {
           accessibilityLabel="保存个人资料"
           accessibilityState={{ disabled: !canSave, busy: saving }}
         >
-          {saving ? (
-            <ActivityIndicator size="small" color={COLORS.accent} />
-          ) : (
+          {saving ? <ActivityIndicator size="small" color={COLORS.accent} /> : (
             <Text style={[styles.saveText, !canSave && styles.saveTextDisabled]}>保存</Text>
           )}
         </TouchableOpacity>
@@ -102,11 +157,28 @@ export default function ProfileEditScreen({ navigation }: any) {
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, 20) + 28 }]}
       >
-        <View style={styles.identityPreview}>
+        <View style={styles.cardPreview}>
+          <View style={styles.bannerFrame}>
+            {currentBanner ? (
+              <Image
+                source={{ uri: currentBanner }}
+                style={styles.bannerImage}
+                resizeMode="cover"
+                accessibilityLabel={`${displayName}的背景名片`}
+              />
+            ) : (
+              <View style={styles.bannerFallback}>
+                <View style={styles.bannerOrbLarge} />
+                <View style={styles.bannerOrbSmall} />
+              </View>
+            )}
+            <View style={styles.bannerShade} />
+          </View>
+
           <View style={styles.avatar}>
             {user?.avatar ? (
               <Image
-                source={{ uri: user.avatar }}
+                source={{ uri: resolveMediaUrl(user.avatar) || user.avatar }}
                 style={styles.avatarImage}
                 accessibilityLabel={`${displayName}的头像`}
               />
@@ -114,8 +186,35 @@ export default function ProfileEditScreen({ navigation }: any) {
               <Text style={styles.avatarInitials}>{getInitials(displayName)}</Text>
             )}
           </View>
+
+          <Text style={styles.previewName}>{displayName}</Text>
           <Text style={styles.username}>@{user?.username}</Text>
-          <Text style={styles.avatarHint}>头像编辑将在后续版本接入</Text>
+          <View style={styles.bannerActions}>
+            <TouchableOpacity
+              style={styles.bannerActionPrimary}
+              onPress={() => { void handleChooseBanner(); }}
+              disabled={saving || selecting}
+              accessibilityRole="button"
+              accessibilityLabel={currentBanner ? "更换背景名片" : "选择背景名片"}
+              accessibilityState={{ busy: selecting, disabled: saving || selecting }}
+            >
+              {selecting ? <ActivityIndicator size="small" color={COLORS.accentDark} /> : (
+                <Text style={styles.bannerActionPrimaryText}>{currentBanner ? "更换背景" : "选择背景"}</Text>
+              )}
+            </TouchableOpacity>
+            {currentBanner ? (
+              <TouchableOpacity
+                style={styles.bannerActionSecondary}
+                onPress={handleRemoveBanner}
+                disabled={saving}
+                accessibilityRole="button"
+                accessibilityLabel="移除背景名片"
+              >
+                <Text style={styles.bannerActionSecondaryText}>移除</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+          <Text style={styles.bannerHint}>建议使用横向图片，保存后好友也能看到。</Text>
         </View>
 
         <View style={styles.formSection}>
@@ -158,7 +257,7 @@ export default function ProfileEditScreen({ navigation }: any) {
 
         <View style={styles.privacyNote}>
           <Text style={styles.privacyTitle}>谁能看到？</Text>
-          <Text style={styles.privacyText}>昵称和个性签名会展示给已经与你成为好友的人。</Text>
+          <Text style={styles.privacyText}>背景名片、昵称和个性签名会展示给已经与你成为好友的人。</Text>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -179,15 +278,40 @@ const styles = StyleSheet.create({
   saveText: { color: COLORS.accentDark, fontSize: 15, fontWeight: "700" },
   saveTextDisabled: { color: COLORS.faint },
   content: { paddingBottom: 40 },
-  identityPreview: { paddingVertical: 28, alignItems: "center" },
+  cardPreview: { paddingBottom: 24, alignItems: "center", backgroundColor: COLORS.surface },
+  bannerFrame: { width: "100%", height: 172, overflow: "hidden", backgroundColor: "#263730" },
+  bannerImage: { width: "100%", height: "100%" },
+  bannerFallback: { flex: 1, backgroundColor: "#345C50", overflow: "hidden" },
+  bannerOrbLarge: {
+    position: "absolute", width: 230, height: 230, borderRadius: 115,
+    right: -42, top: -96, backgroundColor: "#5E8B7C",
+  },
+  bannerOrbSmall: {
+    position: "absolute", width: 130, height: 130, borderRadius: 65,
+    left: -28, bottom: -69, backgroundColor: "#203C35",
+  },
+  bannerShade: { position: "absolute", right: 0, bottom: 0, left: 0, height: 42, backgroundColor: "rgba(20, 30, 27, 0.16)" },
   avatar: {
-    width: 78, height: 78, borderRadius: 39,
+    width: 84, height: 84, marginTop: -42, borderRadius: 42, borderWidth: 4,
+    borderColor: COLORS.surface, overflow: "hidden",
     alignItems: "center", justifyContent: "center", backgroundColor: "#28313A",
   },
-  avatarInitials: { color: "#FFFFFF", fontSize: 23, fontWeight: "700" },
-  avatarImage: { width: 78, height: 78 },
-  username: { marginTop: 12, color: COLORS.ink, fontSize: 14, fontWeight: "600" },
-  avatarHint: { marginTop: 5, color: COLORS.faint, fontSize: 12 },
+  avatarInitials: { color: "#FFFFFF", fontSize: 24, fontWeight: "700" },
+  avatarImage: { width: "100%", height: "100%" },
+  previewName: { marginTop: 10, color: COLORS.ink, fontSize: 19, fontWeight: "700" },
+  username: { marginTop: 2, color: COLORS.muted, fontSize: 13, fontWeight: "500" },
+  bannerActions: { marginTop: 17, flexDirection: "row", alignItems: "center" },
+  bannerActionPrimary: {
+    minWidth: 108, minHeight: 40, paddingHorizontal: 16, borderRadius: 20,
+    alignItems: "center", justifyContent: "center", backgroundColor: COLORS.accentSoft,
+  },
+  bannerActionPrimaryText: { color: COLORS.accentDark, fontSize: 13, fontWeight: "700" },
+  bannerActionSecondary: {
+    minWidth: 66, minHeight: 40, marginLeft: 8, paddingHorizontal: 14, borderRadius: 20,
+    alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: COLORS.line,
+  },
+  bannerActionSecondaryText: { color: COLORS.muted, fontSize: 13, fontWeight: "600" },
+  bannerHint: { marginTop: 9, color: COLORS.faint, fontSize: 12 },
   formSection: {
     marginTop: 12, paddingHorizontal: 20, paddingVertical: 17,
     backgroundColor: COLORS.surface,

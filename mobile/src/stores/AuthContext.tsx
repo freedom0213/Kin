@@ -21,6 +21,7 @@ function parseCachedUser(value: string | null): User | null {
       username: user.username,
       nickname: typeof user.nickname === "string" ? user.nickname : null,
       avatar: typeof user.avatar === "string" ? user.avatar : null,
+      profile_banner: typeof user.profile_banner === "string" ? user.profile_banner : null,
       status_msg: typeof user.status_msg === "string" ? user.status_msg : null,
     };
   } catch {

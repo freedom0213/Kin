@@ -130,6 +130,7 @@ def get_friend_list(user_id: str) -> list[dict]:
                 users_table.c.username,
                 users_table.c.nickname,
                 users_table.c.avatar,
+                users_table.c.profile_banner,
                 users_table.c.status_msg,
                 users_table.c.public_key,
             )
@@ -149,6 +150,7 @@ def get_friend_list(user_id: str) -> list[dict]:
             "username": row["username"],
             "nickname": row["nickname"],
             "avatar": row["avatar"],
+            "profile_banner": row["profile_banner"],
             "status_msg": row["status_msg"],
             "meet_at": row["meet_at"],
             "public_key": row["public_key"],

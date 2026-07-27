@@ -34,6 +34,7 @@ export default function RegisterScreen({ navigation }: any) {
           username: result.user.username,
           nickname: result.user.nickname ?? null,
           avatar: result.user.avatar ?? null,
+          profile_banner: result.user.profile_banner ?? null,
           status_msg: result.user.status_msg ?? null,
         });
       }

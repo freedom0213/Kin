@@ -54,6 +54,7 @@ export interface AuthResult {
     username: string;
     nickname?: string | null;
     avatar?: string | null;
+    profile_banner?: string | null;
     status_msg?: string | null;
   };
   token: string;
@@ -64,7 +65,16 @@ export interface UserProfile {
   username: string;
   nickname: string | null;
   avatar: string | null;
+  profile_banner: string | null;
   status_msg: string | null;
+}
+
+export function resolveMediaUrl(value: string | null | undefined): string | null {
+  if (!value) return null;
+  if (/^https?:\/\//i.test(value) || value.startsWith("file:") || value.startsWith("data:")) {
+    return value;
+  }
+  return `${API_BASE}${value.startsWith("/") ? value : `/${value}`}`;
 }
 
 export function register(username: string, password: string, publicKey?: string) {
@@ -86,6 +96,41 @@ export function updateProfile(nickname: string | null, statusMsg: string | null)
   });
 }
 
+async function parseProfileResponse(res: Response): Promise<UserProfile> {
+  const data = await res.json();
+  if (!res.ok) {
+    const detail = data.detail;
+    const error = new Error(typeof detail === "string" ? detail : "请求失败");
+    (error as any).status = res.status;
+    throw error;
+  }
+  return data as UserProfile;
+}
+
+export async function uploadProfileBanner(uri: string, mimeType: string): Promise<UserProfile> {
+  if (!_token) throw new Error("登录状态已失效，请重新登录");
+  const fileResponse = await fetch(uri);
+  const blob = await fileResponse.blob();
+  const res = await fetch(`${API_BASE}/api/auth/me/profile-banner`, {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${_token}`,
+      "Content-Type": mimeType,
+    },
+    body: blob as any,
+  });
+  return parseProfileResponse(res);
+}
+
+export async function removeProfileBanner(): Promise<UserProfile> {
+  if (!_token) throw new Error("登录状态已失效，请重新登录");
+  const res = await fetch(`${API_BASE}/api/auth/me/profile-banner`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${_token}` },
+  });
+  return parseProfileResponse(res);
+}
+
 // -- 好友 --
 
 export interface Friend {
@@ -93,6 +138,7 @@ export interface Friend {
   username: string;
   nickname: string | null;
   avatar: string | null;
+  profile_banner: string | null;
   status_msg: string | null;
   meet_at: string;
   is_online: boolean;

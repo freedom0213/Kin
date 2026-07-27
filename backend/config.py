@@ -10,6 +10,11 @@ ACCESS_TOKEN_EXPIRE_HOURS = 168  # 7 天，MVP 阶段简化
 # 数据库路径
 DB_PATH = os.getenv("KIN_DB_PATH", os.path.join(os.path.dirname(__file__), "data", "kin.db"))
 
+# 用户上传媒体（开发阶段保存在 Kin 本地后端；生产环境可替换为对象存储）
+MEDIA_ROOT = os.getenv("KIN_MEDIA_ROOT", os.path.join(os.path.dirname(__file__), "data", "media"))
+PROFILE_BANNER_DIR = os.path.join(MEDIA_ROOT, "profile-banners")
+MAX_PROFILE_BANNER_BYTES = int(os.getenv("KIN_MAX_PROFILE_BANNER_BYTES", str(5 * 1024 * 1024)))
+
 # 用户名校验规则
 USERNAME_MIN_LEN = 4
 USERNAME_MAX_LEN = 16
