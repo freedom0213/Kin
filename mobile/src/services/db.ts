@@ -1,6 +1,7 @@
 /** 本地 SQLite 消息存储 — expo-sqlite */
 
 import * as SQLite from "expo-sqlite";
+import type { Friend } from "../api/client";
 
 let _db: SQLite.SQLiteDatabase | null = null;
 let _dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
@@ -26,6 +27,24 @@ async function getDb(): Promise<SQLite.SQLiteDatabase> {
           created_at TEXT NOT NULL
         );
         CREATE INDEX IF NOT EXISTS idx_msg_chat ON messages(chat_id, created_at);
+        CREATE TABLE IF NOT EXISTS contacts (
+          owner_id TEXT NOT NULL,
+          user_id TEXT NOT NULL,
+          username TEXT NOT NULL,
+          nickname TEXT,
+          avatar TEXT,
+          status_msg TEXT,
+          meet_at TEXT NOT NULL,
+          last_seen REAL,
+          public_key TEXT,
+          updated_at TEXT NOT NULL,
+          PRIMARY KEY (owner_id, user_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_contacts_owner ON contacts(owner_id, username);
+        CREATE TABLE IF NOT EXISTS contact_cache_meta (
+          owner_id TEXT PRIMARY KEY,
+          updated_at TEXT NOT NULL
+        );
       `);
       await ensureMessageColumns(db);
       _db = db;
@@ -79,6 +98,78 @@ export interface ConversationSummary {
 export interface LocalMessageStats {
   messageCount: number;
   conversationCount: number;
+}
+
+/** 用服务端最新快照替换当前账号的好友缓存。 */
+export async function cacheFriends(ownerId: string, friends: Friend[]): Promise<void> {
+  const db = await getDb();
+  const updatedAt = new Date().toISOString();
+  await db.withTransactionAsync(async () => {
+    await db.runAsync("DELETE FROM contacts WHERE owner_id = ?", ownerId);
+    for (const friend of friends) {
+      await db.runAsync(
+        `INSERT INTO contacts
+         (owner_id, user_id, username, nickname, avatar, status_msg, meet_at, last_seen, public_key, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ownerId,
+        friend.user_id,
+        friend.username,
+        friend.nickname,
+        friend.avatar,
+        friend.status_msg,
+        friend.meet_at,
+        friend.last_seen,
+        friend.public_key,
+        updatedAt
+      );
+    }
+    await db.runAsync(
+      `INSERT OR REPLACE INTO contact_cache_meta (owner_id, updated_at)
+       VALUES (?, ?)`,
+      ownerId,
+      updatedAt
+    );
+  });
+}
+
+/** 判断当前账号是否保存过好友快照，包括“好友数量为零”的有效快照。 */
+export async function hasCachedFriendSnapshot(ownerId: string): Promise<boolean> {
+  const db = await getDb();
+  const row = await db.getFirstAsync<{ owner_id: string }>(
+    "SELECT owner_id FROM contact_cache_meta WHERE owner_id = ? LIMIT 1",
+    ownerId
+  );
+  return !!row;
+}
+
+/** 读取好友缓存。缓存中的在线状态统一视为离线，避免展示过期在线信息。 */
+export async function getCachedFriends(ownerId: string): Promise<Friend[]> {
+  const db = await getDb();
+  const rows = await db.getAllAsync(
+    "SELECT * FROM contacts WHERE owner_id = ? ORDER BY username COLLATE NOCASE",
+    ownerId
+  );
+  return (rows as any[]).map((row) => ({
+    user_id: row.user_id,
+    username: row.username,
+    nickname: row.nickname,
+    avatar: row.avatar,
+    status_msg: row.status_msg,
+    meet_at: row.meet_at,
+    is_online: false,
+    last_seen: row.last_seen,
+    public_key: row.public_key,
+  }));
+}
+
+/** 删除当前账号的一条好友缓存记录。 */
+export async function removeCachedFriend(ownerId: string, friendId: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    "DELETE FROM contacts WHERE owner_id = ? AND user_id = ?",
+    ownerId,
+    friendId
+  );
 }
 
 /** 保存消息到本地 */

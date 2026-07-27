@@ -6,7 +6,7 @@ import React, {
 import {
   View, Text, SectionList, TouchableOpacity, Image,
   StyleSheet, Alert, RefreshControl, Animated, AccessibilityInfo,
-  Easing, LayoutAnimation, Platform, UIManager,
+  Easing, LayoutAnimation, Platform, UIManager, ActivityIndicator,
 } from "react-native";
 import type { ImageStyle } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
@@ -14,7 +14,9 @@ import { getFriendList, deleteFriend, Friend } from "../api/client";
 import { useAuth } from "../stores/AuthContext";
 import { kinWS } from "../api/ws";
 import {
-  ConversationSummary, getConversationSummaries,
+  cacheFriends, ConversationSummary, getCachedFriends, getConversationSummaries,
+  hasCachedFriendSnapshot,
+  removeCachedFriend,
 } from "../services/db";
 import { kinFeedback } from "../services/feedback";
 
@@ -251,9 +253,15 @@ export default function FriendListScreen({ navigation }: any) {
   const [friends, setFriends] = useState<Friend[]>([]);
   const [summaries, setSummaries] = useState<Record<string, ConversationSummary>>({});
   const [refreshing, setRefreshing] = useState(false);
+  const [listSource, setListSource] = useState<
+    "loading" | "cache_refreshing" | "network" | "cache" | "unavailable"
+  >("loading");
   const [reduceMotion, setReduceMotion] = useState(false);
   const [onlineEventKeys, setOnlineEventKeys] = useState<Record<string, number>>({});
   const friendsRef = useRef<Friend[]>([]);
+  const cachedOwnerRef = useRef<string | null>(null);
+  const hasCachedSnapshotRef = useRef(false);
+  const hasLiveSnapshotRef = useRef(false);
 
   useEffect(() => {
     AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
@@ -264,22 +272,20 @@ export default function FriendListScreen({ navigation }: any) {
     return () => subscription.remove();
   }, []);
 
-  const loadFriends = useCallback(async () => {
-    try {
-      const data = await getFriendList();
+  const applyFriends = useCallback(async (nextFriends: Friend[], detectPresence: boolean) => {
       const previousFriends = friendsRef.current;
       const previousById = new Map(previousFriends.map((friend) => [friend.user_id, friend]));
-      const presenceChanged = previousFriends.length > 0 && data.friends.some((friend) => (
+      const presenceChanged = detectPresence && previousFriends.length > 0 && nextFriends.some((friend) => (
         previousById.has(friend.user_id)
         && previousById.get(friend.user_id)?.is_online !== friend.is_online
       ));
-      const becameOnline = data.friends.filter((friend) => (
+      const becameOnline = detectPresence ? nextFriends.filter((friend) => (
         friend.is_online && previousById.get(friend.user_id)?.is_online === false
-      ));
+      )) : [];
 
       if (presenceChanged) configurePresenceLayout(reduceMotion);
-      friendsRef.current = data.friends;
-      setFriends(data.friends);
+      friendsRef.current = nextFriends;
+      setFriends(nextFriends);
       if (becameOnline.length > 0 && !reduceMotion) {
         setOnlineEventKeys((current) => {
           const next = { ...current };
@@ -290,14 +296,57 @@ export default function FriendListScreen({ navigation }: any) {
           return next;
         });
       }
-      kinFeedback.seedFriendStatuses(data.friends);
+      kinFeedback.seedFriendStatuses(nextFriends);
       const nextSummaries = await getConversationSummaries(
-        data.friends.map((friend) => friend.user_id),
+        nextFriends.map((friend) => friend.user_id),
         state.user?.id || ""
       );
       setSummaries(nextSummaries);
-    } catch { /* 忽略 */ }
   }, [reduceMotion, state.user?.id]);
+
+  const loadFriends = useCallback(async (): Promise<boolean> => {
+    const ownerId = state.user?.id;
+    if (!ownerId) {
+      setListSource("unavailable");
+      return false;
+    }
+
+    if (cachedOwnerRef.current !== ownerId) {
+      cachedOwnerRef.current = ownerId;
+      hasCachedSnapshotRef.current = false;
+      hasLiveSnapshotRef.current = false;
+      try {
+        const [cachedFriends, hasCachedSnapshot] = await Promise.all([
+          getCachedFriends(ownerId),
+          hasCachedFriendSnapshot(ownerId),
+        ]);
+        if (hasCachedSnapshot) {
+          hasCachedSnapshotRef.current = true;
+          await applyFriends(cachedFriends, false);
+          setListSource("cache_refreshing");
+        }
+      } catch { /* 缓存不可用时继续请求服务器 */ }
+    }
+
+    try {
+      const data = await getFriendList();
+      await applyFriends(data.friends, hasLiveSnapshotRef.current);
+      hasLiveSnapshotRef.current = true;
+      setListSource("network");
+      try {
+        await cacheFriends(ownerId, data.friends);
+        hasCachedSnapshotRef.current = true;
+      } catch { /* 缓存写入失败不影响当前在线列表 */ }
+      return true;
+    } catch {
+      setListSource(
+        hasCachedSnapshotRef.current || friendsRef.current.length > 0
+          ? "cache"
+          : "unavailable"
+      );
+      return false;
+    }
+  }, [applyFriends, state.user?.id]);
 
   // 每次页面获得焦点时刷新
   useFocusEffect(
@@ -374,7 +423,16 @@ export default function FriendListScreen({ navigation }: any) {
         onPress: async () => {
           try {
             await deleteFriend(friend.user_id);
-            loadFriends();
+            const ownerId = state.user?.id;
+            if (ownerId) await removeCachedFriend(ownerId, friend.user_id);
+            const nextFriends = friendsRef.current.filter((item) => item.user_id !== friend.user_id);
+            friendsRef.current = nextFriends;
+            setFriends(nextFriends);
+            setSummaries((current) => {
+              const next = { ...current };
+              delete next[friend.user_id];
+              return next;
+            });
           } catch (e: any) {
             Alert.alert("错误", e.message);
           }
@@ -486,7 +544,38 @@ export default function FriendListScreen({ navigation }: any) {
       </View>
 
       {/* 好友列表 */}
-      {friends.length === 0 ? (
+      {listSource === "cache" ? (
+        <View style={styles.cacheNotice} accessibilityLiveRegion="polite">
+          <Text style={styles.cacheNoticeMark}>!</Text>
+          <Text style={styles.cacheNoticeText}>当前无法连接服务器，正在显示本机缓存；在线状态可能不是最新</Text>
+        </View>
+      ) : null}
+      {listSource === "cache_refreshing" ? (
+        <View style={[styles.cacheNotice, styles.syncNotice]} accessibilityLiveRegion="polite">
+          <Text style={[styles.cacheNoticeMark, styles.syncNoticeMark]}>·</Text>
+          <Text style={[styles.cacheNoticeText, styles.syncNoticeText]}>正在同步最新好友和在线状态…</Text>
+        </View>
+      ) : null}
+
+      {listSource === "loading" ? (
+        <View style={styles.empty}>
+          <ActivityIndicator color={COLORS.accent} />
+          <Text style={styles.loadingText}>正在载入会话…</Text>
+        </View>
+      ) : listSource === "unavailable" && friends.length === 0 ? (
+        <View style={styles.empty}>
+          <Text style={styles.emptyTitle}>暂时无法载入好友</Text>
+          <Text style={styles.emptyHint}>请检查网络连接后重试。本机暂无可用的好友缓存。</Text>
+          <TouchableOpacity
+            style={styles.retryButton}
+            onPress={() => { void loadFriends(); }}
+            accessibilityRole="button"
+            accessibilityLabel="重新载入好友列表"
+          >
+            <Text style={styles.retryButtonText}>重新载入</Text>
+          </TouchableOpacity>
+        </View>
+      ) : friends.length === 0 ? (
         <View style={styles.empty}>
           <Text style={styles.emptyTitle}>还没有好友</Text>
           <Text style={styles.emptyHint}>点击右上角「+ 添加」{"\n"}和朋友碰一碰手机吧</Text>
@@ -540,6 +629,21 @@ const styles = StyleSheet.create({
   },
   moreIcon: { flexDirection: "row", gap: 3 },
   moreDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: COLORS.ink },
+  cacheNotice: {
+    minHeight: 40, paddingHorizontal: 16,
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7,
+    backgroundColor: "#F6EADB",
+    borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: "#E4CEB2",
+  },
+  cacheNoticeMark: {
+    width: 18, height: 18, borderRadius: 9, textAlign: "center", lineHeight: 18,
+    color: "#955D25", borderWidth: 1, borderColor: "#B77A3C", fontSize: 12, fontWeight: "800",
+  },
+  cacheNoticeText: { flexShrink: 1, color: "#75481F", fontSize: 12, lineHeight: 17 },
+  syncNotice: { backgroundColor: "#ECEEEC", borderColor: "#D9DCD8" },
+  syncNoticeMark: { color: COLORS.muted, borderColor: COLORS.faint },
+  syncNoticeText: { color: COLORS.muted },
   list: { paddingBottom: 28 },
   sectionHeader: {
     flexDirection: "row", alignItems: "center",
@@ -603,4 +707,11 @@ const styles = StyleSheet.create({
   empty: { flex: 1, justifyContent: "center", alignItems: "center", paddingBottom: 100 },
   emptyTitle: { fontSize: 20, fontWeight: "600", color: COLORS.ink, marginBottom: 8 },
   emptyHint: { fontSize: 14, color: COLORS.muted, textAlign: "center", lineHeight: 22 },
+  loadingText: { marginTop: 12, color: COLORS.muted, fontSize: 14 },
+  retryButton: {
+    minHeight: 44, marginTop: 20, paddingHorizontal: 18,
+    alignItems: "center", justifyContent: "center",
+    borderRadius: 22, backgroundColor: COLORS.accentSoft,
+  },
+  retryButtonText: { color: "#157454", fontSize: 14, fontWeight: "700" },
 });

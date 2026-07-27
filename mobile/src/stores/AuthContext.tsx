@@ -15,6 +15,25 @@ interface User {
   status_msg: string | null;
 }
 
+const PROFILE_STORAGE_KEY = "kin_profile";
+
+function parseCachedUser(value: string | null): User | null {
+  if (!value) return null;
+  try {
+    const user = JSON.parse(value) as Partial<User>;
+    if (typeof user.id !== "string" || typeof user.username !== "string") return null;
+    return {
+      id: user.id,
+      username: user.username,
+      nickname: typeof user.nickname === "string" ? user.nickname : null,
+      avatar: typeof user.avatar === "string" ? user.avatar : null,
+      status_msg: typeof user.status_msg === "string" ? user.status_msg : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 interface AuthState {
   isLoading: boolean;
   isLoggedIn: boolean;
@@ -61,19 +80,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     (async () => {
       try {
-        const savedToken = await SecureStore.getItemAsync("kin_token");
+        const [savedToken, savedProfile] = await Promise.all([
+          SecureStore.getItemAsync("kin_token"),
+          SecureStore.getItemAsync(PROFILE_STORAGE_KEY),
+        ]);
         if (savedToken) {
           setToken(savedToken);
-          const profile = await apiGetProfile();
-          await messageInbox.start((profile as User).id);
-          kinWS.connect(savedToken);
-          dispatch({ type: "RESTORE_TOKEN", token: savedToken, user: profile as User });
+          try {
+            const profile = await apiGetProfile() as User;
+            await SecureStore.setItemAsync(PROFILE_STORAGE_KEY, JSON.stringify(profile));
+            await messageInbox.start(profile.id);
+            kinWS.connect(savedToken);
+            dispatch({ type: "RESTORE_TOKEN", token: savedToken, user: profile });
+          } catch (error: any) {
+            if ([401, 403, 404].includes(error?.status)) {
+              await Promise.all([
+                SecureStore.deleteItemAsync("kin_token"),
+                SecureStore.deleteItemAsync(PROFILE_STORAGE_KEY),
+              ]);
+              setToken(null);
+              dispatch({ type: "LOADING_DONE" });
+              return;
+            }
+
+            const cachedUser = parseCachedUser(savedProfile);
+            if (cachedUser) {
+              await messageInbox.start(cachedUser.id);
+              kinWS.connect(savedToken);
+              dispatch({ type: "RESTORE_TOKEN", token: savedToken, user: cachedUser });
+            } else {
+              setToken(null);
+              dispatch({ type: "LOADING_DONE" });
+            }
+          }
         } else {
           dispatch({ type: "LOADING_DONE" });
         }
       } catch {
-        // 令牌过期或网络错误
-        await SecureStore.deleteItemAsync("kin_token");
         setToken(null);
         dispatch({ type: "LOADING_DONE" });
       }
@@ -87,7 +130,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const loginAction = async (token: string, user: User) => {
-    await SecureStore.setItemAsync("kin_token", token);
+    await Promise.all([
+      SecureStore.setItemAsync("kin_token", token),
+      SecureStore.setItemAsync(PROFILE_STORAGE_KEY, JSON.stringify(user)),
+    ]);
     setToken(token);
     await messageInbox.start(user.id);
     kinWS.connect(token);
@@ -95,7 +141,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logoutAction = async () => {
-    await SecureStore.deleteItemAsync("kin_token");
+    await Promise.all([
+      SecureStore.deleteItemAsync("kin_token"),
+      SecureStore.deleteItemAsync(PROFILE_STORAGE_KEY),
+    ]);
     setToken(null);
     kinWS.disconnect();
     messageInbox.stop();

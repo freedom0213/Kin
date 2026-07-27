@@ -37,6 +37,7 @@ async function request<T = any>(
     const message = typeof detail === "string" ? detail : detail?.message;
     const error = new Error(message || "请求失败");
     (error as any).code = typeof detail === "object" ? detail?.code : undefined;
+    (error as any).status = res.status;
     throw error;
   }
 

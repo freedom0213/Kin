@@ -4,6 +4,8 @@ import { getFriendList, type Friend } from "../api/client";
 import { kinWS } from "../api/ws";
 import {
   getPendingOutgoingMessages,
+  cacheFriends,
+  getCachedFriends,
   messageExists,
   saveMessage,
   updateMessageDeliveryStatus,
@@ -69,8 +71,18 @@ class MessageInbox {
     try {
       const result = await getFriendList();
       this.friends = new Map(result.friends.map((friend) => [friend.user_id, friend]));
+      if (this.userId) await cacheFriends(this.userId, result.friends);
     } catch {
-      this.friends.clear();
+      if (!this.userId) {
+        this.friends.clear();
+        return;
+      }
+      try {
+        const cachedFriends = await getCachedFriends(this.userId);
+        this.friends = new Map(cachedFriends.map((friend) => [friend.user_id, friend]));
+      } catch {
+        this.friends.clear();
+      }
     }
   };
 

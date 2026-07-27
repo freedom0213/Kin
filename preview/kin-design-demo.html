@@ -196,11 +196,17 @@
     .home-actions { display: flex; gap: 8px; }
     .small-action { min-height: 38px; padding: 0 12px; border: 0; border-radius: 19px; background: var(--accent-soft); color: var(--accent-dark); font-size: 12px; font-weight: 700; cursor: pointer; }
     .circle-action { width: 38px; padding: 0; border-radius: 50%; background: #eaede9; color: var(--ink); }
+    .home-demo-row { margin: 0 20px 2px; display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
     .presence-demo {
-      min-height: 34px; margin: 0 20px 2px; padding: 0 12px;
+      min-height: 34px; margin: 0; padding: 0 10px;
       border: 1px solid #cfe6dd; border-radius: 17px; background: #f1f8f5;
       color: var(--accent-dark); font-size: 11px; font-weight: 750; cursor: pointer;
     }
+    .presence-demo:disabled { cursor: not-allowed; opacity: .45; }
+    .cache-demo { border-color: #e4ceb2; background: #fbf3e9; color: #75481f; }
+    .friend-cache-notice { min-height: 39px; padding: 7px 14px; display: flex; align-items: center; justify-content: center; gap: 7px; border-top: 1px solid #e4ceb2; border-bottom: 1px solid #e4ceb2; background: #f6eadb; color: #75481f; font-size: 10px; line-height: 1.45; }
+    .friend-cache-notice b { flex: 0 0 auto; width: 17px; height: 17px; border: 1px solid #b77a3c; border-radius: 50%; display: grid; place-items: center; font-size: 10px; }
+    .section-empty { padding: 12px 20px 5px; color: var(--faint); font-size: 11px; }
     .section-head { padding: 17px 20px 8px; display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 800; }
     .section-head span { color: var(--faint); font-weight: 600; }
     .conversation {
@@ -427,6 +433,7 @@
       online: true,
       encryptionReady: true,
       momoOnline: false,
+      friendListOffline: false,
       presenceBurst: false,
       moreOpen: false,
       messageMenuIndex: null,
@@ -464,10 +471,15 @@
       return `<button class="conversation ${arrival ? "presence-arrival" : ""}" data-go="chat" data-set-online="${online}" ${person ? `data-person="${person}"` : ""}>${avatar(initials, online, "sm", delay, arrival)}<span class="conversation-copy"><span class="conversation-name">${name}</span><span class="conversation-preview">${preview}</span></span><span class="conversation-meta"><span>${time}</span>${unread ? `<span class="unread">${unread}</span>` : status ? `<span class="status-check">${status}</span>` : ""}</span></button>`;
     }
     function homeScreen() {
-      const momo = conversation("Momo", "MO", state.momoOnline, "文件我收到了", "昨天", "", "", { person: "momo", delay: 460, arrival: state.presenceBurst });
-      const onlineCount = state.momoOnline ? 3 : 2;
-      const offlineCount = state.momoOnline ? 1 : 2;
-      return phone(`<div class="home-head"><div><h2>Kin</h2></div><div class="home-actions"><button class="small-action" data-go="nfc">+ 添加</button><button class="small-action circle-action" data-go="settings" aria-label="设置">•••</button></div></div><button class="presence-demo" data-presence-demo>${state.momoOnline ? "演示 Momo 离线" : "演示 Momo 上线"}</button><div class="scroll"><div class="section-head">Online <span>${onlineCount}</span></div>${conversation("林迟", "LC", true, "那还是老地方见 🙂", "15:54", "2", "", { delay: 80 })}${conversation("阿川", "AC", true, "[语音] 12″", "14:20", "", "✓✓", { delay: 280 })}${state.momoOnline ? momo : ""}<div class="section-head">Offline <span>${offlineCount}</span></div>${state.momoOnline ? "" : momo}${conversation("周然", "ZR", false, "下次见", "周三", "", "◷")}</div>`);
+      const cached = state.friendListOffline;
+      const momo = conversation("Momo", "MO", cached ? false : state.momoOnline, "文件我收到了", "昨天", "", "", { person: "momo", delay: 460, arrival: !cached && state.presenceBurst });
+      const onlineCount = cached ? 0 : state.momoOnline ? 3 : 2;
+      const offlineCount = cached ? 4 : state.momoOnline ? 1 : 2;
+      const onlineRows = cached ? `<div class="section-empty">当前没有可确认的在线状态</div>` : `${conversation("林迟", "LC", true, "那还是老地方见 🙂", "15:54", "2", "", { delay: 80 })}${conversation("阿川", "AC", true, "[语音] 12″", "14:20", "", "✓✓", { delay: 280 })}${state.momoOnline ? momo : ""}`;
+      const offlineRows = cached
+        ? `${conversation("林迟", "LC", false, "那还是老地方见 🙂", "15:54", "2")}${conversation("阿川", "AC", false, "[语音] 12″", "14:20", "", "✓✓")}${momo}${conversation("周然", "ZR", false, "下次见", "周三", "", "◷")}`
+        : `${state.momoOnline ? "" : momo}${conversation("周然", "ZR", false, "下次见", "周三", "", "◷")}`;
+      return phone(`<div class="home-head"><div><h2>Kin</h2></div><div class="home-actions"><button class="small-action" data-go="nfc">+ 添加</button><button class="small-action circle-action" data-go="settings" aria-label="设置">•••</button></div></div><div class="home-demo-row"><button class="presence-demo" data-presence-demo ${cached ? "disabled" : ""}>${state.momoOnline ? "演示 Momo 离线" : "演示 Momo 上线"}</button><button class="presence-demo cache-demo" data-cache-demo>${cached ? "恢复服务器连接" : "演示离线缓存"}</button></div>${cached ? `<div class="friend-cache-notice"><b>!</b><span>正在显示本机缓存，在线状态可能不是最新</span></div>` : ""}<div class="scroll"><div class="section-head">Online <span>${onlineCount}</span></div>${onlineRows}<div class="section-head">Offline <span>${offlineCount}</span></div>${offlineRows}</div>`);
     }
     function chatTop() {
       return `<div class="topbar"><button class="top-action" data-go="home" aria-label="返回会话列表"><span class="back-icon"></span></button><div class="top-title"><strong>林迟</strong><span class="presence ${state.online ? "" : "offline"}"><i class="presence-dot"></i>${state.online ? "Online" : "Offline"}</span></div><button class="top-action" data-more aria-label="更多聊天功能">${moreIcon()}</button></div>`;
@@ -550,6 +562,12 @@
           state.presenceBurst = false;
           presenceBurstTimer = null;
         }, 700);
+        return;
+      }
+      if (target.hasAttribute("data-cache-demo")) {
+        state.friendListOffline = !state.friendListOffline;
+        state.presenceBurst = false;
+        render();
         return;
       }
       if (target.hasAttribute("data-more")) { state.moreOpen = !state.moreOpen; render(); return; }
