@@ -18,6 +18,11 @@ class LoginBody(BaseModel):
     password: str
 
 
+class UpdateProfileBody(BaseModel):
+    nickname: str | None = Field(None, max_length=24, description="昵称，留空表示未设置")
+    status_msg: str | None = Field(None, max_length=80, description="个性签名，留空表示未设置")
+
+
 @router.post("/register")
 async def api_register(body: RegisterBody):
     """用户注册"""
@@ -41,6 +46,19 @@ async def api_me(authorization: str = Header(...)):
     """获取当前用户信息"""
     user_id = get_user_id(authorization)
     profile = auth_service.get_profile(user_id)
+    if not profile:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    return profile
+
+
+@router.put("/me")
+async def api_update_me(body: UpdateProfileBody, authorization: str = Header(...)):
+    """更新当前用户的昵称和个性签名。"""
+    user_id = get_user_id(authorization)
+    try:
+        profile = auth_service.update_profile(user_id, body.nickname, body.status_msg)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     if not profile:
         raise HTTPException(status_code=404, detail="用户不存在")
     return profile

@@ -263,7 +263,14 @@ export default function SettingsScreen({ navigation }: any) {
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, 20) + 28 }]}
       >
-        <View style={styles.identity}>
+        <TouchableOpacity
+          style={styles.identity}
+          onPress={() => navigation.navigate("ProfileEdit")}
+          activeOpacity={0.72}
+          accessibilityRole="button"
+          accessibilityLabel="编辑个人资料"
+          accessibilityHint="修改昵称和个性签名"
+        >
           <View style={styles.avatar}>
             {user?.avatar ? (
               <Image
@@ -282,7 +289,8 @@ export default function SettingsScreen({ navigation }: any) {
               {user?.status_msg || "还没有留下个性签名"}
             </Text>
           </View>
-        </View>
+          <Text style={styles.identityEdit}>编辑</Text>
+        </TouchableOpacity>
 
         <Section title="通知与状态">
           <PreferenceRow
@@ -421,6 +429,7 @@ const styles = StyleSheet.create({
   identityName: { color: COLORS.ink, fontSize: 21, fontWeight: "700" },
   identityUsername: { marginTop: 2, color: COLORS.muted, fontSize: 13 },
   identityStatus: { marginTop: 9, color: COLORS.muted, fontSize: 13, lineHeight: 19 },
+  identityEdit: { marginLeft: 12, color: COLORS.accentDark, fontSize: 13, fontWeight: "700" },
   section: {
     marginTop: 12, backgroundColor: COLORS.surface,
     borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth,

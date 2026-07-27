@@ -2,18 +2,12 @@
 
 import React, { createContext, useContext, useReducer, useEffect, ReactNode } from "react";
 import * as SecureStore from "expo-secure-store";
-import { setToken, getProfile as apiGetProfile } from "../api/client";
+import { setToken, getProfile as apiGetProfile, type UserProfile } from "../api/client";
 import { kinWS } from "../api/ws";
 import { messageInbox } from "../services/messageInbox";
 import { kinFeedback } from "../services/feedback";
 
-interface User {
-  id: string;
-  username: string;
-  nickname: string | null;
-  avatar: string | null;
-  status_msg: string | null;
-}
+type User = UserProfile;
 
 const PROFILE_STORAGE_KEY = "kin_profile";
 
@@ -44,12 +38,14 @@ interface AuthState {
 type AuthAction =
   | { type: "RESTORE_TOKEN"; token: string; user: User }
   | { type: "LOGIN"; token: string; user: User }
+  | { type: "UPDATE_PROFILE"; user: User }
   | { type: "LOGOUT" }
   | { type: "LOADING_DONE" };
 
 const AuthContext = createContext<{
   state: AuthState;
   loginAction: (token: string, user: User) => Promise<void>;
+  updateProfileAction: (user: User) => Promise<void>;
   logoutAction: () => Promise<void>;
 } | null>(null);
 
@@ -59,6 +55,8 @@ function authReducer(state: AuthState, action: AuthAction): AuthState {
       return { ...state, token: action.token, user: action.user, isLoggedIn: true, isLoading: false };
     case "LOGIN":
       return { ...state, token: action.token, user: action.user, isLoggedIn: true, isLoading: false };
+    case "UPDATE_PROFILE":
+      return { ...state, user: action.user };
     case "LOGOUT":
       return { ...state, token: null, user: null, isLoggedIn: false, isLoading: false };
     case "LOADING_DONE":
@@ -152,8 +150,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     dispatch({ type: "LOGOUT" });
   };
 
+  const updateProfileAction = async (user: User) => {
+    await SecureStore.setItemAsync(PROFILE_STORAGE_KEY, JSON.stringify(user));
+    dispatch({ type: "UPDATE_PROFILE", user });
+  };
+
   return (
-    <AuthContext.Provider value={{ state, loginAction, logoutAction }}>
+    <AuthContext.Provider value={{ state, loginAction, updateProfileAction, logoutAction }}>
       {children}
     </AuthContext.Provider>
   );

@@ -49,8 +49,22 @@ async function request<T = any>(
 export interface AuthResult {
   success: boolean;
   message: string;
-  user: { id: string; username: string };
+  user: {
+    id: string;
+    username: string;
+    nickname?: string | null;
+    avatar?: string | null;
+    status_msg?: string | null;
+  };
   token: string;
+}
+
+export interface UserProfile {
+  id: string;
+  username: string;
+  nickname: string | null;
+  avatar: string | null;
+  status_msg: string | null;
 }
 
 export function register(username: string, password: string, publicKey?: string) {
@@ -62,7 +76,14 @@ export function login(username: string, password: string) {
 }
 
 export function getProfile() {
-  return request("GET", "/api/auth/me");
+  return request<UserProfile>("GET", "/api/auth/me");
+}
+
+export function updateProfile(nickname: string | null, statusMsg: string | null) {
+  return request<UserProfile>("PUT", "/api/auth/me", {
+    nickname,
+    status_msg: statusMsg,
+  });
 }
 
 // -- 好友 --

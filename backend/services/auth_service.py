@@ -158,3 +158,28 @@ def get_profile(user_id: str) -> dict | None:
         "avatar": row.get("avatar"),
         "status_msg": row.get("status_msg"),
     }
+
+
+def _normalize_profile_text(value: str | None, max_length: int, field_name: str) -> str | None:
+    if value is None:
+        return None
+    normalized = " ".join(value.split())
+    if len(normalized) > max_length:
+        raise ValueError(f"{field_name}最多 {max_length} 个字符")
+    return normalized or None
+
+
+def update_profile(user_id: str, nickname: str | None, status_msg: str | None) -> dict | None:
+    """更新昵称和个性签名，返回更新后的完整资料。"""
+    normalized_nickname = _normalize_profile_text(nickname, 24, "昵称")
+    normalized_status = _normalize_profile_text(status_msg, 80, "个性签名")
+    table = get_table("users")
+    with engine.begin() as conn:
+        result = conn.execute(
+            table.update()
+            .where(table.c.id == user_id)
+            .values(nickname=normalized_nickname, status_msg=normalized_status)
+        )
+    if result.rowcount == 0:
+        return None
+    return get_profile(user_id)

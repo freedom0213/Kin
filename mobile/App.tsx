@@ -14,6 +14,7 @@ import AddFriendScreen from "./src/screens/AddFriendScreen";
 import VoiceCallScreen from "./src/screens/VoiceCallScreen";
 import ConversationDetailsScreen from "./src/screens/ConversationDetailsScreen";
 import SettingsScreen from "./src/screens/SettingsScreen";
+import ProfileEditScreen from "./src/screens/ProfileEditScreen";
 
 const Stack = createNativeStackNavigator();
 
@@ -38,6 +39,7 @@ function AppNavigator() {
             <Stack.Screen name="ConversationDetails" component={ConversationDetailsScreen} />
             <Stack.Screen name="AddFriend" component={AddFriendScreen} />
             <Stack.Screen name="Settings" component={SettingsScreen} />
+            <Stack.Screen name="ProfileEdit" component={ProfileEditScreen} />
             <Stack.Screen
               name="VoiceCall"
               component={VoiceCallScreen}

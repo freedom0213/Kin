@@ -32,9 +32,9 @@ export default function RegisterScreen({ navigation }: any) {
         await loginAction(result.token, {
           id: result.user.id,
           username: result.user.username,
-          nickname: null,
-          avatar: null,
-          status_msg: null,
+          nickname: result.user.nickname ?? null,
+          avatar: result.user.avatar ?? null,
+          status_msg: result.user.status_msg ?? null,
         });
       }
     } catch (e: any) {

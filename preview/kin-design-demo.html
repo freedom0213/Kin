@@ -341,8 +341,21 @@
     .call-control button:disabled { cursor: not-allowed; opacity: .34; }
 
     .settings-intro { padding: 22px 20px 16px; }
+    .settings-intro.action { width: 100%; border: 0; background: transparent; text-align: left; cursor: pointer; }
+    .settings-intro.action:hover, .settings-intro.action:focus-visible { background: #fafbf9; outline: none; }
     .settings-intro h2 { margin: 0; font-size: 23px; }
     .settings-intro p { margin: 6px 0 0; color: var(--muted); font-size: 12px; }
+    .profile-preview { padding: 25px 20px 21px; display: grid; justify-items: center; }
+    .profile-preview b { margin-top: 11px; font-size: 13px; }
+    .profile-preview span { margin-top: 4px; color: var(--faint); font-size: 10px; }
+    .profile-form { margin-top: 10px; padding: 16px 18px; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: white; }
+    .profile-label { display: flex; justify-content: space-between; color: var(--ink); font-size: 11px; font-weight: 750; }
+    .profile-label span { color: var(--faint); font-weight: 500; }
+    .profile-input { width: 100%; min-height: 46px; margin-top: 9px; padding: 0 13px; border: 1px solid var(--line); border-radius: 14px; background: #fafbf9; color: var(--ink); }
+    textarea.profile-input { min-height: 96px; padding-top: 12px; resize: none; font: inherit; }
+    .profile-hint { margin: 8px 0 0; color: var(--muted); font-size: 10px; line-height: 1.55; }
+    .profile-privacy { margin: 18px; padding: 14px; border: 1px solid #cee4dc; border-radius: 15px; background: var(--accent-soft); color: #3f6f60; font-size: 10px; line-height: 1.55; }
+    .profile-save { min-width: 52px; height: 44px; border: 0; background: transparent; color: var(--accent-dark); font-weight: 750; cursor: pointer; }
     .setting-row { min-height: 58px; margin-left: 18px; padding-right: 18px; display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--line); }
     .setting-row b { display: block; font-size: 13px; }
     .setting-row span { display: block; margin-top: 3px; color: var(--muted); font-size: 10px; }
@@ -426,7 +439,7 @@
     const pages = [
       ["login", "登录"], ["register", "注册"], ["home", "会话列表"],
       ["chat", "聊天"], ["details", "会话详情"], ["nfc", "碰一碰"],
-      ["call", "语音通话"], ["settings", "设置"],
+      ["call", "语音通话"], ["settings", "设置"], ["profile", "编辑资料"],
     ];
     const state = {
       page: "home",
@@ -443,6 +456,7 @@
       muted: false,
       speaker: false,
       settings: { messageSound: true, friendOnlineSound: true, haptic: true },
+      profile: { nickname: "freedom", status: null },
       messageDraft: "晚点见",
       messages: [
         { mine: false, text: "明天下午有时间吗", time: "15:50" },
@@ -513,10 +527,18 @@
     function settingsScreen() {
       const preferenceSetting = (title, hint, key) => `<div class="setting-row"><span><b>${title}</b><span>${hint}</span></span><button class="switch ${state.settings[key] ? "on" : ""}" data-setting="${key}" aria-label="${title}" aria-pressed="${state.settings[key]}"></button></div>`;
       const plannedSetting = (title, hint) => `<div class="setting-row"><span><b>${title}</b><span>${hint}</span></span><button class="switch" disabled aria-label="${title}，暂不可用"></button></div>`;
-      return phone(`<div class="topbar"><button class="top-action" data-go="home"><span class="back-icon"></span></button><div class="top-title"><strong>设置</strong></div><div class="top-action"></div></div><div class="scroll"><div class="settings-intro"><h2>freedom</h2><p>@freedom · 还没有留下个性签名</p></div><div class="data-section"><b>通知与状态</b>${preferenceSetting("消息提示音", "收到新消息时播放一声轻提示", "messageSound")}${preferenceSetting("好友上线提示音", "好友稳定上线后播放提示", "friendOnlineSound")}${preferenceSetting("触觉反馈", "Android 收到消息时提供短触觉", "haptic")}${plannedSetting("展示在线状态", "等待服务端在线隐私控制接入")}</div><div class="data-section"><b>安全</b><button class="data-row action" data-encryption-demo aria-label="演示切换本机密钥状态"><span>端到端加密</span><span>${state.encryptionReady ? "正常" : "本机密钥缺失"} ›</span></button><button class="data-row action"><span>本地数据保护</span><span>›</span></button></div><div class="data-section"><b>聊天数据</b><button class="data-row action"><span>导出全部消息</span><span>18 条 ›</span></button><button class="data-row action" disabled><span>导入聊天备份</span><span>暂不可用</span></button><button class="data-row action"><span>本地存储</span><span>18 条 ›</span></button></div><div class="data-section"><b>Kin</b><button class="data-row action"><span>隐私说明</span><span>›</span></button><button class="data-row action"><span>关于 Kin</span><span>0.1.0 ›</span></button><button class="data-row action"><span class="danger">退出账号</span><span>›</span></button></div></div>`);
+      const displayName = state.profile.nickname || "freedom";
+      const status = state.profile.status || "还没有留下个性签名";
+      return phone(`<div class="topbar"><button class="top-action" data-go="home"><span class="back-icon"></span></button><div class="top-title"><strong>设置</strong></div><div class="top-action"></div></div><div class="scroll"><button class="settings-intro action" data-go="profile" aria-label="编辑个人资料"><h2>${escapeAttribute(displayName)}</h2><p>@freedom · ${escapeAttribute(status)} · 编辑</p></button><div class="data-section"><b>通知与状态</b>${preferenceSetting("消息提示音", "收到新消息时播放一声轻提示", "messageSound")}${preferenceSetting("好友上线提示音", "好友稳定上线后播放提示", "friendOnlineSound")}${preferenceSetting("触觉反馈", "Android 收到消息时提供短触觉", "haptic")}${plannedSetting("展示在线状态", "等待服务端在线隐私控制接入")}</div><div class="data-section"><b>安全</b><button class="data-row action" data-encryption-demo aria-label="演示切换本机密钥状态"><span>端到端加密</span><span>${state.encryptionReady ? "正常" : "本机密钥缺失"} ›</span></button><button class="data-row action"><span>本地数据保护</span><span>›</span></button></div><div class="data-section"><b>聊天数据</b><button class="data-row action"><span>导出全部消息</span><span>18 条 ›</span></button><button class="data-row action" disabled><span>导入聊天备份</span><span>暂不可用</span></button><button class="data-row action"><span>本地存储</span><span>18 条 ›</span></button></div><div class="data-section"><b>Kin</b><button class="data-row action"><span>隐私说明</span><span>›</span></button><button class="data-row action"><span>关于 Kin</span><span>0.1.0 ›</span></button><button class="data-row action"><span class="danger">退出账号</span><span>›</span></button></div></div>`);
+    }
+    function profileEditScreen() {
+      const nickname = state.profile.nickname || "";
+      const status = state.profile.status || "";
+      const initials = Array.from(nickname || "freedom").slice(0, 2).join("").toUpperCase();
+      return phone(`<div class="topbar"><button class="top-action" data-go="settings" aria-label="返回设置"><span class="back-icon"></span></button><div class="top-title"><strong>编辑资料</strong></div><button class="profile-save" data-save-profile>保存</button></div><div class="scroll"><div class="profile-preview">${avatar(initials, false, "lg")}<b>@freedom</b><span>头像编辑将在后续版本接入</span></div><div class="profile-form"><label class="profile-label" for="profileNickname">昵称 <span id="nicknameCount">${nickname.length}/24</span></label><input class="profile-input" id="profileNickname" maxlength="24" value="${escapeAttribute(nickname)}" placeholder="freedom"><p class="profile-hint">清空后，Kin 将使用用户名作为显示名称。</p></div><div class="profile-form"><label class="profile-label" for="profileStatus">个性签名 <span id="statusCount">${status.length}/80</span></label><textarea class="profile-input" id="profileStatus" maxlength="80" placeholder="留下一句现在的心情">${escapeAttribute(status)}</textarea></div><div class="profile-privacy"><b>谁能看到？</b><br>昵称和个性签名会展示给已经与你成为好友的人。</div></div>`);
     }
     function renderPage(name) {
-      return ({ login: loginScreen, register: registerScreen, home: homeScreen, chat: chatScreen, details: detailsScreen, nfc: nfcScreen, call: callScreen, settings: settingsScreen })[name]();
+      return ({ login: loginScreen, register: registerScreen, home: homeScreen, chat: chatScreen, details: detailsScreen, nfc: nfcScreen, call: callScreen, settings: settingsScreen, profile: profileEditScreen })[name]();
     }
 
     function renderFlow() {
@@ -601,6 +623,14 @@
         render();
         return;
       }
+      if (target.hasAttribute("data-save-profile")) {
+        const nickname = document.getElementById("profileNickname")?.value.trim().replace(/\s+/g, " ") || null;
+        const status = document.getElementById("profileStatus")?.value.trim().replace(/\s+/g, " ") || null;
+        state.profile = { nickname, status };
+        state.page = "settings";
+        render();
+        return;
+      }
       if (target.hasAttribute("data-retry-message")) {
         const message = state.messages[Number(target.dataset.retryMessage)];
         if (!message || message.status !== "!") return;
@@ -626,6 +656,12 @@
     });
     document.addEventListener("input", event => {
       if (event.target.id === "messageInput") state.messageDraft = event.target.value;
+      if (event.target.id === "profileNickname") {
+        const count = document.getElementById("nicknameCount"); if (count) count.textContent = `${event.target.value.length}/24`;
+      }
+      if (event.target.id === "profileStatus") {
+        const count = document.getElementById("statusCount"); if (count) count.textContent = `${event.target.value.length}/80`;
+      }
     });
     let messageHoldTimer = null;
     const openMessageActions = target => {
