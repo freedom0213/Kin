@@ -1,27 +1,51 @@
 /** 语音录制/播放组件 — 基于 expo-av */
 
-import React, { useState, useRef, useCallback } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import {
-  TouchableOpacity, Text, View, StyleSheet, ActivityIndicator, PanResponder,
+  ActivityIndicator,
+  Alert,
+  Linking,
+  PanResponder,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { Audio } from "expo-av";
-import { Paths, File } from "expo-file-system";
+import { File, Paths } from "expo-file-system";
 
 interface VoiceRecorderProps {
   onRecordComplete: (base64Audio: string, duration: number) => void;
   disabled?: boolean;
 }
 
+const CANCEL_DISTANCE = -56;
+const MIN_RECORDING_SECONDS = 0.5;
+const MAX_RECORDING_SECONDS = 60;
+
+type RecorderNotice = "too-short" | "failed" | "max-duration" | null;
+
+function formatRecordingDuration(seconds: number): string {
+  const safeSeconds = Math.max(0, Math.min(MAX_RECORDING_SECONDS, Math.floor(seconds)));
+  return `${Math.floor(safeSeconds / 60)}:${String(safeSeconds % 60).padStart(2, "0")}`;
+}
+
 export function VoiceRecorder({ onRecordComplete, disabled = false }: VoiceRecorderProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [notice, setNotice] = useState<RecorderNotice>(null);
   const recordingRef = useRef<Audio.Recording | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const pressStartRef = useRef<number>(0);
+  const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pressStartRef = useRef(0);
   const gestureActiveRef = useRef(false);
   const cancelRequestedRef = useRef(false);
   const disabledRef = useRef(disabled);
+  const finishRecordingRef = useRef<(
+    cancelled: boolean,
+    reachedLimit?: boolean
+  ) => Promise<void>>(async () => undefined);
   disabledRef.current = disabled;
 
   const clearTimer = useCallback(() => {
@@ -31,12 +55,50 @@ export function VoiceRecorder({ onRecordComplete, disabled = false }: VoiceRecor
     }
   }, []);
 
-  // 开始录音
+  const clearNoticeTimer = useCallback(() => {
+    if (noticeTimerRef.current) {
+      clearTimeout(noticeTimerRef.current);
+      noticeTimerRef.current = null;
+    }
+  }, []);
+
+  const showNotice = useCallback((nextNotice: Exclude<RecorderNotice, null>) => {
+    clearNoticeTimer();
+    setNotice(nextNotice);
+    noticeTimerRef.current = setTimeout(() => {
+      setNotice(null);
+      noticeTimerRef.current = null;
+    }, 2_200);
+  }, [clearNoticeTimer]);
+
+  const restorePlaybackMode = useCallback(async () => {
+    try {
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+        playThroughEarpieceAndroid: false,
+      });
+    } catch {
+      // 音频路由恢复失败不应覆盖已经完成的发送或取消结果。
+    }
+  }, []);
+
+  // 权限弹窗出现时用户可能先松手，因此创建录音后还要再次检查手势状态。
   const startRecording = useCallback(async () => {
     try {
-      // Android 需要先请求权限
-      const perm = await Audio.requestPermissionsAsync();
-      if (!perm.granted) return;
+      const permission = await Audio.requestPermissionsAsync();
+      if (!permission.granted) {
+        gestureActiveRef.current = false;
+        Alert.alert(
+          "需要麦克风权限",
+          "开启麦克风权限后，才能在 Kin 中发送语音消息。",
+          [
+            { text: "暂不", style: "cancel" },
+            { text: "去设置", onPress: () => { void Linking.openSettings(); } },
+          ]
+        );
+        return;
+      }
 
       await Audio.setAudioModeAsync({
         allowsRecordingIOS: true,
@@ -47,9 +109,9 @@ export function VoiceRecorder({ onRecordComplete, disabled = false }: VoiceRecor
         Audio.RecordingOptionsPresets.HIGH_QUALITY
       );
 
-      // 权限弹窗可能让用户先松手；此时直接丢弃刚创建的录音，避免后台持续录制。
       if (!gestureActiveRef.current) {
         await recording.stopAndUnloadAsync();
+        await restorePlaybackMode();
         return;
       }
 
@@ -57,31 +119,50 @@ export function VoiceRecorder({ onRecordComplete, disabled = false }: VoiceRecor
       pressStartRef.current = Date.now();
       setIsRecording(true);
       setRecordingSeconds(0);
+      setNotice(null);
 
-      // 计时器
       timerRef.current = setInterval(() => {
-        setRecordingSeconds((s) => s + 1);
-      }, 1000);
-    } catch (e) {
-      console.log("录音启动失败", e);
+        const elapsed = (Date.now() - pressStartRef.current) / 1000;
+        setRecordingSeconds(elapsed);
+        if (elapsed >= MAX_RECORDING_SECONDS) {
+          gestureActiveRef.current = false;
+          void finishRecordingRef.current(false, true);
+        }
+      }, 250);
+    } catch (error) {
+      gestureActiveRef.current = false;
+      setIsRecording(false);
+      setIsCancelling(false);
+      clearTimer();
+      await restorePlaybackMode();
+      showNotice("failed");
+      console.log("录音启动失败", error);
     }
-  }, []);
+  }, [clearTimer, restorePlaybackMode, showNotice]);
 
-  // 停止录音：正常松手发送，上滑后松手则丢弃。
-  const finishRecording = useCallback(async (cancelled: boolean) => {
+  // 正常松手发送；进入取消区后松手丢弃；达到上限时自动发送。
+  const finishRecording = useCallback(async (cancelled: boolean, reachedLimit = false) => {
     setIsRecording(false);
     setIsCancelling(false);
     clearTimer();
-    if (!recordingRef.current) return;
+    const activeRecording = recordingRef.current;
+    recordingRef.current = null;
+    if (!activeRecording) return;
+    const duration = Math.min(
+      MAX_RECORDING_SECONDS,
+      (Date.now() - pressStartRef.current) / 1000
+    );
 
     try {
-      await recordingRef.current.stopAndUnloadAsync();
-      const uri = recordingRef.current.getURI();
-      recordingRef.current = null;
-
+      await activeRecording.stopAndUnloadAsync();
+      const uri = activeRecording.getURI();
       if (cancelled || !uri) return;
 
-      // 用 fetch + FileReader 读取录音文件为 base64（兼容 expo-file-system v18+）
+      if (duration < MIN_RECORDING_SECONDS) {
+        showNotice("too-short");
+        return;
+      }
+
       const response = await fetch(uri);
       const blob = await response.blob();
       const base64 = await new Promise<string>((resolve, reject) => {
@@ -94,16 +175,17 @@ export function VoiceRecorder({ onRecordComplete, disabled = false }: VoiceRecor
         reader.readAsDataURL(blob);
       });
 
-      const duration = (Date.now() - pressStartRef.current) / 1000;
-
-      // 太短的录音忽略（< 0.5秒）
-      if (duration < 0.5) return;
-
       onRecordComplete(base64, duration);
-    } catch (e) {
-      console.log("录音保存失败", e);
+      if (reachedLimit) showNotice("max-duration");
+    } catch (error) {
+      if (!cancelled) showNotice(duration < MIN_RECORDING_SECONDS ? "too-short" : "failed");
+      console.log("录音保存失败", error);
+    } finally {
+      await restorePlaybackMode();
     }
-  }, [clearTimer, onRecordComplete]);
+  }, [clearTimer, onRecordComplete, restorePlaybackMode, showNotice]);
+
+  finishRecordingRef.current = finishRecording;
 
   const panResponder = useRef(PanResponder.create({
     onStartShouldSetPanResponder: () => !disabledRef.current,
@@ -116,7 +198,7 @@ export function VoiceRecorder({ onRecordComplete, disabled = false }: VoiceRecor
       void startRecording();
     },
     onPanResponderMove: (_, gestureState) => {
-      const shouldCancel = gestureState.dy <= -56;
+      const shouldCancel = gestureState.dy <= CANCEL_DISTANCE;
       if (cancelRequestedRef.current !== shouldCancel) {
         cancelRequestedRef.current = shouldCancel;
         setIsCancelling(shouldCancel);
@@ -124,22 +206,33 @@ export function VoiceRecorder({ onRecordComplete, disabled = false }: VoiceRecor
     },
     onPanResponderRelease: () => {
       gestureActiveRef.current = false;
-      void finishRecording(cancelRequestedRef.current);
+      void finishRecordingRef.current(cancelRequestedRef.current);
     },
     onPanResponderTerminate: () => {
       gestureActiveRef.current = false;
       cancelRequestedRef.current = true;
-      void finishRecording(true);
+      void finishRecordingRef.current(true);
     },
   })).current;
 
   React.useEffect(() => () => {
     gestureActiveRef.current = false;
     clearTimer();
+    clearNoticeTimer();
     const activeRecording = recordingRef.current;
     recordingRef.current = null;
-    if (activeRecording) void activeRecording.stopAndUnloadAsync();
-  }, [clearTimer]);
+    if (activeRecording) {
+      void activeRecording.stopAndUnloadAsync().finally(() => restorePlaybackMode());
+    }
+  }, [clearNoticeTimer, clearTimer, restorePlaybackMode]);
+
+  const noticeText = notice === "too-short"
+    ? "录音时间太短"
+    : notice === "failed"
+      ? "录音失败，请重试"
+      : notice === "max-duration"
+        ? "已达到 60 秒并发送"
+        : null;
 
   return (
     <View style={styles.container}>
@@ -148,9 +241,14 @@ export function VoiceRecorder({ onRecordComplete, disabled = false }: VoiceRecor
           {isCancelling ? <View style={styles.cancelChevron} /> : <View style={styles.recordingDot} />}
           <Text style={[styles.recordingText, isCancelling && styles.recordingTextCancel]}>
             {isCancelling
-              ? `松开取消 · ${recordingSeconds}s`
-              : `录音中 ${recordingSeconds}s · 上滑取消`}
+              ? `松开取消 · ${formatRecordingDuration(recordingSeconds)}`
+              : `录音中 ${formatRecordingDuration(recordingSeconds)} · 上滑取消`}
           </Text>
+        </View>
+      ) : null}
+      {!isRecording && noticeText ? (
+        <View style={styles.noticeIndicator} accessibilityLiveRegion="polite">
+          <Text style={styles.noticeText}>{noticeText}</Text>
         </View>
       ) : null}
       <View
@@ -163,8 +261,16 @@ export function VoiceRecorder({ onRecordComplete, disabled = false }: VoiceRecor
         ]}
         accessible
         accessibilityRole="button"
-        accessibilityLabel={disabled ? "语音发送暂不可用" : isCancelling ? "松开取消语音" : isRecording ? "松开发送语音" : "按住录制语音"}
-        accessibilityHint={disabled ? "当前会话无法建立加密保护" : "按住录音，松开发送，上滑后松开取消"}
+        accessibilityLabel={disabled
+          ? "语音发送暂不可用"
+          : isCancelling
+            ? "松开取消语音"
+            : isRecording
+              ? "松开发送语音"
+              : "按住录制语音"}
+        accessibilityHint={disabled
+          ? "当前会话尚未建立加密保护"
+          : "按住录音，松开发送，上滑后松开取消"}
         accessibilityState={{ disabled }}
       >
         <View style={styles.micIcon}>
@@ -194,7 +300,6 @@ export function VoiceMessageBubble({
 
   const togglePlay = useCallback(async () => {
     if (playing) {
-      // 暂停
       await soundRef.current?.pauseAsync();
       setPlaying(false);
       return;
@@ -202,7 +307,6 @@ export function VoiceMessageBubble({
 
     setLoading(true);
     try {
-      // 将 base64 写入缓存临时文件然后播放（使用 expo-file-system v18+ File API）
       const tmpFile = new File(Paths.cache, `voice_${Date.now()}.m4a`);
       await tmpFile.write(audioBase64, { encoding: "base64" } as any);
 
@@ -210,25 +314,20 @@ export function VoiceMessageBubble({
         { uri: tmpFile.uri },
         { shouldPlay: true },
         (status) => {
-          if (status.isLoaded && status.didJustFinish) {
-            setPlaying(false);
-          }
+          if (status.isLoaded && status.didJustFinish) setPlaying(false);
         }
       );
       soundRef.current = sound;
       setPlaying(true);
-    } catch (e) {
-      console.log("语音播放失败", e);
+    } catch (error) {
+      console.log("语音播放失败", error);
     } finally {
       setLoading(false);
     }
-  }, [playing, audioBase64]);
+  }, [audioBase64, playing]);
 
-  // 清理
-  React.useEffect(() => {
-    return () => {
-      soundRef.current?.unloadAsync();
-    };
+  React.useEffect(() => () => {
+    void soundRef.current?.unloadAsync();
   }, []);
 
   return (
@@ -276,7 +375,7 @@ const styles = StyleSheet.create({
   micStem: { width: 1.7, height: 5, backgroundColor: "#4E555B" },
   micBase: { width: 10, height: 1.7, borderRadius: 1, backgroundColor: "#4E555B" },
   recordingIndicator: {
-    position: "absolute", left: 0, bottom: 52, width: 188,
+    position: "absolute", left: 0, bottom: 52, width: 204,
     flexDirection: "row", alignItems: "center",
     paddingHorizontal: 10, paddingVertical: 8,
     backgroundColor: "#FFFFFF", borderRadius: 12,
@@ -285,6 +384,13 @@ const styles = StyleSheet.create({
   recordingIndicatorCancel: {
     backgroundColor: "#F1F2EF", borderColor: "#C7CBC6",
   },
+  noticeIndicator: {
+    position: "absolute", left: 0, bottom: 52, minWidth: 132,
+    paddingHorizontal: 10, paddingVertical: 8,
+    backgroundColor: "#FFFFFF", borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: "#D7DCD7",
+  },
+  noticeText: { fontSize: 12, color: "#555B58" },
   recordingDot: {
     width: 8, height: 8, borderRadius: 4,
     backgroundColor: "#C84E46", marginRight: 6,
@@ -301,7 +407,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2, paddingVertical: 4,
     minWidth: 70,
   },
-  playIconFrame: { width: 22, height: 22, alignItems: "center", justifyContent: "center", marginRight: 6 },
+  playIconFrame: {
+    width: 22, height: 22, alignItems: "center", justifyContent: "center", marginRight: 6,
+  },
   playTriangle: {
     width: 0, height: 0, marginLeft: 2,
     borderTopWidth: 6, borderBottomWidth: 6, borderLeftWidth: 9,

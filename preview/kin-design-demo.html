@@ -266,6 +266,18 @@
     .composer button { min-height: 44px; border: 0; cursor: pointer; }
     .composer button:disabled { cursor: not-allowed; opacity: .42; }
     .icon-button { border-radius: 50%; background: #eef0ed; display: grid; place-items: center; }
+    .icon-button.recording { background: #f9dcd9; }
+    .icon-button.cancelling { background: #e3e6e2; }
+    .voice-recorder-notice {
+      position: absolute; left: 8px; bottom: 63px; min-width: 198px;
+      padding: 8px 10px; display: flex; align-items: center; gap: 7px;
+      border: 1px solid #e3bdb9; border-radius: 12px;
+      background: white; color: #9d3731; font-size: 12px;
+      box-shadow: 0 8px 24px rgba(31, 38, 34, .08);
+    }
+    .voice-recorder-notice.cancelling { border-color: #c7cbc6; background: #f1f2ef; color: #555b58; font-weight: 700; }
+    .voice-recorder-dot { width: 8px; height: 8px; border-radius: 50%; background: #c84e46; }
+    .voice-recorder-notice.cancelling .voice-recorder-dot { border-radius: 0; background: transparent; border-top: 2px solid #626966; border-left: 2px solid #626966; transform: rotate(45deg); }
     .mic-shape { position: relative; width: 10px; height: 16px; border: 2px solid #4e555b; border-radius: 6px; }
     .mic-shape::before { content: ""; position: absolute; width: 16px; height: 10px; left: -5px; top: 5px; border: 2px solid #4e555b; border-top: 0; border-radius: 0 0 9px 9px; }
     .smile-shape { width: 20px; height: 20px; border: 1.8px solid #4e555b; border-radius: 50%; position: relative; }
@@ -473,6 +485,7 @@
       settings: { messageSound: true, friendOnlineSound: true, haptic: true },
       profile: { nickname: "freedom", status: null, banner: null },
       messageDraft: "晚点见",
+      voiceDemo: "idle",
       messages: [
         { mine: false, text: "明天下午有时间吗", time: "15:50" },
         { mine: true, text: "有，三点之后都行", time: "15:52", status: "✓✓" },
@@ -524,7 +537,12 @@
           : `<div class="notice"><b>!</b> 对方当前离线，消息将在其上线后送达</div>`;
       const selectedMessage = state.messageMenuIndex === null ? null : state.messages[state.messageMenuIndex];
       const messageActions = selectedMessage ? `<button class="message-action-scrim" data-close-message-actions aria-label="关闭消息操作"></button><div class="message-actions" role="dialog" aria-modal="true" aria-label="消息操作"><h3>消息操作</h3><p>删除只影响当前设备，不会撤回消息，也不会删除对方设备上的内容。</p><button class="message-action" data-copy-message="${state.messageMenuIndex}">复制文字</button><button class="message-action danger" data-delete-message="${state.messageMenuIndex}">从本机删除</button><button class="message-action cancel" data-close-message-actions>取消</button></div>` : "";
-      const result = phone(`${chatTop()}${notice}<div class="ambient"></div><div class="chat-list">${messages}</div>${online && state.encryptionReady ? `<div class="typing"><i></i><i></i><i></i></div>` : `<div class="typing"></div>`}<div class="composer"><button class="icon-button" aria-label="按住录制语音" ${state.encryptionReady ? "" : "disabled"}><span class="mic-shape"></span></button><input id="messageInput" value="${escapeAttribute(state.messageDraft)}" placeholder="${state.encryptionReady ? "说点什么…" : "加密保护不可用"}" aria-label="消息输入框"><button class="icon-button" aria-label="打开表情"><span class="smile-shape"></span></button><button class="send" data-send ${state.encryptionReady ? "" : "disabled"}>发送</button></div>${state.moreOpen ? `<div class="more-menu"><button class="menu-row" data-go="call" ${online ? "" : "disabled"}><b>语音通话</b><span>${online ? "现在呼叫" : "对方当前离线"}</span></button><button class="menu-row" data-go="details"><b>会话详情</b><span>资料、相识信息与隐私</span></button></div>` : ""}${messageActions}`, online ? "chat-online" : "chat-offline");
+      const voiceNotice = state.voiceDemo === "recording"
+        ? `<div class="voice-recorder-notice"><i class="voice-recorder-dot"></i>录音中 0:08 · 上滑取消</div>`
+        : state.voiceDemo === "cancelling"
+          ? `<div class="voice-recorder-notice cancelling"><i class="voice-recorder-dot"></i>松开取消 · 0:08</div>`
+          : "";
+      const result = phone(`${chatTop()}${notice}<div class="ambient"></div><div class="chat-list">${messages}</div>${online && state.encryptionReady ? `<div class="typing"><i></i><i></i><i></i></div>` : `<div class="typing"></div>`}<div class="composer">${voiceNotice}<button class="icon-button ${state.voiceDemo}" data-record-demo aria-label="演示语音录制状态" ${state.encryptionReady ? "" : "disabled"}><span class="mic-shape"></span></button><input id="messageInput" value="${escapeAttribute(state.messageDraft)}" placeholder="${state.encryptionReady ? "说点什么…" : "加密保护不可用"}" aria-label="消息输入框"><button class="icon-button" aria-label="打开表情"><span class="smile-shape"></span></button><button class="send" data-send ${state.encryptionReady ? "" : "disabled"}>发送</button></div>${state.moreOpen ? `<div class="more-menu"><button class="menu-row" data-go="call" ${online ? "" : "disabled"}><b>语音通话</b><span>${online ? "现在呼叫" : "对方当前离线"}</span></button><button class="menu-row" data-go="details"><b>会话详情</b><span>资料、相识信息与隐私</span></button></div>` : ""}${messageActions}`, online ? "chat-online" : "chat-offline");
       state.online = oldOnline;
       return result;
     }
@@ -632,6 +650,11 @@
         state.messageDraft = "";
         state.messages.push({ mine: true, text, time: "15:58", status: state.online ? "✓" : "◷" }); render();
         if (state.online) setTimeout(() => { const last = state.messages[state.messages.length - 1]; if (last?.text === text) { last.status = "✓✓"; render(); } }, 900);
+        return;
+      }
+      if (target.hasAttribute("data-record-demo")) {
+        state.voiceDemo = state.voiceDemo === "idle" ? "recording" : state.voiceDemo === "recording" ? "cancelling" : "idle";
+        render();
         return;
       }
       if (target.hasAttribute("data-encryption-demo")) {
