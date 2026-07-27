@@ -9,9 +9,10 @@ import { Paths, File } from "expo-file-system";
 
 interface VoiceRecorderProps {
   onRecordComplete: (base64Audio: string, duration: number) => void;
+  disabled?: boolean;
 }
 
-export function VoiceRecorder({ onRecordComplete }: VoiceRecorderProps) {
+export function VoiceRecorder({ onRecordComplete, disabled = false }: VoiceRecorderProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
@@ -20,6 +21,8 @@ export function VoiceRecorder({ onRecordComplete }: VoiceRecorderProps) {
   const pressStartRef = useRef<number>(0);
   const gestureActiveRef = useRef(false);
   const cancelRequestedRef = useRef(false);
+  const disabledRef = useRef(disabled);
+  disabledRef.current = disabled;
 
   const clearTimer = useCallback(() => {
     if (timerRef.current) {
@@ -103,9 +106,10 @@ export function VoiceRecorder({ onRecordComplete }: VoiceRecorderProps) {
   }, [clearTimer, onRecordComplete]);
 
   const panResponder = useRef(PanResponder.create({
-    onStartShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponder: () => true,
+    onStartShouldSetPanResponder: () => !disabledRef.current,
+    onMoveShouldSetPanResponder: () => !disabledRef.current,
     onPanResponderGrant: () => {
+      if (disabledRef.current) return;
       gestureActiveRef.current = true;
       cancelRequestedRef.current = false;
       setIsCancelling(false);
@@ -153,13 +157,15 @@ export function VoiceRecorder({ onRecordComplete }: VoiceRecorderProps) {
         {...panResponder.panHandlers}
         style={[
           styles.micBtn,
+          disabled && styles.micBtnDisabled,
           isRecording && styles.micBtnActive,
           isCancelling && styles.micBtnCancel,
         ]}
         accessible
         accessibilityRole="button"
-        accessibilityLabel={isCancelling ? "松开取消语音" : isRecording ? "松开发送语音" : "按住录制语音"}
-        accessibilityHint="按住录音，松开发送，上滑后松开取消"
+        accessibilityLabel={disabled ? "语音发送暂不可用" : isCancelling ? "松开取消语音" : isRecording ? "松开发送语音" : "按住录制语音"}
+        accessibilityHint={disabled ? "当前会话无法建立加密保护" : "按住录音，松开发送，上滑后松开取消"}
+        accessibilityState={{ disabled }}
       >
         <View style={styles.micIcon}>
           <View style={styles.micCapsule} />
@@ -256,6 +262,7 @@ const styles = StyleSheet.create({
   },
   micBtnActive: { backgroundColor: "#F9DCD9" },
   micBtnCancel: { backgroundColor: "#E3E6E2" },
+  micBtnDisabled: { opacity: 0.42 },
   micIcon: { width: 22, height: 24, alignItems: "center" },
   micCapsule: {
     width: 8, height: 13, borderRadius: 4,

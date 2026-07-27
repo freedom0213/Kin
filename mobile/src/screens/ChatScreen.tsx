@@ -19,6 +19,7 @@ import {
 } from "../services/db";
 
 type DeliveryStatus = "sending" | "queued" | "delivered" | "read" | "failed";
+type EncryptionState = "loading" | "ready" | "missing_peer_key" | "missing_local_key" | "error";
 
 interface Message {
   id: string;
@@ -43,6 +44,14 @@ function formatMessageTime(value: string): string {
     minute: "2-digit",
     hour12: false,
   });
+}
+
+function getEncryptionIssueCopy(state: EncryptionState): string {
+  if (state === "loading") return "正在验证这台设备的加密保护…";
+  if (state === "missing_peer_key") return "对方尚未建立加密保护，暂时不能发送新消息";
+  if (state === "missing_local_key") return "当前设备缺少加密密钥，暂时不能发送新消息";
+  if (state === "error") return "无法读取本机加密密钥，请重新进入会话";
+  return "";
 }
 
 function LockMark() {
@@ -288,7 +297,7 @@ export default function ChatScreen({ route }: any) {
   const [isOnline, setIsOnline] = useState(friend.is_online);
   const [showMore, setShowMore] = useState(false);
   const [showEmojiPanel, setShowEmojiPanel] = useState(false);
-  const [showEncryptionNotice, setShowEncryptionNotice] = useState(!!friend.public_key);
+  const [showEncryptionNotice, setShowEncryptionNotice] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const [backgroundPulse, setBackgroundPulse] = useState<{
     key: number;
@@ -300,18 +309,46 @@ export default function ChatScreen({ route }: any) {
   const retryingMessageIdsRef = useRef(new Set<string>());
 
   const [mySecretKey, setMySecretKey] = useState<string | null>(null);
+  const [localKeyState, setLocalKeyState] = useState<"loading" | "ready" | "missing" | "error">("loading");
   const friendPublicKey: string | null = friend.public_key || null;
   const [loadingHistory, setLoadingHistory] = useState(true);
+  const encryptionState: EncryptionState = !friendPublicKey
+    ? "missing_peer_key"
+    : localKeyState === "ready"
+      ? "ready"
+      : localKeyState === "missing"
+        ? "missing_local_key"
+        : localKeyState;
+  const isEncryptionReady = encryptionState === "ready";
 
   useEffect(() => {
-    if (!friendPublicKey) return;
+    if (!isEncryptionReady) {
+      setShowEncryptionNotice(false);
+      return;
+    }
+    setShowEncryptionNotice(true);
     const timer = setTimeout(() => setShowEncryptionNotice(false), 2400);
     return () => clearTimeout(timer);
-  }, [friendPublicKey]);
+  }, [isEncryptionReady]);
+
+  useEffect(() => {
+    let active = true;
+    getSecretKey()
+      .then((secretKey) => {
+        if (!active) return;
+        setMySecretKey(secretKey);
+        setLocalKeyState(secretKey ? "ready" : "missing");
+      })
+      .catch(() => {
+        if (!active) return;
+        setMySecretKey(null);
+        setLocalKeyState("error");
+      });
+    return () => { active = false; };
+  }, []);
 
   // 加载私钥 + 本地历史消息
   useEffect(() => {
-    getSecretKey().then(setMySecretKey);
     (async () => {
       try {
         const history = await getMessages(friend.user_id, 50);
@@ -443,25 +480,18 @@ export default function ChatScreen({ route }: any) {
   const sendTextMessage = async () => {
     const text = inputText.trim();
     if (!text) return;
+    if (!friendPublicKey || !mySecretKey) {
+      Alert.alert("暂时不能发送", getEncryptionIssueCopy(encryptionState));
+      return;
+    }
 
     const msgId = genMsgId();
     let contentToSend: string;
-    let isEncrypted = false;
-
-    if (friendPublicKey && mySecretKey) {
-      try {
-        contentToSend = encrypt(text, friendPublicKey, mySecretKey);
-        isEncrypted = true;
-      } catch {
-        Alert.alert("发送失败", "消息加密失败，请稍后重试。");
-        return;
-      }
-    } else {
-      if (!isOnline) {
-        Alert.alert("暂时无法离线发送", "当前会话尚未建立加密保护，无法由服务器安全暂存。");
-        return;
-      }
-      contentToSend = text;
+    try {
+      contentToSend = encrypt(text, friendPublicKey, mySecretKey);
+    } catch {
+      Alert.alert("发送失败", "消息加密失败，请稍后重试。");
+      return;
     }
 
     const msg: Message = {
@@ -469,7 +499,7 @@ export default function ChatScreen({ route }: any) {
       type: "text", is_read: false,
       created_at: new Date().toISOString(),
       delivery_status: "sending",
-      encrypted: isEncrypted,
+      encrypted: true,
       wire_content: contentToSend,
     };
     setMessages((prev) => [...prev, msg]);
@@ -479,10 +509,10 @@ export default function ChatScreen({ route }: any) {
       await saveMessage({
         id: msg.id, chat_id: friend.user_id, sender_id: myId,
         type: "text", content: text, is_read: false,
-        encrypted: isEncrypted, wire_content: contentToSend,
+        encrypted: true, wire_content: contentToSend,
         delivery_status: "sending", created_at: msg.created_at,
       });
-      kinWS.sendMessage(friend.user_id, contentToSend, msgId, isEncrypted);
+      kinWS.sendMessage(friend.user_id, contentToSend, msgId, true);
     } catch {
       setMessages((prev) => prev.map((message) => (
         message.id === msgId ? { ...message, delivery_status: "failed" } : message
@@ -492,20 +522,16 @@ export default function ChatScreen({ route }: any) {
 
   // 语音录制完成回调
   const handleVoiceRecord = async (base64Audio: string, duration: number) => {
+    if (!friendPublicKey || !mySecretKey) {
+      Alert.alert("暂时不能发送", getEncryptionIssueCopy(encryptionState));
+      return;
+    }
     const msgId = genMsgId();
-    let contentToSend = base64Audio;
-    let isEncrypted = false;
-
-    if (friendPublicKey && mySecretKey) {
-      try {
-        contentToSend = encrypt(base64Audio, friendPublicKey, mySecretKey);
-        isEncrypted = true;
-      } catch {
-        Alert.alert("发送失败", "语音消息加密失败，请稍后重试。");
-        return;
-      }
-    } else if (!isOnline) {
-      Alert.alert("暂时无法离线发送", "当前会话尚未建立加密保护，无法安全暂存语音消息。");
+    let contentToSend: string;
+    try {
+      contentToSend = encrypt(base64Audio, friendPublicKey, mySecretKey);
+    } catch {
+      Alert.alert("发送失败", "语音消息加密失败，请稍后重试。");
       return;
     }
 
@@ -514,7 +540,7 @@ export default function ChatScreen({ route }: any) {
       type: "voice", duration, is_read: false,
       created_at: new Date().toISOString(),
       delivery_status: "sending",
-      encrypted: isEncrypted,
+      encrypted: true,
       wire_content: contentToSend,
     };
     setMessages((prev) => [...prev, msg]);
@@ -523,10 +549,10 @@ export default function ChatScreen({ route }: any) {
       await saveMessage({
         id: msg.id, chat_id: friend.user_id, sender_id: myId,
         type: "voice", content: base64Audio, duration,
-        is_read: false, encrypted: isEncrypted, wire_content: contentToSend,
+        is_read: false, encrypted: true, wire_content: contentToSend,
         delivery_status: "sending", created_at: msg.created_at,
       });
-      kinWS.sendVoiceMessage(friend.user_id, contentToSend, duration, msgId, isEncrypted);
+      kinWS.sendVoiceMessage(friend.user_id, contentToSend, duration, msgId, true);
     } catch {
       setMessages((prev) => prev.map((message) => (
         message.id === msgId ? { ...message, delivery_status: "failed" } : message
@@ -555,15 +581,19 @@ export default function ChatScreen({ route }: any) {
   }, [route.params?.historyClearedAt]);
 
   const showEncryptionDetails = () => {
-    Alert.alert(
-      "仅你和对方可读取",
-      "消息会在发送设备上加密，并在对方设备上解密。Kin 服务器只负责转发加密后的内容。"
-    );
+    if (isEncryptionReady) {
+      Alert.alert(
+        "仅你和对方可读取",
+        "新消息会在发送设备上加密，并在对方设备上解密。Kin 服务器只负责转发加密后的内容。"
+      );
+      return;
+    }
+    Alert.alert("加密保护不可用", getEncryptionIssueCopy(encryptionState));
   };
 
   const notifyTyping = () => {
     const now = Date.now();
-    if (!isOnline || now - lastTypingSentRef.current < 900) return;
+    if (!isOnline || !isEncryptionReady || now - lastTypingSentRef.current < 900) return;
     lastTypingSentRef.current = now;
     kinWS.sendTyping(friend.user_id);
   };
@@ -592,18 +622,18 @@ export default function ChatScreen({ route }: any) {
       || retryingMessageIdsRef.current.has(message.id)
     ) return;
 
-    let contentToSend = message.wire_content || message.content;
-    let isEncrypted = !!message.encrypted;
-    if (!message.wire_content && friendPublicKey && mySecretKey) {
+    let contentToSend: string;
+    if (message.encrypted && message.wire_content) {
+      contentToSend = message.wire_content;
+    } else if (friendPublicKey && mySecretKey) {
       try {
         contentToSend = encrypt(message.content, friendPublicKey, mySecretKey);
-        isEncrypted = true;
       } catch {
         Alert.alert("重试失败", "消息加密失败，请稍后再试。");
         return;
       }
-    } else if (!isEncrypted && !isOnline) {
-      Alert.alert("暂时无法重试", "当前会话尚未建立加密保护，无法安全暂存离线消息。");
+    } else {
+      Alert.alert("暂时无法重试", getEncryptionIssueCopy(encryptionState));
       return;
     }
 
@@ -613,7 +643,7 @@ export default function ChatScreen({ route }: any) {
         ? {
           ...item,
           delivery_status: "sending",
-          encrypted: isEncrypted,
+          encrypted: true,
           wire_content: contentToSend,
         }
         : item
@@ -628,7 +658,7 @@ export default function ChatScreen({ route }: any) {
         content: message.content,
         duration: message.duration,
         is_read: false,
-        encrypted: isEncrypted,
+        encrypted: true,
         wire_content: contentToSend,
         delivery_status: "sending",
         created_at: message.created_at,
@@ -639,10 +669,10 @@ export default function ChatScreen({ route }: any) {
           contentToSend,
           message.duration || 0,
           message.id,
-          isEncrypted
+          true
         );
       } else {
-        kinWS.sendMessage(friend.user_id, contentToSend, message.id, isEncrypted);
+        kinWS.sendMessage(friend.user_id, contentToSend, message.id, true);
       }
     } catch {
       setMessages((current) => current.map((item) => (
@@ -731,16 +761,14 @@ export default function ChatScreen({ route }: any) {
             <Text style={[styles.onlineStatus, isOnline ? styles.online : styles.offline]}>
               {isOnline ? "Online" : "Offline"}
             </Text>
-            {friendPublicKey ? (
-              <TouchableOpacity
-                onPress={showEncryptionDetails}
-                style={styles.lockButton}
-                accessibilityRole="button"
-                accessibilityLabel="查看消息加密说明"
-              >
-                <LockMark />
-              </TouchableOpacity>
-            ) : null}
+            <TouchableOpacity
+              onPress={showEncryptionDetails}
+              style={styles.lockButton}
+              accessibilityRole="button"
+              accessibilityLabel={isEncryptionReady ? "查看消息加密说明" : "查看加密保护问题"}
+            >
+              {isEncryptionReady ? <LockMark /> : <Text style={styles.securityWarningMark}>!</Text>}
+            </TouchableOpacity>
           </View>
         </View>
         <TouchableOpacity
@@ -760,7 +788,17 @@ export default function ChatScreen({ route }: any) {
         </View>
       ) : null}
 
-      {!isOnline ? (
+      {!isEncryptionReady ? (
+        <View
+          style={[styles.securityNotice, encryptionState === "loading" && styles.securityNoticeLoading]}
+          accessibilityLiveRegion="polite"
+        >
+          <Text style={styles.securityNoticeMark}>{encryptionState === "loading" ? "·" : "!"}</Text>
+          <Text style={styles.securityNoticeText}>{getEncryptionIssueCopy(encryptionState)}</Text>
+        </View>
+      ) : null}
+
+      {!isOnline && isEncryptionReady ? (
         <View style={styles.offlineNotice} accessibilityLiveRegion="polite">
           <Text style={styles.offlineNoticeMark}>!</Text>
           <Text style={styles.offlineNoticeText}>对方当前离线，消息将在其上线后送达</Text>
@@ -806,10 +844,10 @@ export default function ChatScreen({ route }: any) {
       ) : null}
 
       <View style={[styles.inputBar, { paddingBottom: Math.max(insets.bottom, 8) }]}>
-        <VoiceRecorder onRecordComplete={handleVoiceRecord} />
+        <VoiceRecorder onRecordComplete={handleVoiceRecord} disabled={!isEncryptionReady} />
         <TextInput
           style={styles.input}
-          placeholder="说点什么..."
+          placeholder={isEncryptionReady ? "说点什么..." : "加密保护不可用"}
           value={inputText}
           onChangeText={handleInputChange}
           multiline
@@ -829,11 +867,15 @@ export default function ChatScreen({ route }: any) {
           <SmileMark />
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.sendBtn, !inputText.trim() && styles.sendBtnDisabled]}
+          style={[
+            styles.sendBtn,
+            (!inputText.trim() || !isEncryptionReady) && styles.sendBtnDisabled,
+          ]}
           onPress={sendTextMessage}
-          disabled={!inputText.trim()}
+          disabled={!inputText.trim() || !isEncryptionReady}
           accessibilityRole="button"
           accessibilityLabel="发送消息"
+          accessibilityState={{ disabled: !inputText.trim() || !isEncryptionReady }}
         >
           <Text style={styles.sendBtnText}>发送</Text>
         </TouchableOpacity>
@@ -937,6 +979,7 @@ const styles = StyleSheet.create({
     width: 28, height: 28, borderRadius: 14,
     alignItems: "center", justifyContent: "center",
   },
+  securityWarningMark: { color: "#A06324", fontSize: 15, fontWeight: "800" },
   lockIcon: {
     width: 14, height: 16, alignItems: "center", justifyContent: "flex-end",
   },
@@ -960,6 +1003,19 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#C8E4DA",
   },
   encryptionNoticeText: { color: "#266A54", fontSize: 13, fontWeight: "500" },
+  securityNotice: {
+    minHeight: 40, paddingHorizontal: 14,
+    flexDirection: "row", alignItems: "center", justifyContent: "center",
+    zIndex: 2, gap: 7, backgroundColor: "#F6EADB",
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#E4CEB2",
+  },
+  securityNoticeLoading: { backgroundColor: "#ECEEEC", borderBottomColor: "#D9DCD8" },
+  securityNoticeMark: {
+    width: 18, height: 18, borderRadius: 9, textAlign: "center",
+    color: "#955D25", fontSize: 12, lineHeight: 18, fontWeight: "800",
+    borderWidth: 1, borderColor: "#B77A3C",
+  },
+  securityNoticeText: { flexShrink: 1, color: "#75481F", fontSize: 12, lineHeight: 17 },
   offlineNotice: {
     minHeight: 36, flexDirection: "row", alignItems: "center", justifyContent: "center",
     zIndex: 2,

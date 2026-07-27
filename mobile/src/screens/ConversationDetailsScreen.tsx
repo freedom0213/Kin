@@ -1,6 +1,6 @@
 /** 会话详情 — 关系补充信息、隐私说明与本地聊天数据操作 */
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator, Alert, Image, ScrollView, StyleSheet,
   Text, TouchableOpacity, View,
@@ -10,6 +10,7 @@ import type { Friend } from "../api/client";
 import { deleteFriend } from "../api/client";
 import { clearMessages } from "../services/db";
 import { exportConversationToFile } from "../services/export";
+import { getSecretKey } from "../services/keys";
 
 const COLORS = {
   background: "#F4F5F2",
@@ -99,15 +100,42 @@ export default function ConversationDetailsScreen({ route, navigation }: any) {
   const { friend } = route.params as { friend: Friend };
   const insets = useSafeAreaInsets();
   const [busyAction, setBusyAction] = useState<"export" | "clear" | "delete" | null>(null);
+  const [localKeyState, setLocalKeyState] = useState<"loading" | "ready" | "missing" | "error">("loading");
   const name = displayName(friend);
-  const isProtected = !!friend.public_key;
+  const isProtected = !!friend.public_key && localKeyState === "ready";
+  const securityTitle = isProtected
+    ? "仅你和对方可读取"
+    : localKeyState === "loading"
+      ? "正在验证加密保护"
+      : "尚未建立加密保护";
+  const securityHint = !friend.public_key
+    ? "好友资料中暂无可用的加密公钥"
+    : localKeyState === "missing"
+      ? "当前设备缺少加密密钥"
+      : localKeyState === "error"
+        ? "无法读取当前设备的加密密钥"
+        : localKeyState === "loading"
+          ? "正在读取当前设备的安全存储"
+          : "查看这段会话如何受到保护";
+
+  useEffect(() => {
+    let active = true;
+    getSecretKey()
+      .then((secretKey) => {
+        if (active) setLocalKeyState(secretKey ? "ready" : "missing");
+      })
+      .catch(() => {
+        if (active) setLocalKeyState("error");
+      });
+    return () => { active = false; };
+  }, []);
 
   const showEncryptionDetails = () => {
     Alert.alert(
-      isProtected ? "仅你和对方可读取" : "尚未建立加密保护",
+      securityTitle,
       isProtected
-        ? "消息会在发送设备上加密，并在对方设备上解密。Kin 服务器只负责转发加密后的内容。"
-        : "当前好友资料中没有可用的加密公钥，因此 Kin 不会把这段会话标记为已加密。"
+        ? "新消息会在发送设备上加密，并在对方设备上解密。Kin 服务器只负责转发加密后的内容。"
+        : securityHint
     );
   };
 
@@ -229,10 +257,10 @@ export default function ConversationDetailsScreen({ route, navigation }: any) {
           <LockMark protectedChat={isProtected} />
           <View style={styles.securityCopy}>
             <Text style={[styles.securityTitle, !isProtected && styles.securityTitleMuted]}>
-              {isProtected ? "仅你和对方可读取" : "尚未建立加密保护"}
+              {securityTitle}
             </Text>
             <Text style={styles.securityHint}>
-              {isProtected ? "查看这段会话如何受到保护" : "好友资料中暂无可用的加密公钥"}
+              {securityHint}
             </Text>
           </View>
           <Text style={styles.chevron}>›</Text>
