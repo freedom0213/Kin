@@ -6,6 +6,7 @@ import React, {
 import {
   View, Text, SectionList, TouchableOpacity, Image,
   StyleSheet, Alert, RefreshControl, Animated, AccessibilityInfo,
+  Easing, LayoutAnimation, Platform, UIManager,
 } from "react-native";
 import type { ImageStyle } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
@@ -27,6 +28,34 @@ const COLORS = {
   accent: "#2DAD82",
   accentSoft: "#DDF3EB",
 };
+
+if (Platform.OS === "android") {
+  UIManager.setLayoutAnimationEnabledExperimental?.(true);
+}
+
+function configurePresenceLayout(reduceMotion: boolean): void {
+  if (reduceMotion) return;
+  LayoutAnimation.configureNext({
+    duration: 360,
+    create: {
+      type: LayoutAnimation.Types.easeInEaseOut,
+      property: LayoutAnimation.Properties.opacity,
+    },
+    update: { type: LayoutAnimation.Types.easeInEaseOut },
+    delete: {
+      type: LayoutAnimation.Types.easeInEaseOut,
+      property: LayoutAnimation.Properties.opacity,
+    },
+  });
+}
+
+function getPulseDelay(userId: string): number {
+  let hash = 0;
+  for (const character of userId) {
+    hash = ((hash << 5) - hash + character.codePointAt(0)!) | 0;
+  }
+  return Math.abs(hash) % 720;
+}
 
 function getDisplayName(friend: Friend): string {
   return friend.nickname || friend.username;
@@ -79,11 +108,15 @@ function getSummaryStatus(summary: ConversationSummary | undefined, currentUserI
 function FriendAvatar({
   friend,
   reduceMotion,
+  onlineEventKey,
 }: {
   friend: Friend;
   reduceMotion: boolean;
+  onlineEventKey: number;
 }) {
   const pulse = useRef(new Animated.Value(0)).current;
+  const burst = useRef(new Animated.Value(0)).current;
+  const lastBurstKey = useRef(0);
 
   useEffect(() => {
     if (!friend.is_online || reduceMotion) {
@@ -92,7 +125,7 @@ function FriendAvatar({
       return;
     }
 
-    const animation = Animated.loop(
+    const loop = Animated.loop(
       Animated.sequence([
         Animated.timing(pulse, {
           toValue: 1,
@@ -106,9 +139,33 @@ function FriendAvatar({
         }),
       ])
     );
+    const animation = Animated.sequence([
+      Animated.delay(getPulseDelay(friend.user_id)),
+      loop,
+    ]);
+    animation.start();
+    return () => {
+      animation.stop();
+      loop.stop();
+    };
+  }, [friend.is_online, friend.user_id, pulse, reduceMotion]);
+
+  useEffect(() => {
+    if (onlineEventKey <= lastBurstKey.current) return;
+    lastBurstKey.current = onlineEventKey;
+    if (!friend.is_online || reduceMotion || Date.now() - onlineEventKey > 1_500) return;
+
+    burst.stopAnimation();
+    burst.setValue(0);
+    const animation = Animated.timing(burst, {
+      toValue: 1,
+      duration: 520,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    });
     animation.start();
     return () => animation.stop();
-  }, [friend.is_online, pulse, reduceMotion]);
+  }, [burst, friend.is_online, onlineEventKey, reduceMotion]);
 
   const ringStyle = {
     opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.48, 0.08] }),
@@ -116,9 +173,18 @@ function FriendAvatar({
       scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.18] }),
     }],
   };
+  const burstStyle = {
+    opacity: burst.interpolate({ inputRange: [0, 0.18, 1], outputRange: [0, 0.5, 0] }),
+    transform: [{
+      scale: burst.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1.48] }),
+    }],
+  };
 
   return (
     <View style={styles.avatarFrame}>
+      {friend.is_online && !reduceMotion ? (
+        <Animated.View style={[styles.onlineBurst, burstStyle]} />
+      ) : null}
       {friend.is_online ? (
         <Animated.View style={[styles.pulseRing, ringStyle]} />
       ) : null}
@@ -143,12 +209,51 @@ function FriendAvatar({
   );
 }
 
+function PresenceHighlight({
+  eventKey,
+  reduceMotion,
+  children,
+}: {
+  eventKey: number;
+  reduceMotion: boolean;
+  children: React.ReactNode;
+}) {
+  const highlight = useRef(new Animated.Value(0)).current;
+  const lastEventKey = useRef(0);
+
+  useEffect(() => {
+    if (eventKey <= lastEventKey.current) return;
+    lastEventKey.current = eventKey;
+    if (reduceMotion || Date.now() - eventKey > 1_500) return;
+
+    highlight.stopAnimation();
+    highlight.setValue(1);
+    const animation = Animated.timing(highlight, {
+      toValue: 0,
+      duration: 420,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [eventKey, highlight, reduceMotion]);
+
+  const backgroundColor = highlight.interpolate({
+    inputRange: [0, 1],
+    outputRange: [COLORS.surface, "#EAF7F2"],
+  });
+
+  return <Animated.View style={{ backgroundColor }}>{children}</Animated.View>;
+}
+
 export default function FriendListScreen({ navigation }: any) {
   const { state } = useAuth();
   const [friends, setFriends] = useState<Friend[]>([]);
   const [summaries, setSummaries] = useState<Record<string, ConversationSummary>>({});
   const [refreshing, setRefreshing] = useState(false);
   const [reduceMotion, setReduceMotion] = useState(false);
+  const [onlineEventKeys, setOnlineEventKeys] = useState<Record<string, number>>({});
+  const friendsRef = useRef<Friend[]>([]);
 
   useEffect(() => {
     AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
@@ -162,7 +267,29 @@ export default function FriendListScreen({ navigation }: any) {
   const loadFriends = useCallback(async () => {
     try {
       const data = await getFriendList();
+      const previousFriends = friendsRef.current;
+      const previousById = new Map(previousFriends.map((friend) => [friend.user_id, friend]));
+      const presenceChanged = previousFriends.length > 0 && data.friends.some((friend) => (
+        previousById.has(friend.user_id)
+        && previousById.get(friend.user_id)?.is_online !== friend.is_online
+      ));
+      const becameOnline = data.friends.filter((friend) => (
+        friend.is_online && previousById.get(friend.user_id)?.is_online === false
+      ));
+
+      if (presenceChanged) configurePresenceLayout(reduceMotion);
+      friendsRef.current = data.friends;
       setFriends(data.friends);
+      if (becameOnline.length > 0 && !reduceMotion) {
+        setOnlineEventKeys((current) => {
+          const next = { ...current };
+          const eventTime = Date.now();
+          becameOnline.forEach((friend) => {
+            next[friend.user_id] = eventTime;
+          });
+          return next;
+        });
+      }
       kinFeedback.seedFriendStatuses(data.friends);
       const nextSummaries = await getConversationSummaries(
         data.friends.map((friend) => friend.user_id),
@@ -170,7 +297,7 @@ export default function FriendListScreen({ navigation }: any) {
       );
       setSummaries(nextSummaries);
     } catch { /* 忽略 */ }
-  }, [state.user?.id]);
+  }, [reduceMotion, state.user?.id]);
 
   // 每次页面获得焦点时刷新
   useFocusEffect(
@@ -195,16 +322,30 @@ export default function FriendListScreen({ navigation }: any) {
   // 好友状态变化时立即在 Online / Offline 分组之间更新
   useEffect(() => {
     const onFriendStatus = (data: any) => {
-      kinFeedback.handleFriendStatus(data.user_id, !!data.is_online);
-      setFriends((current) => current.map((friend) => (
-        friend.user_id === data.user_id
-          ? { ...friend, is_online: !!data.is_online }
-          : friend
-      )));
+      if (typeof data.user_id !== "string") return;
+      const online = !!data.is_online;
+      kinFeedback.handleFriendStatus(data.user_id, online);
+
+      const existing = friendsRef.current.find((friend) => friend.user_id === data.user_id);
+      if (!existing || existing.is_online === online) return;
+
+      configurePresenceLayout(reduceMotion);
+      const nextFriends = friendsRef.current.map((friend) => (
+        friend.user_id === data.user_id ? { ...friend, is_online: online } : friend
+      ));
+      friendsRef.current = nextFriends;
+      setFriends(nextFriends);
+
+      if (online && !reduceMotion) {
+        setOnlineEventKeys((current) => ({
+          ...current,
+          [data.user_id]: Date.now(),
+        }));
+      }
     };
     kinWS.on("friend_status", onFriendStatus);
     return () => kinWS.off("friend_status", onFriendStatus);
-  }, []);
+  }, [reduceMotion]);
 
   // 全局收件箱在任何页面收到消息后，立即刷新最后消息与未读数。
   useEffect(() => {
@@ -266,43 +407,52 @@ export default function FriendListScreen({ navigation }: any) {
     const summary = summaries[item.user_id];
     const statusMark = getSummaryStatus(summary, state.user?.id || "");
     return (
-    <TouchableOpacity
-      style={styles.friendItem}
-      onPress={() => navigation.navigate("Chat", { friend: item })}
-      onLongPress={() => handleDelete(item)}
-      accessibilityRole="button"
-      accessibilityLabel={`与${getDisplayName(item)}聊天，${item.is_online ? "在线" : "离线"}`}
-      accessibilityHint="轻点进入聊天，长按删除好友"
-    >
-      <FriendAvatar friend={item} reduceMotion={reduceMotion} />
-      <View style={styles.friendInfo}>
-        <Text style={styles.friendName} numberOfLines={1}>{getDisplayName(item)}</Text>
-        <Text style={styles.messagePreview} numberOfLines={1}>
-          {getMessagePreview(summary)}
-        </Text>
-      </View>
-      <View style={styles.friendMeta}>
-        <Text style={styles.messageTime}>
-          {formatConversationTime(summary?.last_message.created_at)}
-        </Text>
-        {statusMark ? (
-          <Text style={[
-            styles.summaryStatus,
-            statusMark === "✓✓" && styles.summaryStatusRead,
-            statusMark === "!" && styles.summaryStatusFailed,
-          ]}>
-            {statusMark}
-          </Text>
-        ) : null}
-        {summary?.unread_count ? (
-          <View style={styles.unreadBadge}>
-            <Text style={styles.unreadText}>
-              {summary.unread_count > 99 ? "99+" : summary.unread_count}
+      <PresenceHighlight
+        eventKey={onlineEventKeys[item.user_id] || 0}
+        reduceMotion={reduceMotion}
+      >
+        <TouchableOpacity
+          style={styles.friendItem}
+          onPress={() => navigation.navigate("Chat", { friend: item })}
+          onLongPress={() => handleDelete(item)}
+          accessibilityRole="button"
+          accessibilityLabel={`与${getDisplayName(item)}聊天，${item.is_online ? "在线" : "离线"}`}
+          accessibilityHint="轻点进入聊天，长按删除好友"
+        >
+          <FriendAvatar
+            friend={item}
+            reduceMotion={reduceMotion}
+            onlineEventKey={onlineEventKeys[item.user_id] || 0}
+          />
+          <View style={styles.friendInfo}>
+            <Text style={styles.friendName} numberOfLines={1}>{getDisplayName(item)}</Text>
+            <Text style={styles.messagePreview} numberOfLines={1}>
+              {getMessagePreview(summary)}
             </Text>
           </View>
-        ) : null}
-      </View>
-    </TouchableOpacity>
+          <View style={styles.friendMeta}>
+            <Text style={styles.messageTime}>
+              {formatConversationTime(summary?.last_message.created_at)}
+            </Text>
+            {statusMark ? (
+              <Text style={[
+                styles.summaryStatus,
+                statusMark === "✓✓" && styles.summaryStatusRead,
+                statusMark === "!" && styles.summaryStatusFailed,
+              ]}>
+                {statusMark}
+              </Text>
+            ) : null}
+            {summary?.unread_count ? (
+              <View style={styles.unreadBadge}>
+                <Text style={styles.unreadText}>
+                  {summary.unread_count > 99 ? "99+" : summary.unread_count}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        </TouchableOpacity>
+      </PresenceHighlight>
     );
   };
 
@@ -406,7 +556,7 @@ const styles = StyleSheet.create({
   friendItem: {
     flexDirection: "row", alignItems: "center",
     minHeight: 76, paddingHorizontal: 20, paddingVertical: 10,
-    backgroundColor: COLORS.surface,
+    backgroundColor: "transparent",
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.line,
   },
   avatarFrame: {
@@ -414,6 +564,10 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
   },
   pulseRing: {
+    position: "absolute", width: 48, height: 48, borderRadius: 24,
+    borderWidth: 2, borderColor: COLORS.accent,
+  },
+  onlineBurst: {
     position: "absolute", width: 48, height: 48, borderRadius: 24,
     borderWidth: 2, borderColor: COLORS.accent,
   },
