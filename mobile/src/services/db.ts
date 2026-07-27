@@ -235,6 +235,12 @@ export async function clearMessages(chatId: string): Promise<void> {
   await db.runAsync("DELETE FROM messages WHERE chat_id = ?", chatId);
 }
 
+/** 只从当前设备删除一条消息，不影响对方设备或服务端已投递内容。 */
+export async function deleteMessage(msgId: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync("DELETE FROM messages WHERE id = ?", msgId);
+}
+
 /** 获取设置页展示所需的本地消息统计。 */
 export async function getLocalMessageStats(): Promise<LocalMessageStats> {
   const db = await getDb();

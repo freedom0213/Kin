@@ -232,6 +232,8 @@
     .notice.security { background: #f6eadb; border-color: #e4ceb2; color: #75481f; }
     .chat-list { position: relative; z-index: 1; flex: 1; padding: 16px 13px 18px; display: flex; flex-direction: column; justify-content: flex-end; overflow-y: auto; }
     .bubble { max-width: 80%; margin-top: 7px; padding: 10px 12px 7px; border: 1px solid rgba(23, 26, 31, .08); font-size: 14px; line-height: 1.45; }
+    .bubble[data-message-index] { cursor: context-menu; user-select: none; -webkit-user-select: none; }
+    .bubble[data-message-index]:focus-visible { outline: 3px solid rgba(42, 157, 119, .25); outline-offset: 2px; }
     .bubble.other { align-self: flex-start; border-radius: 5px 17px 17px 17px; background: rgba(255, 255, 255, .92); }
     .bubble.mine { align-self: flex-end; border-color: #218d6b; border-radius: 17px 5px 17px 17px; background: #2a9d77; color: white; }
     .bubble-meta { margin-top: 4px; display: flex; justify-content: flex-end; gap: 4px; color: rgba(23, 26, 31, .45); font-size: 9px; }
@@ -243,6 +245,13 @@
       color: #ffaaa4; font: inherit; font-weight: 800; cursor: pointer;
     }
     .retry-status:hover, .retry-status:focus-visible { background: rgba(255, 170, 164, .16); outline: none; }
+    .message-action-scrim { position: absolute; z-index: 44; inset: 0; border: 0; background: rgba(23, 26, 31, .24); cursor: default; }
+    .message-actions { position: absolute; z-index: 45; right: 0; bottom: 0; left: 0; padding: 15px 16px 22px; border-radius: 25px 25px 0 0; background: var(--surface); box-shadow: 0 -18px 50px rgba(31, 38, 34, .18); }
+    .message-actions h3 { margin: 0; font-size: 15px; }
+    .message-actions p { margin: 6px 0 14px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+    .message-action { width: 100%; min-height: 48px; padding: 0 14px; border: 0; border-top: 1px solid var(--line); background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
+    .message-action.danger { color: var(--danger); }
+    .message-action.cancel { margin-top: 8px; border: 0; border-radius: 15px; background: #eceeeb; text-align: center; }
     .typing { position: relative; z-index: 1; min-height: 28px; padding-left: 15px; display: flex; align-items: center; gap: 4px; }
     .typing i { width: 5px; height: 5px; border-radius: 50%; background: var(--muted); animation: typing 1.2s ease-in-out infinite; }
     .typing i:nth-child(2) { animation-delay: .18s; } .typing i:nth-child(3) { animation-delay: .36s; }
@@ -420,6 +429,7 @@
       momoOnline: false,
       presenceBurst: false,
       moreOpen: false,
+      messageMenuIndex: null,
       nfcSheet: true,
       pairStage: "discovered",
       callActive: true,
@@ -465,13 +475,15 @@
     function chatScreen(forceOnline) {
       const online = typeof forceOnline === "boolean" ? forceOnline : state.online;
       const oldOnline = state.online; state.online = online;
-      const messages = state.messages.map((m, index) => `<div class="bubble ${m.mine ? "mine" : "other"}">${m.text}<div class="bubble-meta"><span>${m.time}</span>${m.mine ? m.status === "!" ? `<button class="retry-status" data-retry-message="${index}" aria-label="消息发送失败，点击重试">!</button>` : `<span class="${m.status === "✓✓" ? "read" : ""}">${m.status || "◷"}</span>` : ""}</div></div>`).join("");
+      const messages = state.messages.map((m, index) => `<div class="bubble ${m.mine ? "mine" : "other"}" data-message-index="${index}" tabindex="0" aria-label="消息，长按、右键或按回车打开操作">${m.text}<div class="bubble-meta"><span>${m.time}</span>${m.mine ? m.status === "!" ? `<button class="retry-status" data-retry-message="${index}" aria-label="消息发送失败，点击重试">!</button>` : `<span class="${m.status === "✓✓" ? "read" : ""}">${m.status || "◷"}</span>` : ""}</div></div>`).join("");
       const notice = !state.encryptionReady
         ? `<div class="notice security"><b>!</b> 当前设备缺少加密密钥，暂时不能发送新消息</div>`
         : online
           ? `<div class="notice secure"><span class="lock" style="transform:scale(.55);margin:-6px"></span>仅你和对方可读取</div>`
           : `<div class="notice"><b>!</b> 对方当前离线，消息将在其上线后送达</div>`;
-      const result = phone(`${chatTop()}${notice}<div class="ambient"></div><div class="chat-list">${messages}</div>${online && state.encryptionReady ? `<div class="typing"><i></i><i></i><i></i></div>` : `<div class="typing"></div>`}<div class="composer"><button class="icon-button" aria-label="按住录制语音" ${state.encryptionReady ? "" : "disabled"}><span class="mic-shape"></span></button><input id="messageInput" value="${escapeAttribute(state.messageDraft)}" placeholder="${state.encryptionReady ? "说点什么…" : "加密保护不可用"}" aria-label="消息输入框"><button class="icon-button" aria-label="打开表情"><span class="smile-shape"></span></button><button class="send" data-send ${state.encryptionReady ? "" : "disabled"}>发送</button></div>${state.moreOpen ? `<div class="more-menu"><button class="menu-row" data-go="call" ${online ? "" : "disabled"}><b>语音通话</b><span>${online ? "现在呼叫" : "对方当前离线"}</span></button><button class="menu-row" data-go="details"><b>会话详情</b><span>资料、相识信息与隐私</span></button></div>` : ""}`, online ? "chat-online" : "chat-offline");
+      const selectedMessage = state.messageMenuIndex === null ? null : state.messages[state.messageMenuIndex];
+      const messageActions = selectedMessage ? `<button class="message-action-scrim" data-close-message-actions aria-label="关闭消息操作"></button><div class="message-actions" role="dialog" aria-modal="true" aria-label="消息操作"><h3>消息操作</h3><p>删除只影响当前设备，不会撤回消息，也不会删除对方设备上的内容。</p><button class="message-action" data-copy-message="${state.messageMenuIndex}">复制文字</button><button class="message-action danger" data-delete-message="${state.messageMenuIndex}">从本机删除</button><button class="message-action cancel" data-close-message-actions>取消</button></div>` : "";
+      const result = phone(`${chatTop()}${notice}<div class="ambient"></div><div class="chat-list">${messages}</div>${online && state.encryptionReady ? `<div class="typing"><i></i><i></i><i></i></div>` : `<div class="typing"></div>`}<div class="composer"><button class="icon-button" aria-label="按住录制语音" ${state.encryptionReady ? "" : "disabled"}><span class="mic-shape"></span></button><input id="messageInput" value="${escapeAttribute(state.messageDraft)}" placeholder="${state.encryptionReady ? "说点什么…" : "加密保护不可用"}" aria-label="消息输入框"><button class="icon-button" aria-label="打开表情"><span class="smile-shape"></span></button><button class="send" data-send ${state.encryptionReady ? "" : "disabled"}>发送</button></div>${state.moreOpen ? `<div class="more-menu"><button class="menu-row" data-go="call" ${online ? "" : "disabled"}><b>语音通话</b><span>${online ? "现在呼叫" : "对方当前离线"}</span></button><button class="menu-row" data-go="details"><b>会话详情</b><span>资料、相识信息与隐私</span></button></div>` : ""}${messageActions}`, online ? "chat-online" : "chat-offline");
       state.online = oldOnline;
       return result;
     }
@@ -527,7 +539,7 @@
 
     document.addEventListener("click", event => {
       const target = event.target.closest("button"); if (!target) return;
-      if (target.dataset.go) { state.page = target.dataset.go; state.moreOpen = false; if (target.dataset.setOnline) state.online = target.dataset.setOnline === "true"; render(); return; }
+      if (target.dataset.go) { state.page = target.dataset.go; state.moreOpen = false; state.messageMenuIndex = null; if (target.dataset.setOnline) state.online = target.dataset.setOnline === "true"; render(); return; }
       if (target.hasAttribute("data-presence-demo")) {
         if (presenceBurstTimer) clearTimeout(presenceBurstTimer);
         state.momoOnline = !state.momoOnline;
@@ -541,6 +553,23 @@
         return;
       }
       if (target.hasAttribute("data-more")) { state.moreOpen = !state.moreOpen; render(); return; }
+      if (target.hasAttribute("data-close-message-actions")) { state.messageMenuIndex = null; render(); return; }
+      if (target.hasAttribute("data-copy-message")) {
+        const message = state.messages[Number(target.dataset.copyMessage)];
+        if (!message) return;
+        const fallbackCopy = () => {
+          const input = document.createElement("textarea"); input.value = message.text; input.style.position = "fixed"; input.style.opacity = "0";
+          document.body.appendChild(input); input.select(); document.execCommand("copy"); input.remove();
+        };
+        if (navigator.clipboard?.writeText) navigator.clipboard.writeText(message.text).catch(fallbackCopy); else fallbackCopy();
+        state.messageMenuIndex = null; render(); window.alert("消息文字已复制到剪贴板。"); return;
+      }
+      if (target.hasAttribute("data-delete-message")) {
+        const index = Number(target.dataset.deleteMessage);
+        if (!state.messages[index]) return;
+        if (!window.confirm("只从当前设备删除这条消息？这不会撤回对方设备上的内容。")) return;
+        state.messages.splice(index, 1); state.messageMenuIndex = null; render(); return;
+      }
       if (target.hasAttribute("data-send")) {
         if (!state.encryptionReady) return;
         const input = document.getElementById("messageInput"); const text = input?.value.trim(); if (!text) return;
@@ -580,9 +609,25 @@
     document.addEventListener("input", event => {
       if (event.target.id === "messageInput") state.messageDraft = event.target.value;
     });
+    let messageHoldTimer = null;
+    const openMessageActions = target => {
+      const bubble = target.closest?.("[data-message-index]"); if (!bubble) return false;
+      state.messageMenuIndex = Number(bubble.dataset.messageIndex); render(); return true;
+    };
+    document.addEventListener("contextmenu", event => {
+      if (openMessageActions(event.target)) event.preventDefault();
+    });
+    document.addEventListener("pointerdown", event => {
+      const bubble = event.target.closest?.("[data-message-index]"); if (!bubble || event.target.closest("button")) return;
+      messageHoldTimer = setTimeout(() => openMessageActions(bubble), 520);
+    });
+    ["pointerup", "pointercancel", "pointerleave"].forEach(type => document.addEventListener(type, () => {
+      if (messageHoldTimer) clearTimeout(messageHoldTimer); messageHoldTimer = null;
+    }));
     document.getElementById("prevVariant").addEventListener("click", () => cycleVariant(-1));
     document.getElementById("nextVariant").addEventListener("click", () => cycleVariant(1));
     document.addEventListener("keydown", event => {
+      if (event.key === "Enter" && openMessageActions(event.target)) { event.preventDefault(); return; }
       if (["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName) || document.activeElement?.isContentEditable) return;
       if (event.key === "ArrowLeft") cycleVariant(-1);
       if (event.key === "ArrowRight") cycleVariant(1);

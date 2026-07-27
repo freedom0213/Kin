@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, Pressable, Alert,
   FlatList, StyleSheet, KeyboardAvoidingView, Platform, Keyboard,
-  Animated, AccessibilityInfo, Easing,
+  Animated, AccessibilityInfo, Clipboard, Easing,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -15,7 +15,7 @@ import { getSecretKey } from "../services/keys";
 import { VoiceRecorder, VoiceMessageBubble } from "../components/VoiceMessage";
 import {
   saveMessage, getMessages, markAsRead, markChatAsRead,
-  updateMessageDeliveryStatus,
+  updateMessageDeliveryStatus, deleteMessage,
 } from "../services/db";
 
 type DeliveryStatus = "sending" | "queued" | "delivered" | "read" | "failed";
@@ -685,6 +685,56 @@ export default function ChatScreen({ route }: any) {
     }
   };
 
+  const deleteLocalMessage = (message: Message) => {
+    Alert.alert(
+      "从本机删除这条消息？",
+      "这只会清除当前设备中的记录，不会撤回消息，也不会删除对方设备上的内容。",
+      [
+        { text: "取消", style: "cancel" },
+        {
+          text: "从本机删除",
+          style: "destructive",
+          onPress: () => {
+            void (async () => {
+              try {
+                await deleteMessage(message.id);
+                retryingMessageIdsRef.current.delete(message.id);
+                setMessages((current) => current.filter((item) => item.id !== message.id));
+              } catch {
+                Alert.alert("删除失败", "无法修改本机聊天记录，请稍后再试。");
+              }
+            })();
+          },
+        },
+      ]
+    );
+  };
+
+  const showMessageActions = (message: Message) => {
+    const actions = [
+      ...(message.type === "text"
+        ? [{
+          text: "复制文字",
+          onPress: () => {
+            Clipboard.setString(message.content);
+            Alert.alert("已复制", "消息文字已复制到剪贴板。");
+          },
+        }]
+        : []),
+      {
+        text: "从本机删除",
+        style: "destructive" as const,
+        onPress: () => deleteLocalMessage(message),
+      },
+      { text: "取消", style: "cancel" as const },
+    ];
+    Alert.alert(
+      message.type === "text" ? "消息操作" : "语音消息操作",
+      "删除操作只影响当前设备。",
+      actions
+    );
+  };
+
   // 渲染消息气泡
   const renderMessage = ({ item }: { item: Message }) => {
     const isMine = item.from === myId;
@@ -695,7 +745,12 @@ export default function ChatScreen({ route }: any) {
     const isFailed = statusMark === "!";
 
     return (
-      <View style={[styles.msgBubble, bubbleStyle]}>
+      <Pressable
+        style={[styles.msgBubble, bubbleStyle]}
+        onLongPress={() => showMessageActions(item)}
+        delayLongPress={360}
+        accessibilityHint={item.type === "text" ? "长按可以复制或从本机删除" : "长按可以从本机删除"}
+      >
         {item.type === "voice" ? (
           <VoiceMessageBubble
             duration={item.duration || 0}
@@ -733,7 +788,7 @@ export default function ChatScreen({ route }: any) {
             )
           ) : null}
         </View>
-      </View>
+      </Pressable>
     );
   };
 
