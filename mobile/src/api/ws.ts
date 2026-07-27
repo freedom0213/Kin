@@ -135,13 +135,19 @@ class KinWebSocket {
   // -- 消息发送方法 --
 
   /** 发送聊天消息 */
-  sendMessage(to: string, content: string, msgId: string, encrypted = false) {
-    this.send({ type: "chat_message", to, content, msg_id: msgId, encrypted });
+  sendMessage(to: string, content: string, msgId: string, encrypted = false): boolean {
+    return this.send({ type: "chat_message", to, content, msg_id: msgId, encrypted });
   }
 
   /** 发送语音消息 */
-  sendVoiceMessage(to: string, base64Audio: string, duration: number, msgId: string, encrypted = false) {
-    this.send({
+  sendVoiceMessage(
+    to: string,
+    base64Audio: string,
+    duration: number,
+    msgId: string,
+    encrypted = false
+  ): boolean {
+    return this.send({
       type: "voice_message", to,
       content: base64Audio,
       duration,

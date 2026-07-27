@@ -236,6 +236,12 @@
     .bubble-meta { margin-top: 4px; display: flex; justify-content: flex-end; gap: 4px; color: rgba(23, 26, 31, .45); font-size: 9px; }
     .bubble.mine .bubble-meta { color: rgba(255, 255, 255, .72); }
     .bubble-meta .read { color: #b8f0dd; }
+    .retry-status {
+      min-width: 20px; min-height: 20px; margin: -5px -5px -5px 0;
+      border: 0; border-radius: 10px; background: transparent;
+      color: #ffaaa4; font: inherit; font-weight: 800; cursor: pointer;
+    }
+    .retry-status:hover, .retry-status:focus-visible { background: rgba(255, 170, 164, .16); outline: none; }
     .typing { position: relative; z-index: 1; min-height: 28px; padding-left: 15px; display: flex; align-items: center; gap: 4px; }
     .typing i { width: 5px; height: 5px; border-radius: 50%; background: var(--muted); animation: typing 1.2s ease-in-out infinite; }
     .typing i:nth-child(2) { animation-delay: .18s; } .typing i:nth-child(3) { animation-delay: .36s; }
@@ -416,6 +422,7 @@
       messages: [
         { mine: false, text: "明天下午有时间吗", time: "15:50" },
         { mine: true, text: "有，三点之后都行", time: "15:52", status: "✓✓" },
+        { mine: true, text: "刚才那条再发一次", time: "15:53", status: "!" },
         { mine: false, text: "那还是老地方见 🙂", time: "15:54" },
       ],
     };
@@ -450,7 +457,7 @@
     function chatScreen(forceOnline) {
       const online = typeof forceOnline === "boolean" ? forceOnline : state.online;
       const oldOnline = state.online; state.online = online;
-      const messages = state.messages.map(m => `<div class="bubble ${m.mine ? "mine" : "other"}">${m.text}<div class="bubble-meta"><span>${m.time}</span>${m.mine ? `<span class="${m.status === "✓✓" ? "read" : ""}">${m.status || "◷"}</span>` : ""}</div></div>`).join("");
+      const messages = state.messages.map((m, index) => `<div class="bubble ${m.mine ? "mine" : "other"}">${m.text}<div class="bubble-meta"><span>${m.time}</span>${m.mine ? m.status === "!" ? `<button class="retry-status" data-retry-message="${index}" aria-label="消息发送失败，点击重试">!</button>` : `<span class="${m.status === "✓✓" ? "read" : ""}">${m.status || "◷"}</span>` : ""}</div></div>`).join("");
       const result = phone(`${chatTop()}${online ? `<div class="notice secure"><span class="lock" style="transform:scale(.55);margin:-6px"></span>仅你和对方可读取</div>` : `<div class="notice"><b>!</b> 对方当前离线，消息将在其上线后送达</div>`}<div class="ambient"></div><div class="chat-list">${messages}</div>${online ? `<div class="typing"><i></i><i></i><i></i></div>` : `<div class="typing"></div>`}<div class="composer"><button class="icon-button" aria-label="按住录制语音"><span class="mic-shape"></span></button><input id="messageInput" value="${escapeAttribute(state.messageDraft)}" aria-label="消息输入框"><button class="icon-button" aria-label="打开表情"><span class="smile-shape"></span></button><button class="send" data-send>发送</button></div>${state.moreOpen ? `<div class="more-menu"><button class="menu-row" data-go="call" ${online ? "" : "disabled"}><b>语音通话</b><span>${online ? "现在呼叫" : "对方当前离线"}</span></button><button class="menu-row" data-go="details"><b>会话详情</b><span>资料、相识信息与隐私</span></button></div>` : ""}`, online ? "chat-online" : "chat-offline");
       state.online = oldOnline;
       return result;
@@ -525,6 +532,21 @@
         state.messageDraft = "";
         state.messages.push({ mine: true, text, time: "15:58", status: state.online ? "✓" : "◷" }); render();
         if (state.online) setTimeout(() => { const last = state.messages[state.messages.length - 1]; if (last?.text === text) { last.status = "✓✓"; render(); } }, 900);
+        return;
+      }
+      if (target.hasAttribute("data-retry-message")) {
+        const message = state.messages[Number(target.dataset.retryMessage)];
+        if (!message || message.status !== "!") return;
+        message.status = "◷";
+        render();
+        setTimeout(() => {
+          if (message.status !== "◷") return;
+          message.status = "✓";
+          render();
+          setTimeout(() => {
+            if (message.status === "✓") { message.status = "✓✓"; render(); }
+          }, 700);
+        }, 650);
         return;
       }
       if (target.hasAttribute("data-pair") || target.hasAttribute("data-pair-receive")) { state.nfcSheet = true; state.pairStage = "discovered"; render(); return; }

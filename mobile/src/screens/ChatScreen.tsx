@@ -15,6 +15,7 @@ import { getSecretKey } from "../services/keys";
 import { VoiceRecorder, VoiceMessageBubble } from "../components/VoiceMessage";
 import {
   saveMessage, getMessages, markAsRead, markChatAsRead,
+  updateMessageDeliveryStatus,
 } from "../services/db";
 
 type DeliveryStatus = "sending" | "queued" | "delivered" | "read" | "failed";
@@ -28,6 +29,8 @@ interface Message {
   is_read: boolean;
   created_at: string;
   delivery_status?: DeliveryStatus;
+  encrypted?: boolean;
+  wire_content?: string;
 }
 
 const EMOJIS = ["😀", "😂", "🥹", "😊", "😍", "🤔", "👍", "👏", "❤️", "🎉", "🌙", "✨"];
@@ -294,6 +297,7 @@ export default function ChatScreen({ route }: any) {
   const flatListRef = useRef<FlatList>(null);
   const lastTypingSentRef = useRef(0);
   const typingHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const retryingMessageIdsRef = useRef(new Set<string>());
 
   const [mySecretKey, setMySecretKey] = useState<string | null>(null);
   const friendPublicKey: string | null = friend.public_key || null;
@@ -319,6 +323,8 @@ export default function ChatScreen({ route }: any) {
             delivery_status: m.sender_id === myId
               ? (m.delivery_status || (m.is_read ? "read" : "delivered"))
               : undefined,
+            encrypted: m.encrypted,
+            wire_content: m.wire_content || undefined,
           })));
         }
         for (const message of history) {
@@ -463,6 +469,8 @@ export default function ChatScreen({ route }: any) {
       type: "text", is_read: false,
       created_at: new Date().toISOString(),
       delivery_status: "sending",
+      encrypted: isEncrypted,
+      wire_content: contentToSend,
     };
     setMessages((prev) => [...prev, msg]);
     setBackgroundPulse((current) => ({ key: current.key + 1, side: "mine" }));
@@ -506,6 +514,8 @@ export default function ChatScreen({ route }: any) {
       type: "voice", duration, is_read: false,
       created_at: new Date().toISOString(),
       delivery_status: "sending",
+      encrypted: isEncrypted,
+      wire_content: contentToSend,
     };
     setMessages((prev) => [...prev, msg]);
     setBackgroundPulse((current) => ({ key: current.key + 1, side: "mine" }));
@@ -575,6 +585,76 @@ export default function ChatScreen({ route }: any) {
     return "✓";
   };
 
+  const retryMessage = async (message: Message) => {
+    if (
+      message.from !== myId
+      || message.delivery_status !== "failed"
+      || retryingMessageIdsRef.current.has(message.id)
+    ) return;
+
+    let contentToSend = message.wire_content || message.content;
+    let isEncrypted = !!message.encrypted;
+    if (!message.wire_content && friendPublicKey && mySecretKey) {
+      try {
+        contentToSend = encrypt(message.content, friendPublicKey, mySecretKey);
+        isEncrypted = true;
+      } catch {
+        Alert.alert("重试失败", "消息加密失败，请稍后再试。");
+        return;
+      }
+    } else if (!isEncrypted && !isOnline) {
+      Alert.alert("暂时无法重试", "当前会话尚未建立加密保护，无法安全暂存离线消息。");
+      return;
+    }
+
+    retryingMessageIdsRef.current.add(message.id);
+    setMessages((current) => current.map((item) => (
+      item.id === message.id
+        ? {
+          ...item,
+          delivery_status: "sending",
+          encrypted: isEncrypted,
+          wire_content: contentToSend,
+        }
+        : item
+    )));
+
+    try {
+      await saveMessage({
+        id: message.id,
+        chat_id: friend.user_id,
+        sender_id: myId,
+        type: message.type,
+        content: message.content,
+        duration: message.duration,
+        is_read: false,
+        encrypted: isEncrypted,
+        wire_content: contentToSend,
+        delivery_status: "sending",
+        created_at: message.created_at,
+      });
+      if (message.type === "voice") {
+        kinWS.sendVoiceMessage(
+          friend.user_id,
+          contentToSend,
+          message.duration || 0,
+          message.id,
+          isEncrypted
+        );
+      } else {
+        kinWS.sendMessage(friend.user_id, contentToSend, message.id, isEncrypted);
+      }
+    } catch {
+      setMessages((current) => current.map((item) => (
+        item.id === message.id ? { ...item, delivery_status: "failed" } : item
+      )));
+      void updateMessageDeliveryStatus(message.id, "failed").catch(() => undefined);
+      Alert.alert("重试失败", "无法保存待发送消息，请检查设备存储后再试。");
+    } finally {
+      retryingMessageIdsRef.current.delete(message.id);
+    }
+  };
+
   // 渲染消息气泡
   const renderMessage = ({ item }: { item: Message }) => {
     const isMine = item.from === myId;
@@ -600,15 +680,27 @@ export default function ChatScreen({ route }: any) {
             {formatMessageTime(item.created_at)}
           </Text>
           {isMine ? (
-            <Text
-              style={[
-                styles.deliveryStatus,
-                isRead && styles.deliveryStatusRead,
-                isFailed && styles.deliveryStatusFailed,
-              ]}
-            >
-              {statusMark}
-            </Text>
+            isFailed ? (
+              <TouchableOpacity
+                style={styles.retryStatusButton}
+                onPress={() => { void retryMessage(item); }}
+                hitSlop={{ top: 11, right: 11, bottom: 11, left: 11 }}
+                accessibilityRole="button"
+                accessibilityLabel="消息发送失败"
+                accessibilityHint="轻点重新发送"
+              >
+                <Text style={[styles.deliveryStatus, styles.deliveryStatusFailed]}>!</Text>
+              </TouchableOpacity>
+            ) : (
+              <Text
+                style={[
+                  styles.deliveryStatus,
+                  isRead && styles.deliveryStatusRead,
+                ]}
+              >
+                {statusMark}
+              </Text>
+            )
           ) : null}
         </View>
       </View>
@@ -908,6 +1000,10 @@ const styles = StyleSheet.create({
   },
   deliveryStatusRead: { color: "#75E0B8" },
   deliveryStatusFailed: { color: "#FFAAA4", letterSpacing: 0 },
+  retryStatusButton: {
+    minWidth: 22, minHeight: 22, marginVertical: -3, marginRight: -4,
+    alignItems: "center", justifyContent: "center",
+  },
   typingSlot: {
     minHeight: 30, paddingHorizontal: 14, justifyContent: "center",
     zIndex: 1, backgroundColor: "transparent",
