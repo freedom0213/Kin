@@ -183,6 +183,28 @@ export async function removeCachedFriend(ownerId: string, friendId: string): Pro
   );
 }
 
+/** 收到实时资料事件后，只更新对应好友的公开资料缓存。 */
+export async function updateCachedFriendProfile(
+  ownerId: string,
+  friendId: string,
+  profile: Pick<Friend, "username" | "nickname" | "avatar" | "profile_banner" | "status_msg">
+): Promise<void> {
+  const db = await getDb();
+  await db.runAsync(
+    `UPDATE contacts
+     SET username = ?, nickname = ?, avatar = ?, profile_banner = ?, status_msg = ?, updated_at = ?
+     WHERE owner_id = ? AND user_id = ?`,
+    profile.username,
+    profile.nickname,
+    profile.avatar,
+    profile.profile_banner,
+    profile.status_msg,
+    new Date().toISOString(),
+    ownerId,
+    friendId
+  );
+}
+
 /** 保存消息到本地 */
 export async function saveMessage(msg: LocalMessage): Promise<void> {
   const db = await getDb();

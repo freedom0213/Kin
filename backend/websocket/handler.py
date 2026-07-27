@@ -74,6 +74,26 @@ class ConnectionManager:
         except Exception:
             pass
 
+    async def notify_profile_change(self, user_id: str, profile: dict):
+        """向当前在线好友广播公开资料变更，不包含密码、公钥等敏感字段。"""
+        try:
+            loop = asyncio.get_running_loop()
+            friends = await loop.run_in_executor(None, friend_service.get_friend_list, user_id)
+            payload = {
+                "type": "friend_profile",
+                "user_id": user_id,
+                "username": profile.get("username"),
+                "nickname": profile.get("nickname"),
+                "avatar": profile.get("avatar"),
+                "profile_banner": profile.get("profile_banner"),
+                "status_msg": profile.get("status_msg"),
+            }
+            for friend in friends:
+                await self.send_json(friend["user_id"], payload)
+        except Exception:
+            # 资料已经写入数据库；实时通知失败时由好友下次刷新恢复最终状态。
+            pass
+
     # -- 消息路由 --
 
     async def handle_message(self, from_id: str, data: dict):

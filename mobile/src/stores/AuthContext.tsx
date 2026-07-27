@@ -6,6 +6,8 @@ import { setToken, getProfile as apiGetProfile, type UserProfile } from "../api/
 import { kinWS } from "../api/ws";
 import { messageInbox } from "../services/messageInbox";
 import { kinFeedback } from "../services/feedback";
+import { updateCachedFriendProfile } from "../services/db";
+import { parseFriendProfileEvent } from "../services/friendProfile";
 
 type User = UserProfile;
 
@@ -127,6 +129,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     kinWS.on("inbox_message", onInboxMessage);
     return () => kinWS.off("inbox_message", onInboxMessage);
   }, []);
+
+  useEffect(() => {
+    const onFriendProfile = (data: any) => {
+      const update = parseFriendProfileEvent(data);
+      const ownerId = state.user?.id;
+      if (!update || !ownerId) return;
+      void updateCachedFriendProfile(ownerId, update.user_id, update).catch(() => {});
+    };
+    kinWS.on("friend_profile", onFriendProfile);
+    return () => kinWS.off("friend_profile", onFriendProfile);
+  }, [state.user?.id]);
 
   const loginAction = async (token: string, user: User) => {
     await Promise.all([

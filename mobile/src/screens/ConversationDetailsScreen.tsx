@@ -8,9 +8,11 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Friend } from "../api/client";
 import { deleteFriend, resolveMediaUrl } from "../api/client";
+import { kinWS } from "../api/ws";
 import { clearMessages } from "../services/db";
 import { exportConversationToFile } from "../services/export";
 import { getSecretKey } from "../services/keys";
+import { mergeFriendProfile, parseFriendProfileEvent } from "../services/friendProfile";
 
 const COLORS = {
   background: "#F4F5F2",
@@ -97,7 +99,7 @@ function ActionRow({
 }
 
 export default function ConversationDetailsScreen({ route, navigation }: any) {
-  const { friend } = route.params as { friend: Friend };
+  const [friend, setFriend] = useState<Friend>((route.params as { friend: Friend }).friend);
   const insets = useSafeAreaInsets();
   const [busyAction, setBusyAction] = useState<"export" | "clear" | "delete" | null>(null);
   const [localKeyState, setLocalKeyState] = useState<"loading" | "ready" | "missing" | "error">("loading");
@@ -129,6 +131,17 @@ export default function ConversationDetailsScreen({ route, navigation }: any) {
       });
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    const onFriendProfile = (data: any) => {
+      const update = parseFriendProfileEvent(data);
+      if (update?.user_id === friend.user_id) {
+        setFriend((current) => mergeFriendProfile(current, update));
+      }
+    };
+    kinWS.on("friend_profile", onFriendProfile);
+    return () => kinWS.off("friend_profile", onFriendProfile);
+  }, [friend.user_id]);
 
   const showEncryptionDetails = () => {
     Alert.alert(

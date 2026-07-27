@@ -86,6 +86,29 @@ class WebSocketOfflineDeliveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("ENCRYPTION_REQUIRED", self.alice.sent[-1]["code"])
         self.assertIsNone(self.store.get("message-2"))
 
+    @patch("websocket.handler.friend_service.get_friend_list")
+    async def test_profile_change_only_broadcasts_public_fields(self, get_friend_list):
+        get_friend_list.return_value = [{"user_id": "bob"}, {"user_id": "offline-user"}]
+        bob = FakeWebSocket()
+        self.manager._connections["bob"] = bob
+
+        await self.manager.notify_profile_change("alice", {
+            "id": "alice",
+            "username": "alice",
+            "nickname": "Alice Lin",
+            "avatar": "/media/avatar.jpg",
+            "profile_banner": "/media/profile-banners/card.jpg",
+            "status_msg": "hello",
+            "public_key": "must-not-leak",
+            "password_hash": "must-not-leak",
+        })
+
+        self.assertEqual(1, len(bob.sent))
+        self.assertEqual("friend_profile", bob.sent[0]["type"])
+        self.assertEqual("alice", bob.sent[0]["user_id"])
+        self.assertNotIn("public_key", bob.sent[0])
+        self.assertNotIn("password_hash", bob.sent[0])
+
 
 if __name__ == "__main__":
     unittest.main()

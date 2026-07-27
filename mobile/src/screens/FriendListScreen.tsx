@@ -19,6 +19,7 @@ import {
   removeCachedFriend,
 } from "../services/db";
 import { kinFeedback } from "../services/feedback";
+import { mergeFriendProfile, parseFriendProfileEvent } from "../services/friendProfile";
 
 const COLORS = {
   background: "#F4F5F2",
@@ -408,6 +409,19 @@ export default function FriendListScreen({ navigation }: any) {
     kinWS.on("friend_added", onFriendAdded);
     return () => kinWS.off("friend_added", onFriendAdded);
   }, [loadFriends]);
+
+  // 好友修改公开资料后，保持列表名称与头像即时一致。
+  useEffect(() => {
+    const onFriendProfile = (data: any) => {
+      const update = parseFriendProfileEvent(data);
+      if (!update || !friendsRef.current.some((friend) => friend.user_id === update.user_id)) return;
+      const nextFriends = friendsRef.current.map((friend) => mergeFriendProfile(friend, update));
+      friendsRef.current = nextFriends;
+      setFriends(nextFriends);
+    };
+    kinWS.on("friend_profile", onFriendProfile);
+    return () => kinWS.off("friend_profile", onFriendProfile);
+  }, []);
 
   const onRefresh = async () => {
     setRefreshing(true);

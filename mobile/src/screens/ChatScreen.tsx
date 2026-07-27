@@ -9,6 +9,7 @@ import {
 import { useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { kinWS } from "../api/ws";
+import type { Friend } from "../api/client";
 import { useAuth } from "../stores/AuthContext";
 import { encrypt } from "../services/encryption";
 import { getSecretKey } from "../services/keys";
@@ -17,6 +18,7 @@ import {
   saveMessage, getMessages, markAsRead, markChatAsRead,
   updateMessageDeliveryStatus, deleteMessage,
 } from "../services/db";
+import { mergeFriendProfile, parseFriendProfileEvent } from "../services/friendProfile";
 
 type DeliveryStatus = "sending" | "queued" | "delivered" | "read" | "failed";
 type EncryptionState = "loading" | "ready" | "missing_peer_key" | "missing_local_key" | "error";
@@ -286,7 +288,7 @@ function genMsgId(): string {
 }
 
 export default function ChatScreen({ route }: any) {
-  const { friend } = route.params;
+  const [friend, setFriend] = useState<Friend>(route.params.friend);
   const { state } = useAuth();
   const myId = state.user?.id || "";
   const navigation = useNavigation<any>();
@@ -429,6 +431,11 @@ export default function ChatScreen({ route }: any) {
       } else if (data.type === "friend_status" && data.user_id === friend.user_id) {
         setIsOnline(data.is_online);
         if (!data.is_online) setIsTyping(false);
+      } else if (data.type === "friend_profile") {
+        const update = parseFriendProfileEvent(data);
+        if (update?.user_id === friend.user_id) {
+          setFriend((current) => mergeFriendProfile(current, update));
+        }
       } else if (data.type === "typing" && data.from === friend.user_id) {
         setIsTyping(true);
         if (typingHideTimerRef.current) clearTimeout(typingHideTimerRef.current);
@@ -457,6 +464,7 @@ export default function ChatScreen({ route }: any) {
     kinWS.on("read_receipt", onMessage);
     kinWS.on("message_status", onMessage);
     kinWS.on("friend_status", onMessage);
+    kinWS.on("friend_profile", onMessage);
     kinWS.on("typing", onMessage);
     kinWS.on("error", onMessage);
 
@@ -467,6 +475,7 @@ export default function ChatScreen({ route }: any) {
       kinWS.off("read_receipt", onMessage);
       kinWS.off("message_status", onMessage);
       kinWS.off("friend_status", onMessage);
+      kinWS.off("friend_profile", onMessage);
       kinWS.off("typing", onMessage);
       kinWS.off("error", onMessage);
       if (typingHideTimerRef.current) {

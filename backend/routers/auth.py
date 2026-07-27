@@ -10,6 +10,12 @@ from routers._auth_helper import get_user_id
 router = APIRouter()
 
 
+async def _notify_profile_change(user_id: str, profile: dict) -> None:
+    # 延迟导入避免 auth_service 与 WebSocket 管理器形成模块初始化环。
+    from websocket.handler import manager
+    await manager.notify_profile_change(user_id, profile)
+
+
 class RegisterBody(BaseModel):
     username: str = Field(..., min_length=4, max_length=16, description="用户名")
     password: str = Field(..., min_length=8, max_length=32, description="密码")
@@ -64,6 +70,7 @@ async def api_update_me(body: UpdateProfileBody, authorization: str = Header(...
         raise HTTPException(status_code=400, detail=str(error)) from error
     if not profile:
         raise HTTPException(status_code=404, detail="用户不存在")
+    await _notify_profile_change(user_id, profile)
     return profile
 
 
@@ -97,6 +104,7 @@ async def api_update_profile_banner(request: Request, authorization: str = Heade
         profile_media.delete_profile_banner(public_url)
         raise HTTPException(status_code=404, detail="用户不存在")
     profile_media.delete_profile_banner(old_banner)
+    await _notify_profile_change(user_id, profile)
     return profile
 
 
@@ -108,4 +116,5 @@ async def api_delete_profile_banner(authorization: str = Header(...)):
     if not profile:
         raise HTTPException(status_code=404, detail="用户不存在")
     profile_media.delete_profile_banner(old_banner)
+    await _notify_profile_change(user_id, profile)
     return profile
