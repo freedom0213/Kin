@@ -174,7 +174,8 @@ npx expo start
 
 - Android 模拟器：按 `a`
 - iOS 模拟器：按 `i`
-- 真机调试：修改 `mobile/src/config.ts` 中的 `API_BASE` 为电脑局域网 IP
+- 真机调试：复制 `mobile/.env.example` 为 `mobile/.env.local`，通过
+  `EXPO_PUBLIC_KIN_API_BASE` 配置电脑局域网 IP
 
 ### 3. 服务器端配套
 
@@ -182,9 +183,12 @@ npx expo start
 # 启用局域网访问
 uvicorn backend.main:app --host 0.0.0.0 --port 8000
 
-# 手机端 config.ts
-export const API_BASE = "http://192.168.x.x:8000";  // 换成你的IP
+# mobile/.env.local
+EXPO_PUBLIC_KIN_API_BASE=http://192.168.x.x:8000
 ```
+
+两台 Android 真机的完整检查顺序见
+[`codex/kin-two-device-testing.md`](codex/kin-two-device-testing.md)。
 
 ## API 概览
 
