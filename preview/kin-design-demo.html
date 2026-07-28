@@ -147,11 +147,13 @@
     .incoming-call-card {
       position: absolute; z-index: 60; top: 49px; right: 10px; left: 10px;
       overflow: hidden;
-      border: 1px solid rgba(255, 255, 255, .78); border-radius: 23px;
-      background: rgba(247, 250, 248, .76);
-      box-shadow: 0 16px 38px rgba(12, 23, 18, .2);
-      backdrop-filter: blur(20px) saturate(1.18);
-      -webkit-backdrop-filter: blur(20px) saturate(1.18);
+      min-height: 64px; padding: 0 9px;
+      display: flex; align-items: center;
+      border: 1px solid rgba(255, 255, 255, .72); border-radius: 20px;
+      background: rgba(247, 250, 248, .38);
+      box-shadow: 0 13px 32px rgba(12, 23, 18, .19);
+      backdrop-filter: blur(26px) saturate(1.24);
+      -webkit-backdrop-filter: blur(26px) saturate(1.24);
       animation: incoming-card-enter .26s cubic-bezier(.16, 1, .3, 1) both;
     }
     @keyframes incoming-card-enter {
@@ -159,27 +161,34 @@
       to { opacity: 1; transform: translateY(0) scale(1); }
     }
     .incoming-call-main {
-      width: 100%; min-height: 70px; padding: 11px 14px;
-      display: flex; align-items: center; gap: 11px;
+      flex: 1; min-width: 0; min-height: 62px; padding: 9px 5px;
+      display: flex; align-items: center; gap: 10px;
       border: 0; background: transparent; text-align: left; cursor: pointer;
     }
+    .incoming-call-main:disabled { cursor: default; }
     .incoming-call-main:hover { background: rgba(255, 255, 255, .22); }
     .incoming-call-avatar {
-      width: 43px; height: 43px; flex: 0 0 auto;
+      width: 38px; height: 38px; flex: 0 0 auto;
       display: grid; place-items: center;
       border: 1px solid rgba(255, 255, 255, .32); border-radius: 50%;
-      background: #26322d; color: #f7faf8; font-size: 13px; font-weight: 800;
+      background: #26322d; color: #f7faf8; font-size: 12px; font-weight: 800;
     }
     .incoming-call-copy { flex: 1; min-width: 0; }
-    .incoming-call-copy span { display: block; color: #2d8769; font-size: 10px; font-weight: 800; letter-spacing: .06em; }
-    .incoming-call-copy strong { display: block; margin-top: 3px; overflow: hidden; color: #171d1a; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
-    .incoming-call-actions { padding: 0 8px 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .incoming-call-copy strong { display: block; overflow: hidden; color: #171d1a; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+    .incoming-call-copy span { display: flex; align-items: center; gap: 5px; margin-top: 3px; color: #537067; font-size: 9px; font-variant-numeric: tabular-nums; }
+    .incoming-call-copy span::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+    .incoming-call-copy span.ringing::before { background: #77a592; animation: breathe 1.8s ease-in-out infinite; }
+    .incoming-call-copy span.connecting::before { border: 1px solid #2d8769; border-top-color: transparent; background: transparent; animation: spin .8s linear infinite; }
+    .incoming-call-timer { font-style: normal; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .incoming-call-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 7px; }
     .incoming-call-action {
-      min-height: 41px; border: 0; border-radius: 15px;
+      width: 38px; height: 38px; padding: 0; border: 0; border-radius: 50%;
       font-size: 12px; font-weight: 800; cursor: pointer;
     }
     .incoming-call-action.reject { background: rgba(180, 58, 51, .09); color: #a63c36; }
     .incoming-call-action.accept { background: var(--accent); color: white; }
+    .incoming-call-action.reject { font-size: 22px; font-weight: 300; }
     .incoming-call-action:hover { filter: brightness(.97); }
 
     .topbar {
@@ -530,6 +539,8 @@
       pairStage: "discovered",
       callDemo: "connected",
       incomingCall: true,
+      incomingCallPhase: "ringing",
+      incomingCallSeconds: 0,
       incomingReturnPage: "home",
       muted: false,
       speaker: false,
@@ -545,10 +556,21 @@
       ],
     };
     let presenceBurstTimer = null;
+    let callConnectTimer = null;
+    let callDurationTimer = null;
 
     const statusBar = () => `
       <div class="status-bar"><span>9:41</span><div class="status-icons"><span class="signal"><i></i><i></i><i></i><i></i></span><span>Wi‑Fi</span><span class="battery"></span></div></div>`;
-    const incomingCallCard = () => `<div class="incoming-call-card" role="dialog" aria-label="林迟的语音来电"><button class="incoming-call-main" data-incoming-open aria-label="进入林迟的等待接听页面"><span class="incoming-call-avatar">LC</span><span class="incoming-call-copy"><span>语音来电</span><strong>林迟</strong></span></button><div class="incoming-call-actions"><button class="incoming-call-action reject" data-incoming-reject>拒绝</button><button class="incoming-call-action accept" data-incoming-accept>接听</button></div></div>`;
+    const formatDemoCallDuration = total => `${Math.floor(total / 60).toString().padStart(2, "0")}:${(total % 60).toString().padStart(2, "0")}`;
+    const incomingCallCard = () => {
+      const connected = state.incomingCallPhase === "connected";
+      const connecting = state.incomingCallPhase === "connecting";
+      const status = connected ? `通话中 · <i class="incoming-call-timer">${formatDemoCallDuration(state.incomingCallSeconds)}</i>` : connecting ? "正在建立连接" : "语音来电";
+      const actions = state.incomingCallPhase === "ringing"
+        ? `<button class="incoming-call-action reject" data-incoming-reject aria-label="拒绝语音通话">×</button><button class="incoming-call-action accept" data-incoming-accept aria-label="接听语音通话">接</button>`
+        : `<button class="incoming-call-action reject" data-incoming-hangup aria-label="挂断语音通话">×</button>`;
+      return `<div class="incoming-call-card" role="dialog" aria-label="林迟的语音${connected ? "通话" : "来电"}"><button class="incoming-call-main" data-incoming-open aria-label="进入林迟的等待接听页面" ${state.incomingCallPhase === "ringing" ? "" : "disabled"}><span class="incoming-call-avatar">LC</span><span class="incoming-call-copy"><strong>林迟</strong><span class="${state.incomingCallPhase}">${status}</span></span></button><div class="incoming-call-actions">${actions}</div></div>`;
+    };
     const shouldShowIncomingCall = () => state.incomingCall && getVariant() === "flow" && !["login", "register", "call"].includes(state.page);
     const phone = (content, extra = "") => `<div class="phone ${extra}">${statusBar()}<div class="screen">${content}</div>${shouldShowIncomingCall() ? incomingCallCard() : ""}</div>`;
     const avatar = (name, online = false, size = "sm", delay = 0, arrival = false) => `<div class="avatar ${size} ${online ? "online" : ""} ${arrival ? "arrival" : ""}" style="--pulse-delay:${delay}ms">${name}</div>`;
@@ -679,8 +701,14 @@
       const target = event.target.closest("button"); if (!target) return;
       if (target.dataset.go) { state.page = target.dataset.go; state.moreOpen = false; state.messageMenuIndex = null; if (target.dataset.setOnline) state.online = target.dataset.setOnline === "true"; render(); return; }
       if (target.hasAttribute("data-incoming-demo")) {
+        if (callConnectTimer) clearTimeout(callConnectTimer);
+        if (callDurationTimer) clearInterval(callDurationTimer);
+        callConnectTimer = null;
+        callDurationTimer = null;
         state.incomingReturnPage = state.page === "call" ? "home" : state.page;
         state.incomingCall = true;
+        state.incomingCallPhase = "ringing";
+        state.incomingCallSeconds = 0;
         if (state.page === "call") state.page = state.incomingReturnPage;
         render();
         return;
@@ -695,13 +723,46 @@
       }
       if (target.hasAttribute("data-incoming-reject")) {
         state.incomingCall = false;
+        state.incomingCallPhase = "ringing";
         render();
         return;
       }
-      if (target.hasAttribute("data-incoming-accept") || target.hasAttribute("data-call-answer")) {
-        state.incomingReturnPage = state.page === "call" ? state.incomingReturnPage : state.page;
+      if (target.hasAttribute("data-incoming-accept")) {
+        state.incomingReturnPage = state.page;
+        state.incomingCall = true;
+        state.incomingCallPhase = "connecting";
+        state.incomingCallSeconds = 0;
+        render();
+        if (callConnectTimer) clearTimeout(callConnectTimer);
+        callConnectTimer = setTimeout(() => {
+          if (!state.incomingCall || state.incomingCallPhase !== "connecting") return;
+          state.incomingCallPhase = "connected";
+          state.incomingCallSeconds = 0;
+          render();
+          if (callDurationTimer) clearInterval(callDurationTimer);
+          callDurationTimer = setInterval(() => {
+            if (!state.incomingCall || state.incomingCallPhase !== "connected") return;
+            state.incomingCallSeconds += 1;
+            document.querySelectorAll(".incoming-call-timer").forEach(timer => {
+              timer.textContent = formatDemoCallDuration(state.incomingCallSeconds);
+            });
+          }, 1000);
+          callConnectTimer = null;
+        }, 900);
+        return;
+      }
+      if (target.hasAttribute("data-incoming-hangup")) {
+        if (callConnectTimer) clearTimeout(callConnectTimer);
+        if (callDurationTimer) clearInterval(callDurationTimer);
+        callConnectTimer = null;
+        callDurationTimer = null;
         state.incomingCall = false;
-        state.page = "call";
+        state.incomingCallPhase = "ringing";
+        state.incomingCallSeconds = 0;
+        render();
+        return;
+      }
+      if (target.hasAttribute("data-call-answer")) {
         state.callDemo = "connecting";
         render();
         if (callConnectTimer) clearTimeout(callConnectTimer);
@@ -838,7 +899,6 @@
       reader.onload = () => { state.profile.banner = String(reader.result || ""); render(); };
       reader.readAsDataURL(file);
     });
-    let callConnectTimer = null;
     let messageHoldTimer = null;
     const openMessageActions = target => {
       const bubble = target.closest?.("[data-message-index]"); if (!bubble) return false;

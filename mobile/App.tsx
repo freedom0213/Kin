@@ -5,6 +5,7 @@ import {
   AccessibilityInfo, ActivityIndicator, Animated, AppState, Easing, Platform,
   StatusBar, StyleSheet, Text, TouchableOpacity, View,
 } from "react-native";
+import { BlurView } from "expo-blur";
 import { createNavigationContainerRef, NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
@@ -49,6 +50,8 @@ interface IncomingCallPayload {
 }
 
 const INCOMING_CALL_TIMEOUT_MS = 35_000;
+const CALL_CONNECTION_TIMEOUT_MS = 18_000;
+type GlobalCallPhase = "ringing" | "connecting" | "connected" | "failed";
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
@@ -65,26 +68,42 @@ function parseIncomingCall(data: any): IncomingCallPayload | null {
   };
 }
 
+function formatCallDuration(totalSeconds: number): string {
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+}
+
 function IncomingCallCoordinator({ navigationReady }: { navigationReady: boolean }) {
   const [incomingCall, setIncomingCall] = useState<IncomingCallPayload | null>(null);
   const [actingCallId, setActingCallId] = useState<string | null>(null);
+  const [callPhase, setCallPhase] = useState<GlobalCallPhase>("ringing");
+  const [callSeconds, setCallSeconds] = useState(0);
   const [reduceMotion, setReduceMotion] = useState(false);
   const handledCallIdRef = useRef<string | null>(null);
   const pendingCallRef = useRef<IncomingCallPayload | null>(null);
   const incomingCallRef = useRef<IncomingCallPayload | null>(null);
   const actingCallIdRef = useRef<string | null>(null);
+  const callPhaseRef = useRef<GlobalCallPhase>("ringing");
   const appIsActiveRef = useRef(AppState.currentState === "active");
   const expiryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const connectionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const durationTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const connectedAtRef = useRef(0);
   const cardProgress = useRef(new Animated.Value(0)).current;
 
-  const clearExpiryTimer = useCallback(() => {
+  const clearCallTimers = useCallback(() => {
     if (expiryTimerRef.current) clearTimeout(expiryTimerRef.current);
     expiryTimerRef.current = null;
+    if (connectionTimerRef.current) clearTimeout(connectionTimerRef.current);
+    connectionTimerRef.current = null;
+    if (durationTimerRef.current) clearInterval(durationTimerRef.current);
+    durationTimerRef.current = null;
   }, []);
 
   const hideIncomingCall = useCallback((callId: string) => {
     if (incomingCallRef.current?.callId !== callId) return;
-    clearExpiryTimer();
+    clearCallTimers();
     kinFeedback.stopIncomingCallFeedback(callId);
     const finish = () => {
       if (incomingCallRef.current?.callId !== callId) return;
@@ -92,6 +111,9 @@ function IncomingCallCoordinator({ navigationReady }: { navigationReady: boolean
       actingCallIdRef.current = null;
       setIncomingCall(null);
       setActingCallId(null);
+      callPhaseRef.current = "ringing";
+      setCallPhase("ringing");
+      setCallSeconds(0);
     };
     if (reduceMotion) {
       cardProgress.setValue(0);
@@ -104,7 +126,7 @@ function IncomingCallCoordinator({ navigationReady }: { navigationReady: boolean
       easing: Easing.in(Easing.cubic),
       useNativeDriver: true,
     }).start(finish);
-  }, [cardProgress, clearExpiryTimer, reduceMotion]);
+  }, [cardProgress, clearCallTimers, reduceMotion]);
 
   const presentIncomingCall = useCallback((call: IncomingCallPayload) => {
     if (!navigationRef.isReady() || handledCallIdRef.current === call.callId) return;
@@ -125,7 +147,10 @@ function IncomingCallCoordinator({ navigationReady }: { navigationReady: boolean
     actingCallIdRef.current = null;
     setIncomingCall(call);
     setActingCallId(null);
-    clearExpiryTimer();
+    callPhaseRef.current = "ringing";
+    setCallPhase("ringing");
+    setCallSeconds(0);
+    clearCallTimers();
     cardProgress.stopAnimation();
     cardProgress.setValue(reduceMotion ? 1 : 0);
     if (!reduceMotion) {
@@ -147,9 +172,9 @@ function IncomingCallCoordinator({ navigationReady }: { navigationReady: boolean
       webrtcService.reject(call.from);
       hideIncomingCall(call.callId);
     }, remainingTime);
-  }, [cardProgress, clearExpiryTimer, hideIncomingCall, reduceMotion]);
+  }, [cardProgress, clearCallTimers, hideIncomingCall, reduceMotion]);
 
-  const openIncomingCall = useCallback((autoAccept: boolean) => {
+  const openIncomingCall = useCallback(() => {
     const call = incomingCallRef.current;
     if (!call || actingCallIdRef.current === call.callId || !navigationRef.isReady()) return;
     actingCallIdRef.current = call.callId;
@@ -160,9 +185,95 @@ function IncomingCallCoordinator({ navigationReady }: { navigationReady: boolean
       targetId: call.from,
       targetName: call.callerName,
       callId: call.callId,
-      autoAccept,
+      autoAccept: false,
     });
   }, [hideIncomingCall]);
+
+  const finishGlobalCall = useCallback((callId: string, failed = false) => {
+    if (incomingCallRef.current?.callId !== callId) return;
+    clearCallTimers();
+    webrtcService.setHandlers({
+      onIncomingCall: () => {},
+      onCallAccepted: () => {},
+      onCallRejected: () => {},
+      onCallEnded: () => {},
+      onRemoteStream: () => {},
+      onConnectionStateChange: () => {},
+    });
+    if (failed && webrtcService.hasActiveCall()) {
+      webrtcService.hangup(incomingCallRef.current.from);
+    }
+    actingCallIdRef.current = null;
+    setActingCallId(null);
+    if (!failed) {
+      hideIncomingCall(callId);
+      return;
+    }
+    callPhaseRef.current = "failed";
+    setCallPhase("failed");
+    connectionTimerRef.current = setTimeout(() => hideIncomingCall(callId), 1400);
+  }, [clearCallTimers, hideIncomingCall]);
+
+  const acceptIncomingCall = useCallback(async () => {
+    const call = incomingCallRef.current;
+    if (!call || actingCallIdRef.current === call.callId || callPhase !== "ringing") return;
+
+    const pendingOffer = webrtcService.getPendingOffer();
+    if (!pendingOffer || pendingOffer.callId !== call.callId) {
+      webrtcService.reject(call.from);
+      finishGlobalCall(call.callId, true);
+      return;
+    }
+
+    actingCallIdRef.current = call.callId;
+    setActingCallId(call.callId);
+    clearCallTimers();
+    kinFeedback.stopIncomingCallFeedback(call.callId);
+    callPhaseRef.current = "connecting";
+    setCallPhase("connecting");
+
+    webrtcService.setHandlers({
+      onIncomingCall: () => {},
+      onCallAccepted: () => {},
+      onCallRejected: () => finishGlobalCall(call.callId),
+      onCallEnded: () => finishGlobalCall(call.callId),
+      onRemoteStream: () => {},
+      onConnectionStateChange: (connectionState) => {
+        if (incomingCallRef.current?.callId !== call.callId) return;
+        if (connectionState === "connected") {
+          if (connectionTimerRef.current) clearTimeout(connectionTimerRef.current);
+          connectionTimerRef.current = null;
+          actingCallIdRef.current = null;
+          setActingCallId(null);
+          callPhaseRef.current = "connected";
+          setCallPhase("connected");
+          connectedAtRef.current = Date.now();
+          setCallSeconds(0);
+          if (durationTimerRef.current) clearInterval(durationTimerRef.current);
+          durationTimerRef.current = setInterval(() => {
+            setCallSeconds(Math.floor((Date.now() - connectedAtRef.current) / 1000));
+          }, 1000);
+        } else if (["failed", "disconnected", "closed"].includes(connectionState)) {
+          finishGlobalCall(call.callId, connectionState === "failed");
+        }
+      },
+    });
+
+    const result = await webrtcService.answerCall(call.from, pendingOffer.sdp);
+    if (incomingCallRef.current?.callId !== call.callId) return;
+    if (!result.ok) {
+      if (result.reason !== "cancelled") webrtcService.reject(call.from);
+      finishGlobalCall(call.callId, true);
+      return;
+    }
+    if ((callPhaseRef.current as GlobalCallPhase) === "connected") return;
+
+    connectionTimerRef.current = setTimeout(() => {
+      if (incomingCallRef.current?.callId !== call.callId || callPhaseRef.current === "connected") return;
+      webrtcService.hangup(call.from);
+      finishGlobalCall(call.callId, true);
+    }, CALL_CONNECTION_TIMEOUT_MS);
+  }, [callPhase, clearCallTimers, finishGlobalCall]);
 
   const rejectIncomingCall = useCallback(() => {
     const call = incomingCallRef.current;
@@ -173,6 +284,22 @@ function IncomingCallCoordinator({ navigationReady }: { navigationReady: boolean
     AccessibilityInfo.announceForAccessibility("已拒绝语音通话");
     hideIncomingCall(call.callId);
   }, [hideIncomingCall]);
+
+  const hangupGlobalCall = useCallback(() => {
+    const call = incomingCallRef.current;
+    if (!call) return;
+    webrtcService.setHandlers({
+      onIncomingCall: () => {},
+      onCallAccepted: () => {},
+      onCallRejected: () => {},
+      onCallEnded: () => {},
+      onRemoteStream: () => {},
+      onConnectionStateChange: () => {},
+    });
+    webrtcService.hangup(call.from);
+    AccessibilityInfo.announceForAccessibility("语音通话已结束");
+    finishGlobalCall(call.callId);
+  }, [finishGlobalCall]);
 
   useEffect(() => {
     AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
@@ -230,13 +357,23 @@ function IncomingCallCoordinator({ navigationReady }: { navigationReady: boolean
   }, [hideIncomingCall]);
 
   useEffect(() => () => {
-    clearExpiryTimer();
+    const call = incomingCallRef.current;
+    clearCallTimers();
+    if (call && webrtcService.hasActiveCall()) webrtcService.hangup(call.from);
     cardProgress.stopAnimation();
-  }, [cardProgress, clearExpiryTimer]);
+  }, [cardProgress, clearCallTimers]);
 
   if (!incomingCall) return null;
   const initials = Array.from(incomingCall.callerName).slice(0, 2).join("").toUpperCase();
   const busy = actingCallId === incomingCall.callId;
+  const ringing = callPhase === "ringing";
+  const statusText = callPhase === "connected"
+    ? `通话中 · ${formatCallDuration(callSeconds)}`
+    : callPhase === "connecting"
+      ? "正在建立连接"
+      : callPhase === "failed"
+        ? "暂时无法接通"
+        : "语音来电";
   const cardStyle = {
     opacity: cardProgress,
     transform: [{
@@ -247,42 +384,69 @@ function IncomingCallCoordinator({ navigationReady }: { navigationReady: boolean
   return (
     <View style={styles.incomingOverlay} pointerEvents="box-none">
       <Animated.View style={[styles.incomingCard, cardStyle]}>
-        <TouchableOpacity
-          style={styles.incomingMain}
-          onPress={() => openIncomingCall(false)}
-          disabled={busy}
-          accessibilityRole="button"
-          accessibilityLabel={`${incomingCall.callerName}的语音来电`}
-          accessibilityHint="进入等待接听页面"
+        <BlurView
+          style={styles.incomingBlur}
+          intensity={72}
+          tint="systemMaterialLight"
+          blurMethod="dimezisBlurView"
+          blurReductionFactor={3}
         >
-          <View style={styles.incomingAvatar}>
-            <Text style={styles.incomingAvatarText}>{initials}</Text>
-          </View>
-          <View style={styles.incomingTextGroup}>
-            <Text style={styles.incomingEyebrow}>语音来电</Text>
-            <Text style={styles.incomingName} numberOfLines={1}>{incomingCall.callerName}</Text>
-          </View>
-        </TouchableOpacity>
-        <View style={styles.incomingActions}>
           <TouchableOpacity
-            style={[styles.incomingAction, styles.rejectAction]}
-            onPress={rejectIncomingCall}
-            disabled={busy}
+            style={styles.incomingMain}
+            onPress={openIncomingCall}
+            disabled={busy || !ringing}
             accessibilityRole="button"
-            accessibilityLabel="拒绝语音通话"
+            accessibilityLabel={`${incomingCall.callerName}，${statusText}`}
+            accessibilityHint={ringing ? "进入等待接听页面" : undefined}
           >
-            <Text style={[styles.incomingActionText, styles.rejectActionText]}>拒绝</Text>
+            <View style={styles.incomingAvatar}>
+              <Text style={styles.incomingAvatarText}>{initials}</Text>
+            </View>
+            <View style={styles.incomingTextGroup}>
+              <Text style={styles.incomingName} numberOfLines={1}>{incomingCall.callerName}</Text>
+              <View style={styles.incomingStatusRow}>
+                {callPhase === "connected" ? <View style={styles.connectedDot} /> : null}
+                {callPhase === "connecting" ? <ActivityIndicator size="small" color="#2D8769" /> : null}
+                <Text style={[styles.incomingStatus, callPhase === "failed" && styles.failedStatus]}>
+                  {statusText}
+                </Text>
+              </View>
+            </View>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.incomingAction, styles.acceptAction]}
-            onPress={() => openIncomingCall(true)}
-            disabled={busy}
-            accessibilityRole="button"
-            accessibilityLabel="接听语音通话"
-          >
-            <Text style={[styles.incomingActionText, styles.acceptActionText]}>接听</Text>
-          </TouchableOpacity>
-        </View>
+          <View style={styles.incomingActions}>
+            {ringing ? (
+              <>
+                <TouchableOpacity
+                  style={[styles.incomingAction, styles.rejectAction]}
+                  onPress={rejectIncomingCall}
+                  disabled={busy}
+                  accessibilityRole="button"
+                  accessibilityLabel="拒绝语音通话"
+                >
+                  <Text style={[styles.incomingActionText, styles.rejectActionText]}>×</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.incomingAction, styles.acceptAction]}
+                  onPress={() => { void acceptIncomingCall(); }}
+                  disabled={busy}
+                  accessibilityRole="button"
+                  accessibilityLabel="接听语音通话"
+                >
+                  <Text style={[styles.incomingActionText, styles.acceptActionText]}>接</Text>
+                </TouchableOpacity>
+              </>
+            ) : callPhase !== "failed" ? (
+              <TouchableOpacity
+                style={[styles.incomingAction, styles.rejectAction]}
+                onPress={hangupGlobalCall}
+                accessibilityRole="button"
+                accessibilityLabel="挂断语音通话"
+              >
+                <Text style={[styles.incomingActionText, styles.rejectActionText]}>×</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+        </BlurView>
       </Animated.View>
     </View>
   );
@@ -343,42 +507,46 @@ const styles = StyleSheet.create({
   },
   incomingCard: {
     overflow: "hidden",
-    borderRadius: 24,
-    backgroundColor: "rgba(247, 250, 248, 0.94)",
+    borderRadius: 21,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(255,255,255,0.92)",
+    borderColor: "rgba(255,255,255,0.78)",
     shadowColor: "#0C1712", shadowOpacity: 0.18,
-    shadowRadius: 22, shadowOffset: { width: 0, height: 10 },
+    shadowRadius: 18, shadowOffset: { width: 0, height: 8 },
+  },
+  incomingBlur: {
+    minHeight: 64, paddingHorizontal: 10,
+    flexDirection: "row", alignItems: "center",
+    backgroundColor: "rgba(247,250,248,0.24)",
   },
   incomingMain: {
-    minHeight: 72, paddingHorizontal: 15,
+    flex: 1, minWidth: 0, minHeight: 62,
     flexDirection: "row", alignItems: "center",
   },
   incomingAvatar: {
-    width: 44, height: 44, borderRadius: 22,
+    width: 38, height: 38, borderRadius: 19,
     alignItems: "center", justifyContent: "center",
     backgroundColor: "#26322D",
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: "rgba(255,255,255,0.35)",
   },
-  incomingAvatarText: { color: "#F7FAF8", fontSize: 14, fontWeight: "700" },
-  incomingTextGroup: { flex: 1, marginLeft: 12 },
-  incomingEyebrow: {
-    color: "#2D8769", fontSize: 11, fontWeight: "700", letterSpacing: 0.5,
-  },
-  incomingName: { marginTop: 3, color: "#171D1A", fontSize: 16, fontWeight: "700" },
+  incomingAvatarText: { color: "#F7FAF8", fontSize: 12, fontWeight: "700" },
+  incomingTextGroup: { flex: 1, minWidth: 0, marginLeft: 10 },
+  incomingName: { color: "#171D1A", fontSize: 15, fontWeight: "700" },
+  incomingStatusRow: { minHeight: 18, marginTop: 2, flexDirection: "row", alignItems: "center", gap: 5 },
+  incomingStatus: { color: "#537067", fontSize: 10, fontVariant: ["tabular-nums"] },
+  failedStatus: { color: "#A63C36" },
+  connectedDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#2DAD82" },
   incomingActions: {
-    padding: 8, paddingTop: 0,
-    flexDirection: "row", gap: 8,
+    marginLeft: 8, flexDirection: "row", alignItems: "center", gap: 7,
   },
   incomingAction: {
-    flex: 1, minHeight: 42, borderRadius: 16,
+    width: 38, height: 38, borderRadius: 19,
     alignItems: "center", justifyContent: "center",
   },
-  rejectAction: { backgroundColor: "rgba(180, 58, 51, 0.09)" },
+  rejectAction: { backgroundColor: "rgba(180, 58, 51, 0.12)" },
   acceptAction: { backgroundColor: "#2DAD82" },
-  incomingActionText: { fontSize: 14, fontWeight: "700" },
-  rejectActionText: { color: "#A63C36" },
+  incomingActionText: { fontSize: 13, fontWeight: "700" },
+  rejectActionText: { color: "#A63C36", fontSize: 24, fontWeight: "300", lineHeight: 25 },
   acceptActionText: { color: "#FFFFFF" },
 });
 

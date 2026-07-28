@@ -19,6 +19,7 @@ import {
   updateMessageDeliveryStatus, deleteMessage,
 } from "../services/db";
 import { mergeFriendProfile, parseFriendProfileEvent } from "../services/friendProfile";
+import { webrtcService } from "../services/webrtc";
 
 type DeliveryStatus = "sending" | "queued" | "delivered" | "read" | "failed";
 type EncryptionState = "loading" | "ready" | "missing_peer_key" | "missing_local_key" | "error";
@@ -572,6 +573,11 @@ export default function ChatScreen({ route }: any) {
   // 发起语音通话
   const startCall = () => {
     if (!isOnline) return;
+    if (webrtcService.hasActiveCall()) {
+      setShowMore(false);
+      Alert.alert("通话正在进行", "请先结束当前语音通话，再发起新的通话。");
+      return;
+    }
     setShowMore(false);
     navigation.navigate("VoiceCall", {
       direction: "outgoing",
