@@ -36,6 +36,7 @@ function ControlButton({
   active = false,
   disabled = false,
   destructive = false,
+  loading = false,
   onPress,
 }: {
   label: string;
@@ -43,6 +44,7 @@ function ControlButton({
   active?: boolean;
   disabled?: boolean;
   destructive?: boolean;
+  loading?: boolean;
   onPress: () => void;
 }) {
   return (
@@ -55,19 +57,23 @@ function ControlButton({
           disabled && styles.controlButtonDisabled,
         ]}
         onPress={onPress}
-        disabled={disabled}
+        disabled={disabled || loading}
         accessibilityRole="button"
         accessibilityLabel={label}
         accessibilityHint={hint}
-        accessibilityState={{ disabled, selected: active }}
+        accessibilityState={{ disabled: disabled || loading, selected: active, busy: loading }}
       >
-        <Text style={[
-          styles.controlMark,
-          active && styles.controlMarkActive,
-          destructive && styles.controlMarkDanger,
-        ]}>
-          {destructive ? "×" : label.slice(0, 1)}
-        </Text>
+        {loading ? (
+          <ActivityIndicator color={COLORS.ink} />
+        ) : (
+          <Text style={[
+            styles.controlMark,
+            active && styles.controlMarkActive,
+            destructive && styles.controlMarkDanger,
+          ]}>
+            {destructive ? "×" : label.slice(0, 1)}
+          </Text>
+        )}
       </TouchableOpacity>
       <Text style={[styles.controlLabel, disabled && styles.controlLabelDisabled]}>{label}</Text>
     </View>
@@ -84,6 +90,9 @@ export default function VoiceCallScreen({ route, navigation }: any) {
   );
   const [callSeconds, setCallSeconds] = useState(0);
   const [muted, setMuted] = useState(false);
+  const [speakerEnabled, setSpeakerEnabled] = useState(false);
+  const [speakerBusy, setSpeakerBusy] = useState(false);
+  const [audioRouteError, setAudioRouteError] = useState(false);
   const [reduceMotion, setReduceMotion] = useState(false);
   const connectTimeRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -252,6 +261,22 @@ export default function VoiceCallScreen({ route, navigation }: any) {
     }
   };
 
+  const handleSpeaker = async () => {
+    if (callState !== "connected" || speakerBusy) return;
+    const nextEnabled = !speakerEnabled;
+    setSpeakerBusy(true);
+    setAudioRouteError(false);
+    const changed = await webrtcService.setSpeakerEnabled(nextEnabled);
+    setSpeakerBusy(false);
+    if (changed) {
+      setSpeakerEnabled(nextEnabled);
+      AccessibilityInfo.announceForAccessibility(nextEnabled ? "已切换到扬声器" : "已切换到听筒");
+      return;
+    }
+    setAudioRouteError(true);
+    AccessibilityInfo.announceForAccessibility("音频输出切换失败，请重试");
+  };
+
   const handleHangup = () => {
     if (!activeCall) {
       navigation.goBack();
@@ -360,51 +385,62 @@ export default function VoiceCallScreen({ route, navigation }: any) {
         ) : null}
       </View>
 
-      <View style={styles.actions}>
-        {callState === "ringing" ? (
-          <>
+      <View style={styles.actionArea}>
+        {audioRouteError && callState === "connected" ? (
+          <Text style={styles.audioRouteError} accessibilityLiveRegion="polite">
+            音频输出切换失败，请重试
+          </Text>
+        ) : null}
+        <View style={styles.actions}>
+          {callState === "ringing" ? (
+            <>
+              <ControlButton
+                label="拒绝"
+                hint="拒绝这次语音通话"
+                destructive
+                onPress={handleHangup}
+              />
+              <ControlButton
+                label="接听"
+                hint="接听这次语音通话"
+                active
+                onPress={handleAccept}
+              />
+            </>
+          ) : activeCall ? (
+            <>
+              <ControlButton
+                label={muted ? "取消静音" : "静音"}
+                hint={muted ? "重新开启麦克风" : "关闭本机麦克风"}
+                active={muted}
+                disabled={callState !== "connected"}
+                onPress={handleMute}
+              />
+              <ControlButton
+                label="扬声器"
+                hint={webrtcService.supportsSpeakerSelection()
+                  ? speakerEnabled ? "切换回听筒" : "切换到扬声器"
+                  : "当前平台需要原生音频路由支持"}
+                active={speakerEnabled}
+                loading={speakerBusy}
+                disabled={callState !== "connected" || !webrtcService.supportsSpeakerSelection()}
+                onPress={() => { void handleSpeaker(); }}
+              />
+              <ControlButton
+                label="挂断"
+                hint="结束当前语音通话"
+                destructive
+                onPress={handleHangup}
+              />
+            </>
+          ) : (
             <ControlButton
-              label="拒绝"
-              hint="拒绝这次语音通话"
-              destructive
-              onPress={handleHangup}
+              label="返回"
+              hint="返回聊天页面"
+              onPress={() => navigation.goBack()}
             />
-            <ControlButton
-              label="接听"
-              hint="接听这次语音通话"
-              active
-              onPress={handleAccept}
-            />
-          </>
-        ) : activeCall ? (
-          <>
-            <ControlButton
-              label={muted ? "取消静音" : "静音"}
-              hint={muted ? "重新开启麦克风" : "关闭本机麦克风"}
-              active={muted}
-              disabled={callState !== "connected"}
-              onPress={handleMute}
-            />
-            <ControlButton
-              label="扬声器"
-              hint="等待原生音频路由接入"
-              disabled
-              onPress={() => {}}
-            />
-            <ControlButton
-              label="挂断"
-              hint="结束当前语音通话"
-              destructive
-              onPress={handleHangup}
-            />
-          </>
-        ) : (
-          <ControlButton
-            label="返回"
-            hint="返回聊天页面"
-            onPress={() => navigation.goBack()}
-          />
-        )}
+          )}
+        </View>
       </View>
     </View>
   );
@@ -441,6 +477,10 @@ const styles = StyleSheet.create({
   failedText: { color: "#F0A39D" },
   voiceBars: { height: 34, marginTop: 30, flexDirection: "row", alignItems: "center", gap: 5 },
   voiceBar: { width: 3, borderRadius: 2, backgroundColor: COLORS.accent },
+  actionArea: { width: "100%", minHeight: 144, justifyContent: "flex-end" },
+  audioRouteError: {
+    marginBottom: 2, color: "#F0A39D", fontSize: 12, textAlign: "center",
+  },
   actions: {
     width: "100%", minHeight: 126, paddingHorizontal: 22,
     flexDirection: "row", alignItems: "center", justifyContent: "space-around",

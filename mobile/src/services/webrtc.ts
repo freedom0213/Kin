@@ -7,6 +7,8 @@ import {
   RTCIceCandidate,
   MediaStream,
 } from "react-native-webrtc";
+import { Audio } from "expo-av";
+import { Platform } from "react-native";
 
 // STUN 服务器（Google 免费 STUN，用于 NAT 穿透）
 const ICE_SERVERS = {
@@ -31,6 +33,7 @@ class WebRTCService {
   private handlers: CallHandlers | null = null;
   private _sendSignal: ((data: any) => boolean) | null = null;
   private pendingIceCandidates: RTCIceCandidate[] = [];
+  private audioRouteVersion = 0;
   // 存储来电的 SDP，供 VoiceCallScreen 接听时使用
   private _pendingOffer: { callerId: string; sdp: any; callerName: string } | null = null;
 
@@ -186,6 +189,39 @@ class WebRTCService {
     return true;
   }
 
+  /** 当前无需额外原生依赖即可切换通话音频输出的平台。 */
+  supportsSpeakerSelection(): boolean {
+    return Platform.OS === "android";
+  }
+
+  /** Android 通话期间在听筒和扬声器之间切换。 */
+  async setSpeakerEnabled(enabled: boolean): Promise<boolean> {
+    if (!this.supportsSpeakerSelection() || !this.localStream) return false;
+    const routeVersion = this.audioRouteVersion;
+    try {
+      await Audio.setAudioModeAsync({
+        shouldDuckAndroid: false,
+        playThroughEarpieceAndroid: !enabled,
+      });
+      if (routeVersion !== this.audioRouteVersion || !this.localStream) {
+        await this.restoreAudioRoute();
+        return false;
+      }
+      return true;
+    } catch (error) {
+      console.log("切换通话音频输出失败", error);
+      return false;
+    }
+  }
+
+  private async restoreAudioRoute(): Promise<void> {
+    if (Platform.OS !== "android") return;
+    await Audio.setAudioModeAsync({
+      shouldDuckAndroid: true,
+      playThroughEarpieceAndroid: false,
+    });
+  }
+
   // -- 处理对方 answer --
 
   async handleAnswer(remoteSdp: RTCSessionDescription): Promise<boolean> {
@@ -276,6 +312,7 @@ class WebRTCService {
   // -- 清理资源 --
 
   cleanup() {
+    this.audioRouteVersion += 1;
     this.localStream?.getTracks().forEach((t) => {
       t.stop();
       t.enabled = false;
@@ -284,6 +321,7 @@ class WebRTCService {
     this.pc?.close();
     this.pc = null;
     this.pendingIceCandidates = [];
+    void this.restoreAudioRoute().catch(() => undefined);
   }
 }
 
