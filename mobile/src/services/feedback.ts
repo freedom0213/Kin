@@ -12,6 +12,7 @@ import {
 
 const SOFT_TONE_BASE64 = "UklGRvQCAABXQVZFZm10IBAAAAABAAEAoA8AAEAfAAACABAAZGF0YdACAAAAAKcAegGaACf+mfwT/qYB+gPPAnH/Q/31/dj/QQAf/yj/FAJgBTgET/0V9oT2pACrDBEPzgOk8xbt3vbyCG0TLg06/Mnv9/EP/2EK7goBA+H7YPvK/t//NP3p+7wAzggsC3oCe/RK7rj3QAqVFY0OUfpz6gftpf+6Ed4TiAV79D3vL/glBY8KLwYl/8r8Cv8uABL9uvmg/PMFPA1XCf36Ru7/76oAaBILFV0FxfBU6UD1ewlHFGcNrPxj8djzDv+PBzMHtAGM/gAAdAFM/s34cfjyACgMnQ5UA5nyueuF9sAKrBY7D6P69eqY7Vb/ARC6EQMFqfbE8g36YANGBu4C0v/2ADYD2wDR+XH12/rRB8MQhQt4+iLsRu5bAPkSjRWvBXPxa+rA9UgIthGFC4b91PQy90T/FwTMAiEAOAGsBC8E7vy99DT1/gDwDn0RIQRW8QDqq/XFCtAWRg8s+1bs9O4d/6gN0g4vBCX52/ZI/JcBwgF1/1sABQVQB6MB6/aT8TH5RAmVE0oNQPrY6kTtAAC8EigVwAW28mvsvPbPBm0OFQld/rD4+/ql/4sAPv5p/rgDJQnbBtH7LvFY8uMADBGqE9QEuvAw6Tv1VQoAFqoO3/uD7hDxAv/MCkMLEgPR+1T7yP7f/zT96fu8AM4ILAt6Anv0Su6490AKlRWNDlH6c+oH7aX/uhHdE4gFfvRF7zX4HwV+CiIGJ//U/A7/LgAi/eH5uPzDBcQM+Ag2+yTv3PCgADgRkBP0BAbyVutG9oQIERLYCxb9T/OK9TL/YgYEBmgB0P4AACoBqP5i+i36uAAeCc8KbQJg9qrxZ/lcB0IPEgqF/JbyfvSY/5wJawriAsD6vPjQ/MMBMQN0Aer/cwB1AWAAXv2o+/X9/gIsBhIEIP6R+Yb6GwBLBbAFagGa/Ev77P2NAQwDzQGn/5r+Cf/u/1IALQACAAoAEwA=";
 const MESSAGE_THROTTLE_MS = 850;
+const INCOMING_CALL_SECOND_TONE_DELAY_MS = 420;
 const MINIMUM_OFFLINE_MS = 15_000;
 const ONLINE_STABLE_MS = 2_000;
 const ONLINE_COOLDOWN_MS = 30_000;
@@ -24,6 +25,8 @@ interface FriendPresence {
 class KinFeedbackService {
   private preferences: KinPreferences = { ...DEFAULT_PREFERENCES };
   private lastMessageFeedbackAt = 0;
+  private lastIncomingCallId: string | null = null;
+  private incomingCallToneTimer: ReturnType<typeof setTimeout> | null = null;
   private friendPresence = new Map<string, FriendPresence>();
   private pendingOnlineTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private lastOnlineFeedbackAt = new Map<string, number>();
@@ -44,6 +47,28 @@ class KinFeedbackService {
       Vibration.vibrate(10);
     }
     if (this.preferences.messageSound) await this.playSoftTone(0.18);
+  }
+
+  async notifyIncomingCall(callId: string): Promise<void> {
+    if (!callId || this.lastIncomingCallId === callId) return;
+    this.lastIncomingCallId = callId;
+
+    if (this.incomingCallToneTimer) clearTimeout(this.incomingCallToneTimer);
+    this.incomingCallToneTimer = null;
+
+    if (this.preferences.hapticFeedback && Platform.OS === "android") {
+      Vibration.vibrate([0, 90, 140, 90]);
+    }
+    if (!this.preferences.messageSound) return;
+
+    await this.playSoftTone(0.2);
+    if (this.lastIncomingCallId !== callId) return;
+    this.incomingCallToneTimer = setTimeout(() => {
+      this.incomingCallToneTimer = null;
+      if (this.lastIncomingCallId === callId && this.preferences.messageSound) {
+        void this.playSoftTone(0.16);
+      }
+    }, INCOMING_CALL_SECOND_TONE_DELAY_MS);
   }
 
   seedFriendStatuses(friends: Array<{ user_id: string; is_online?: boolean }>): void {
@@ -91,11 +116,15 @@ class KinFeedbackService {
   }
 
   reset(): void {
+    if (this.incomingCallToneTimer) clearTimeout(this.incomingCallToneTimer);
+    this.incomingCallToneTimer = null;
     this.pendingOnlineTimers.forEach((timer) => clearTimeout(timer));
     this.pendingOnlineTimers.clear();
     this.friendPresence.clear();
     this.lastOnlineFeedbackAt.clear();
     this.lastMessageFeedbackAt = 0;
+    this.lastIncomingCallId = null;
+    Vibration.cancel();
     this.activeSounds.forEach((sound) => {
       void sound.unloadAsync().catch(() => undefined);
     });

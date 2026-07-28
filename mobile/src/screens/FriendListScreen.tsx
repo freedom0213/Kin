@@ -354,22 +354,6 @@ export default function FriendListScreen({ navigation }: any) {
     useCallback(() => { loadFriends(); }, [loadFriends])
   );
 
-  // 监听来电（WebRTC incoming call）
-  useEffect(() => {
-    const onIncomingCall = (data: any) => {
-      const callerName = data.caller_name || "未知用户";
-      // 跳转到语音通话页面（来电方）
-      navigation.navigate("VoiceCall", {
-        direction: "incoming",
-        targetId: data.from,
-        targetName: callerName,
-        callId: data.call_id,
-      });
-    };
-    kinWS.on("incoming_call", onIncomingCall);
-    return () => { kinWS.off("incoming_call", onIncomingCall); };
-  }, [navigation]);
-
   // 好友状态变化时立即在 Online / Offline 分组之间更新
   useEffect(() => {
     const onFriendStatus = (data: any) => {
