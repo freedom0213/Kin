@@ -3,13 +3,17 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo, ActivityIndicator, Animated, BackHandler, StyleSheet,
-  Text, TouchableOpacity, View,
+  Linking, Text, TouchableOpacity, View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { webrtcService } from "../services/webrtc";
+import { type CallFailureReason, webrtcService } from "../services/webrtc";
 import { useAuth } from "../stores/AuthContext";
 
 type CallState = "calling" | "ringing" | "connecting" | "connected" | "ended" | "failed";
+type TerminalReason = CallFailureReason | "unanswered" | "connection-timeout" | "offline" | "rejected" | null;
+
+const RING_TIMEOUT_MS = 35_000;
+const CONNECTION_TIMEOUT_MS = 18_000;
 
 const COLORS = {
   background: "#1D2421",
@@ -93,6 +97,9 @@ export default function VoiceCallScreen({ route, navigation }: any) {
   const [speakerEnabled, setSpeakerEnabled] = useState(false);
   const [speakerBusy, setSpeakerBusy] = useState(false);
   const [audioRouteError, setAudioRouteError] = useState(false);
+  const [terminalReason, setTerminalReason] = useState<TerminalReason>(null);
+  const [outgoingReady, setOutgoingReady] = useState(false);
+  const [connectionReady, setConnectionReady] = useState(false);
   const [reduceMotion, setReduceMotion] = useState(false);
   const connectTimeRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -111,11 +118,16 @@ export default function VoiceCallScreen({ route, navigation }: any) {
     returnTimerRef.current = setTimeout(() => navigation.goBack(), delay);
   };
 
-  const finishCall = (state: "ended" | "failed", delay = 1800) => {
+  const finishCall = (
+    state: "ended" | "failed",
+    delay: number | null = 1800,
+    reason: TerminalReason = null
+  ) => {
     if (finishedRef.current) return;
     finishedRef.current = true;
+    setTerminalReason(reason);
     setCallState(state);
-    scheduleReturn(delay);
+    if (delay !== null) scheduleReturn(delay);
   };
 
   useEffect(() => {
@@ -187,21 +199,35 @@ export default function VoiceCallScreen({ route, navigation }: any) {
     if (callState === "connected") {
       AccessibilityInfo.announceForAccessibility("语音通话已接通");
     } else if (callState === "failed") {
-      AccessibilityInfo.announceForAccessibility("暂时无法建立语音通话");
+      const failureAnnouncement = terminalReason === "microphone-permission"
+        ? "需要麦克风权限才能进行语音通话"
+        : terminalReason === "connection-timeout"
+          ? "通话连接超时"
+          : terminalReason === "signaling-unavailable"
+            ? "当前网络连接不可用"
+            : "暂时无法建立语音通话";
+      AccessibilityInfo.announceForAccessibility(failureAnnouncement);
     } else if (callState === "ended") {
-      AccessibilityInfo.announceForAccessibility("语音通话已结束");
+      AccessibilityInfo.announceForAccessibility(
+        terminalReason === "unanswered" ? "对方暂未接听" : "语音通话已结束"
+      );
     }
-  }, [callState]);
+  }, [callState, terminalReason]);
 
   useEffect(() => {
     webrtcService.setHandlers({
       onIncomingCall: () => {},
       onCallAccepted: () => {
         if (!finishedRef.current) {
+          setConnectionReady(true);
           setCallState((current) => current === "connected" ? current : "connecting");
         }
       },
-      onCallRejected: () => finishCall("ended"),
+      onCallRejected: (reason) => finishCall(
+        "ended",
+        2200,
+        reason === "对方不在线" ? "offline" : "rejected"
+      ),
       onCallEnded: () => finishCall("ended"),
       onRemoteStream: () => {},
       onConnectionStateChange: (connectionState) => {
@@ -217,8 +243,16 @@ export default function VoiceCallScreen({ route, navigation }: any) {
     });
 
     if (direction === "outgoing") {
-      void webrtcService.startCall(targetId, myDisplayName).then((started) => {
-        if (!started) finishCall("failed");
+      void webrtcService.startCall(targetId, myDisplayName).then((result) => {
+        if (result.ok) {
+          setOutgoingReady(true);
+        } else if (result.reason !== "cancelled" && !finishedRef.current) {
+          finishCall(
+            "failed",
+            result.reason === "microphone-permission" ? null : 2600,
+            result.reason
+          );
+        }
       });
     } else {
       const pending = webrtcService.getPendingOffer();
@@ -246,11 +280,45 @@ export default function VoiceCallScreen({ route, navigation }: any) {
   const handleAccept = async () => {
     if (!remoteSdp || callState !== "ringing") return;
     setCallState("connecting");
-    const accepted = await webrtcService.answerCall(targetId, remoteSdp);
-    if (!accepted) {
-      finishCall("failed");
+    const result = await webrtcService.answerCall(targetId, remoteSdp);
+    if (result.ok) {
+      setConnectionReady(true);
+    } else if (result.reason !== "cancelled" && !finishedRef.current) {
+      webrtcService.reject(targetId);
+      finishCall(
+        "failed",
+        result.reason === "microphone-permission" ? null : 2600,
+        result.reason
+      );
     }
   };
+
+  useEffect(() => {
+    if (callState !== "calling" && callState !== "ringing") return;
+    if (callState === "calling" && !outgoingReady) return;
+    const timeout = setTimeout(() => {
+      if (finishedRef.current) return;
+      if (direction === "incoming") {
+        webrtcService.reject(targetId);
+      } else if (webrtcService.hasActiveCall()) {
+        webrtcService.hangup(targetId);
+      } else {
+        webrtcService.cleanup();
+      }
+      finishCall("ended", 2400, "unanswered");
+    }, RING_TIMEOUT_MS);
+    return () => clearTimeout(timeout);
+  }, [callState, direction, outgoingReady, targetId]);
+
+  useEffect(() => {
+    if (callState !== "connecting" || !connectionReady) return;
+    const timeout = setTimeout(() => {
+      if (finishedRef.current) return;
+      webrtcService.hangup(targetId);
+      finishCall("failed", 2600, "connection-timeout");
+    }, CONNECTION_TIMEOUT_MS);
+    return () => clearTimeout(timeout);
+  }, [callState, connectionReady, targetId]);
 
   const handleMute = () => {
     if (callState !== "connected") return;
@@ -290,6 +358,14 @@ export default function VoiceCallScreen({ route, navigation }: any) {
     finishCall("ended", 1600);
   };
 
+  const handleOpenSettings = async () => {
+    try {
+      await Linking.openSettings();
+    } catch {
+      AccessibilityInfo.announceForAccessibility("无法打开系统设置，请手动开启 Kin 的麦克风权限");
+    }
+  };
+
   useEffect(() => {
     const unsubscribe = navigation.addListener("beforeRemove", (event: any) => {
       if (!activeCall || finishedRef.current) return;
@@ -313,7 +389,16 @@ export default function VoiceCallScreen({ route, navigation }: any) {
     if (callState === "calling") return "正在等待对方接听";
     if (callState === "connecting") return "正在建立安全连接";
     if (callState === "connected") return formatSeconds(callSeconds);
-    if (callState === "failed") return "暂时无法建立通话";
+    if (callState === "failed") {
+      if (terminalReason === "microphone-permission") return "需要麦克风权限才能通话";
+      if (terminalReason === "connection-timeout") return "连接超时，请稍后重试";
+      if (terminalReason === "signaling-unavailable") return "网络连接不可用，请稍后重试";
+      if (terminalReason === "media-unavailable") return "麦克风暂时不可用";
+      return "暂时无法建立通话";
+    }
+    if (terminalReason === "unanswered") return "对方暂未接听";
+    if (terminalReason === "offline") return "对方当前离线";
+    if (terminalReason === "rejected") return "对方已拒绝通话";
     return callSeconds > 0
       ? `通话结束 · ${formatSeconds(callSeconds)}`
       : "通话已结束";
@@ -434,11 +519,27 @@ export default function VoiceCallScreen({ route, navigation }: any) {
               />
             </>
           ) : (
-            <ControlButton
-              label="返回"
-              hint="返回聊天页面"
-              onPress={() => navigation.goBack()}
-            />
+            terminalReason === "microphone-permission" ? (
+              <>
+                <ControlButton
+                  label="设置"
+                  hint="打开系统设置并允许 Kin 使用麦克风"
+                  active
+                  onPress={() => { void handleOpenSettings(); }}
+                />
+                <ControlButton
+                  label="返回"
+                  hint="返回聊天页面"
+                  onPress={() => navigation.goBack()}
+                />
+              </>
+            ) : (
+              <ControlButton
+                label="返回"
+                hint="返回聊天页面"
+                onPress={() => navigation.goBack()}
+              />
+            )
           )}
         </View>
       </View>

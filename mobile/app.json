@@ -29,7 +29,13 @@
         {
           "photosPermission": "允许 Kin 访问相册，以便选择个人背景名片。",
           "cameraPermission": false,
-          "microphonePermission": false
+          "microphonePermission": "允许 Kin 使用麦克风，以便发送语音消息和进行语音通话。"
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "允许 Kin 使用麦克风，以便发送语音消息和进行语音通话。"
         }
       ]
     ]

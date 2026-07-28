@@ -18,6 +18,16 @@ const ICE_SERVERS = {
   ],
 };
 
+export type CallFailureReason =
+  | "microphone-permission"
+  | "signaling-unavailable"
+  | "media-unavailable"
+  | "cancelled";
+
+export type CallSetupResult =
+  | { ok: true }
+  | { ok: false; reason: CallFailureReason };
+
 export interface CallHandlers {
   onIncomingCall: (callerId: string, callerName: string) => void;
   onCallAccepted: () => void;
@@ -34,6 +44,7 @@ class WebRTCService {
   private _sendSignal: ((data: any) => boolean) | null = null;
   private pendingIceCandidates: RTCIceCandidate[] = [];
   private audioRouteVersion = 0;
+  private sessionVersion = 0;
   // 存储来电的 SDP，供 VoiceCallScreen 接听时使用
   private _pendingOffer: { callerId: string; sdp: any; callerName: string } | null = null;
 
@@ -61,13 +72,26 @@ class WebRTCService {
 
   // -- 发起呼叫 --
 
-  async startCall(targetUserId: string, callerName?: string): Promise<boolean> {
+  async startCall(targetUserId: string, callerName?: string): Promise<CallSetupResult> {
+    const sessionVersion = ++this.sessionVersion;
     try {
-      // 获取本地音频流
-      this.localStream = await mediaDevices.getUserMedia({
+      const permission = await Audio.requestPermissionsAsync();
+      if (!permission.granted) {
+        return { ok: false, reason: "microphone-permission" };
+      }
+      if (sessionVersion !== this.sessionVersion) {
+        return { ok: false, reason: "cancelled" };
+      }
+
+      const localStream = await mediaDevices.getUserMedia({
         audio: true,
         video: false,
       });
+      if (sessionVersion !== this.sessionVersion) {
+        localStream.getTracks().forEach((track) => track.stop());
+        return { ok: false, reason: "cancelled" };
+      }
+      this.localStream = localStream;
 
       this.pc = new RTCPeerConnection(ICE_SERVERS);
 
@@ -101,6 +125,9 @@ class WebRTCService {
       // 创建 offer
       const offer = await this.pc.createOffer({ offerToReceiveAudio: true });
       await this.pc.setLocalDescription(offer);
+      if (sessionVersion !== this.sessionVersion) {
+        return { ok: false, reason: "cancelled" };
+      }
 
       // 发送呼叫请求（含 SDP + 呼叫方名称）
       const sent = this._sendSignal?.({
@@ -111,24 +138,38 @@ class WebRTCService {
       }) ?? false;
       if (!sent) {
         this.cleanup();
-        return false;
+        return { ok: false, reason: "signaling-unavailable" };
       }
-      return true;
-    } catch (e: any) {
-      console.log("发起呼叫失败", e);
+      return { ok: true };
+    } catch (error) {
+      console.log("发起呼叫失败", error);
       this.cleanup();
-      return false;
+      return { ok: false, reason: "media-unavailable" };
     }
   }
 
   // -- 接收呼叫（收到 offer 后调用） --
 
-  async answerCall(callerId: string, remoteSdp: RTCSessionDescription): Promise<boolean> {
+  async answerCall(callerId: string, remoteSdp: RTCSessionDescription): Promise<CallSetupResult> {
+    const sessionVersion = ++this.sessionVersion;
     try {
-      this.localStream = await mediaDevices.getUserMedia({
+      const permission = await Audio.requestPermissionsAsync();
+      if (!permission.granted) {
+        return { ok: false, reason: "microphone-permission" };
+      }
+      if (sessionVersion !== this.sessionVersion) {
+        return { ok: false, reason: "cancelled" };
+      }
+
+      const localStream = await mediaDevices.getUserMedia({
         audio: true,
         video: false,
       });
+      if (sessionVersion !== this.sessionVersion) {
+        localStream.getTracks().forEach((track) => track.stop());
+        return { ok: false, reason: "cancelled" };
+      }
+      this.localStream = localStream;
 
       this.pc = new RTCPeerConnection(ICE_SERVERS);
 
@@ -161,6 +202,9 @@ class WebRTCService {
       await this.flushPendingIceCandidates();
       const answer = await this.pc.createAnswer();
       await this.pc.setLocalDescription(answer);
+      if (sessionVersion !== this.sessionVersion) {
+        return { ok: false, reason: "cancelled" };
+      }
 
       const sent = this._sendSignal?.({
         type: "call_accepted",
@@ -169,13 +213,13 @@ class WebRTCService {
       }) ?? false;
       if (!sent) {
         this.cleanup();
-        return false;
+        return { ok: false, reason: "signaling-unavailable" };
       }
-      return true;
-    } catch (e: any) {
-      console.log("接听呼叫失败", e);
+      return { ok: true };
+    } catch (error) {
+      console.log("接听呼叫失败", error);
       this.cleanup();
-      return false;
+      return { ok: false, reason: "media-unavailable" };
     }
   }
 
@@ -187,6 +231,10 @@ class WebRTCService {
       track.enabled = !muted;
     });
     return true;
+  }
+
+  hasActiveCall(): boolean {
+    return !!this.pc || !!this.localStream;
   }
 
   /** 当前无需额外原生依赖即可切换通话音频输出的平台。 */
@@ -312,6 +360,7 @@ class WebRTCService {
   // -- 清理资源 --
 
   cleanup() {
+    this.sessionVersion += 1;
     this.audioRouteVersion += 1;
     this.localStream?.getTracks().forEach((t) => {
       t.stop();

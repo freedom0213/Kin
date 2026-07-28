@@ -336,18 +336,22 @@
 
     .call-screen { background: #1d2421; color: white; }
     .call-screen .status-bar { color: white; }
-    .call-body { flex: 1; padding: 54px 24px 38px; display: flex; flex-direction: column; align-items: center; }
+    .call-body { position: relative; flex: 1; padding: 54px 24px 38px; display: flex; flex-direction: column; align-items: center; }
+    .call-demo-switch { position: absolute; top: 15px; right: 15px; min-height: 30px; padding: 0 11px; border: 1px solid rgba(255, 255, 255, .14); border-radius: 15px; background: rgba(255, 255, 255, .08); color: rgba(255, 255, 255, .72); font-size: 10px; cursor: pointer; }
     .call-orbit { width: 184px; height: 184px; display: grid; place-items: center; border: 1px solid rgba(255, 255, 255, .12); border-radius: 50%; animation: callPulse 3.4s ease-in-out infinite; }
     @keyframes callPulse { 50% { transform: scale(1.035); border-color: rgba(112, 220, 179, .30); } }
     .call-avatar { width: 126px; height: 126px; border-radius: 50%; display: grid; place-items: center; background: #34413b; font-size: 30px; font-weight: 800; }
     .call-body h2 { margin: 25px 0 5px; font-size: 24px; }
     .call-status { color: rgba(255, 255, 255, .62); font-size: 13px; }
+    .call-status.failed { color: #f0a39d; }
     .wave { height: 42px; margin-top: 32px; display: flex; align-items: center; gap: 4px; }
     .wave i { width: 3px; border-radius: 3px; background: #70dcb3; animation: wave 1.2s ease-in-out infinite; }
     .wave i:nth-child(1), .wave i:nth-child(7) { height: 9px; }
     .wave i:nth-child(2), .wave i:nth-child(6) { height: 18px; animation-delay: .12s; }
     .wave i:nth-child(3), .wave i:nth-child(5) { height: 29px; animation-delay: .24s; }
     .wave i:nth-child(4) { height: 40px; animation-delay: .36s; }
+    .wave.inactive { opacity: .18; }
+    .wave.inactive i { animation: none; }
     @keyframes wave { 50% { transform: scaleY(.35); opacity: .55; } }
     .call-controls { width: 100%; margin-top: auto; display: flex; justify-content: space-around; }
     .call-control { display: grid; justify-items: center; gap: 8px; color: rgba(255, 255, 255, .72); font-size: 10px; }
@@ -479,7 +483,7 @@
       messageMenuIndex: null,
       nfcSheet: true,
       pairStage: "discovered",
-      callActive: true,
+      callDemo: "connected",
       muted: false,
       speaker: false,
       settings: { messageSound: true, friendOnlineSound: true, haptic: true },
@@ -555,7 +559,19 @@
       return phone(`<div class="topbar"><button class="top-action" data-go="home"><span class="back-icon"></span></button><div class="top-title"><strong>添加好友</strong></div><div class="top-action"></div></div><div class="nfc-base"><h2>碰一碰</h2><p>让两台手机靠近。发现对方后，只有你们都确认，才会建立好友关系。</p><button class="nfc-trigger" data-pair>发起碰一碰</button><button class="nfc-trigger" style="margin-top:10px;background:#fff;color:var(--ink);border:1px solid var(--line)" data-pair-receive>接收附近设备</button><div class="nfc-hint">NFC 不可用时，可以展开配对码作为降级入口。</div></div>${sheet ? `<div class="sheet-scrim"></div><div class="bottom-sheet"><div class="sheet-handle"></div><div class="pair-person">${avatar("MO", true, "lg")}<h3>Momo</h3><p>@momo · ${completed ? "双方已确认" : selfConfirmed ? "你已确认，等待对方" : "确认是你认识的人"}</p></div>${completed ? `<div style="margin:22px 0;text-align:center;color:var(--accent-dark);font-size:13px;font-weight:750">你们已经成为好友</div><button class="primary" style="margin-top:0" data-go="chat">开始聊天</button>` : selfConfirmed ? `<div class="pair-progress"><i></i><i></i><i></i></div><div style="margin:14px 0 18px;text-align:center;color:var(--muted);font-size:13px">只有 Momo 也确认后才会完成</div><div class="sheet-actions"><button class="cancel" data-pair-cancel>取消</button><button class="confirm" data-pair-peer-confirm>模拟对方确认</button></div>` : `<div style="margin:18px 0;text-align:center;color:var(--muted);font-size:13px">请核对头像和用户名</div><div class="sheet-actions"><button class="cancel" data-pair-cancel>取消</button><button class="confirm" data-pair-confirm>确认是本人</button></div>`}</div>` : ""}`);
     }
     function callScreen() {
-      return phone(`<div class="call-body"><div class="call-orbit"><div class="call-avatar">LC</div></div><h2>林迟</h2><div class="call-status">${state.callActive ? "00:42 · 通话中" : "正在等待对方接听"}</div><div class="wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="call-controls"><div class="call-control"><button class="${state.muted ? "active" : ""}" data-call="mute">${state.muted ? "开" : "静"}</button><span>${state.muted ? "取消静音" : "静音"}</span></div><div class="call-control"><button class="${state.speaker ? "active" : ""}" data-call="speaker" aria-pressed="${state.speaker}">扬</button><span>${state.speaker ? "扬声器已开" : "扬声器"}</span></div><div class="call-control"><button class="hangup" data-go="chat">×</button><span>挂断</span></div></div></div>`, "call-screen");
+      const callStates = {
+        connected: { label: "通话中", status: "00:42 · 通话中", failed: false },
+        unanswered: { label: "未接听", status: "对方暂未接听", failed: false },
+        permission: { label: "权限", status: "需要麦克风权限才能通话", failed: true },
+        connecting: { label: "连接中", status: "正在建立安全连接", failed: false },
+      };
+      const current = callStates[state.callDemo] || callStates.connected;
+      const connected = state.callDemo === "connected";
+      const permission = state.callDemo === "permission";
+      const controls = permission
+        ? `<div class="call-control"><button class="active">设</button><span>打开设置</span></div><div class="call-control"><button data-go="chat">返</button><span>返回</span></div>`
+        : `<div class="call-control"><button class="${state.muted ? "active" : ""}" data-call="mute" ${connected ? "" : "disabled"}>${state.muted ? "开" : "静"}</button><span>${state.muted ? "取消静音" : "静音"}</span></div><div class="call-control"><button class="${state.speaker ? "active" : ""}" data-call="speaker" aria-pressed="${state.speaker}" ${connected ? "" : "disabled"}>扬</button><span>${state.speaker ? "扬声器已开" : "扬声器"}</span></div><div class="call-control"><button class="hangup" data-go="chat">×</button><span>挂断</span></div>`;
+      return phone(`<div class="call-body"><button class="call-demo-switch" data-call-demo>状态演示 · ${current.label}</button><div class="call-orbit"><div class="call-avatar">LC</div></div><h2>林迟</h2><div class="call-status ${current.failed ? "failed" : ""}">${current.status}</div><div class="wave ${connected ? "" : "inactive"}"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="call-controls">${controls}</div></div>`, "call-screen");
     }
     function settingsScreen() {
       const preferenceSetting = (title, hint, key) => `<div class="setting-row"><span><b>${title}</b><span>${hint}</span></span><button class="switch ${state.settings[key] ? "on" : ""}" data-setting="${key}" aria-label="${title}" aria-pressed="${state.settings[key]}"></button></div>`;
@@ -700,6 +716,12 @@
       if (target.hasAttribute("data-pair-peer-confirm")) { state.pairStage = "completed"; render(); return; }
       if (target.dataset.call === "mute") { state.muted = !state.muted; render(); return; }
       if (target.dataset.call === "speaker") { state.speaker = !state.speaker; render(); return; }
+      if (target.hasAttribute("data-call-demo")) {
+        const stages = ["connected", "unanswered", "permission", "connecting"];
+        state.callDemo = stages[(stages.indexOf(state.callDemo) + 1) % stages.length];
+        render();
+        return;
+      }
       if (target.dataset.setting) { const key = target.dataset.setting; state.settings[key] = !state.settings[key]; render(); }
     });
     document.addEventListener("input", event => {
