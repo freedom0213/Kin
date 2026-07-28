@@ -51,7 +51,8 @@ interface IncomingCallPayload {
 
 const INCOMING_CALL_TIMEOUT_MS = 35_000;
 const CALL_CONNECTION_TIMEOUT_MS = 18_000;
-type GlobalCallPhase = "ringing" | "connecting" | "connected" | "failed";
+const CALL_RECOVERY_GRACE_MS = 8_000;
+type GlobalCallPhase = "ringing" | "connecting" | "connected" | "recovering" | "failed";
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
@@ -165,9 +166,9 @@ function ConnectionStatusCoordinator() {
 
   if (!notice) return null;
   const copy = notice === "restoring"
-    ? "正在恢复连接…"
+    ? "正在同步消息与在线状态…"
     : notice === "synced"
-      ? "消息与状态已同步"
+      ? "消息与在线状态已同步"
       : "当前离线，正在使用本地缓存";
   const mark = notice === "restoring" ? "·" : notice === "synced" ? "✓" : "!";
   const animatedStyle = {
@@ -372,16 +373,30 @@ function IncomingCallCoordinator({ navigationReady }: { navigationReady: boolean
           connectionTimerRef.current = null;
           actingCallIdRef.current = null;
           setActingCallId(null);
+          const isRecovered = callPhaseRef.current === "recovering";
           callPhaseRef.current = "connected";
           setCallPhase("connected");
-          connectedAtRef.current = Date.now();
-          setCallSeconds(0);
-          if (durationTimerRef.current) clearInterval(durationTimerRef.current);
-          durationTimerRef.current = setInterval(() => {
-            setCallSeconds(Math.floor((Date.now() - connectedAtRef.current) / 1000));
-          }, 1000);
+          if (!isRecovered) {
+            connectedAtRef.current = Date.now();
+            setCallSeconds(0);
+            if (durationTimerRef.current) clearInterval(durationTimerRef.current);
+            durationTimerRef.current = setInterval(() => {
+              setCallSeconds(Math.floor((Date.now() - connectedAtRef.current) / 1000));
+            }, 1000);
+          }
+        } else if (connectionState === "disconnected" && ["connected", "recovering"].includes(callPhaseRef.current)) {
+          if (callPhaseRef.current === "recovering") return;
+          callPhaseRef.current = "recovering";
+          setCallPhase("recovering");
+          AccessibilityInfo.announceForAccessibility("通话网络不稳定，正在等待恢复");
+          if (connectionTimerRef.current) clearTimeout(connectionTimerRef.current);
+          connectionTimerRef.current = setTimeout(() => {
+            if (incomingCallRef.current?.callId !== call.callId || callPhaseRef.current !== "recovering") return;
+            webrtcService.hangup(call.from);
+            finishGlobalCall(call.callId, true);
+          }, CALL_RECOVERY_GRACE_MS);
         } else if (["failed", "disconnected", "closed"].includes(connectionState)) {
-          finishGlobalCall(call.callId, connectionState === "failed");
+          finishGlobalCall(call.callId, true);
         }
       },
     });
@@ -393,7 +408,7 @@ function IncomingCallCoordinator({ navigationReady }: { navigationReady: boolean
       finishGlobalCall(call.callId, true);
       return;
     }
-    if ((callPhaseRef.current as GlobalCallPhase) === "connected") return;
+    if (["connected", "recovering"].includes(callPhaseRef.current as GlobalCallPhase)) return;
 
     connectionTimerRef.current = setTimeout(() => {
       if (incomingCallRef.current?.callId !== call.callId || callPhaseRef.current === "connected") return;
@@ -496,10 +511,12 @@ function IncomingCallCoordinator({ navigationReady }: { navigationReady: boolean
   const ringing = callPhase === "ringing";
   const statusText = callPhase === "connected"
     ? `通话中 · ${formatCallDuration(callSeconds)}`
+    : callPhase === "recovering"
+      ? "通话网络不稳定，正在等待恢复…"
     : callPhase === "connecting"
-      ? "正在建立连接"
+      ? "正在建立通话连接"
       : callPhase === "failed"
-        ? "暂时无法接通"
+        ? "通话连接已中断"
         : "语音来电";
   const cardStyle = {
     opacity: cardProgress,
@@ -533,7 +550,7 @@ function IncomingCallCoordinator({ navigationReady }: { navigationReady: boolean
               <Text style={styles.incomingName} numberOfLines={1}>{incomingCall.callerName}</Text>
               <View style={styles.incomingStatusRow}>
                 {callPhase === "connected" ? <View style={styles.connectedDot} /> : null}
-                {callPhase === "connecting" ? <ActivityIndicator size="small" color="#2D8769" /> : null}
+                {["connecting", "recovering"].includes(callPhase) ? <ActivityIndicator size="small" color="#2D8769" /> : null}
                 <Text style={[styles.incomingStatus, callPhase === "failed" && styles.failedStatus]}>
                   {statusText}
                 </Text>

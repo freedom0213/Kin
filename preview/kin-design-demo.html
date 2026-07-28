@@ -96,7 +96,8 @@
       font-size: 12px; font-weight: 750; cursor: pointer;
     }
     .rail-call-demo:hover { background: var(--accent-soft); }
-    .rail-call-demo.connection { margin-top: 7px; border-color: rgba(111, 117, 125, .18); background: rgba(255, 255, 255, .54); color: #59635f; }
+    .rail-call-demo.connection,
+    .rail-call-demo.network { margin-top: 7px; border-color: rgba(111, 117, 125, .18); background: rgba(255, 255, 255, .54); color: #59635f; }
 
     .stage {
       min-width: 0;
@@ -590,7 +591,14 @@
     const incomingCallCard = () => {
       const connected = state.incomingCallPhase === "connected";
       const connecting = state.incomingCallPhase === "connecting";
-      const status = connected ? `通话中 · <i class="incoming-call-timer">${formatDemoCallDuration(state.incomingCallSeconds)}</i>` : connecting ? "正在建立连接" : "语音来电";
+      const recovering = state.incomingCallPhase === "recovering";
+      const status = connected
+        ? `通话中 · <i class="incoming-call-timer">${formatDemoCallDuration(state.incomingCallSeconds)}</i>`
+        : recovering
+          ? "通话网络不稳定，正在等待恢复…"
+          : connecting
+            ? "正在建立通话连接"
+            : "语音来电";
       const actions = state.incomingCallPhase === "ringing"
         ? `<button class="incoming-call-action reject" data-incoming-reject aria-label="拒绝语音通话">×</button><button class="incoming-call-action accept" data-incoming-accept aria-label="接听语音通话">接</button>`
         : `<button class="incoming-call-action reject" data-incoming-hangup aria-label="挂断语音通话">×</button>`;
@@ -598,7 +606,7 @@
     };
     const connectionNotice = () => {
       if (!state.connectionNotice) return "";
-      const copy = state.connectionNotice === "restoring" ? "正在恢复连接…" : state.connectionNotice === "synced" ? "消息与状态已同步" : "当前离线，正在使用本地缓存";
+      const copy = state.connectionNotice === "restoring" ? "正在同步消息与在线状态…" : state.connectionNotice === "synced" ? "消息与在线状态已同步" : "当前离线，正在使用本地缓存";
       const mark = state.connectionNotice === "restoring" ? "·" : state.connectionNotice === "synced" ? "✓" : "!";
       return `<div class="connection-notice ${state.connectionNotice}" role="status"><span class="connection-notice-mark">${mark}</span><span>${copy}</span></div>`;
     };
@@ -668,6 +676,7 @@
         busy: { label: "忙线", status: "对方正在通话", failed: false },
         permission: { label: "权限", status: "需要麦克风权限才能通话", failed: true },
         connecting: { label: "连接中", status: "正在建立安全连接", failed: false },
+        recovering: { label: "网络波动", status: "通话网络不稳定，正在等待恢复…", failed: false },
       };
       const current = callStates[state.callDemo] || callStates.connected;
       const connected = state.callDemo === "connected";
@@ -700,7 +709,7 @@
 
     function renderFlow() {
       const currentLabel = pages.find(([key]) => key === state.page)?.[1] || "页面";
-      return `<div class="workspace"><aside class="rail"><div class="brand"><div class="brand-mark">K</div><div><strong>Kin Demo</strong><span>只和见过的人聊天</span></div></div><div class="rail-label">页面</div><nav class="page-nav">${pages.map(([key, label], index) => `<button class="${state.page === key ? "active" : ""}" data-go="${key}"><span>${label}</span><span class="nav-index">${String(index + 1).padStart(2, "0")}</span></button>`).join("")}</nav><button class="rail-call-demo" data-incoming-demo>${state.incomingCall ? "来电卡片展示中" : "模拟林迟来电"}</button><button class="rail-call-demo connection" data-connection-demo>演示连接恢复</button><p class="rail-copy">页面中的按钮可以点击。聊天页可切换在线状态、发送消息并展开更多菜单；顶部来电卡片、连接恢复、NFC 和通话页面也包含完整演示状态。</p></aside><section class="stage"><header class="stage-heading"><div class="stage-kicker">当前页面 · ${currentLabel}</div><h1>Kin 的界面应安静，但不是静止。</h1><p>信息结构保持熟悉，生命感来自在线呼吸、消息涟漪、状态亮暗和克制的反馈，而不是堆叠功能入口。</p></header><div class="phone-wrap">${renderPage(state.page)}</div></section></div>`;
+      return `<div class="workspace"><aside class="rail"><div class="brand"><div class="brand-mark">K</div><div><strong>Kin Demo</strong><span>只和见过的人聊天</span></div></div><div class="rail-label">页面</div><nav class="page-nav">${pages.map(([key, label], index) => `<button class="${state.page === key ? "active" : ""}" data-go="${key}"><span>${label}</span><span class="nav-index">${String(index + 1).padStart(2, "0")}</span></button>`).join("")}</nav><button class="rail-call-demo" data-incoming-demo>${state.incomingCall ? "来电卡片展示中" : "模拟林迟来电"}</button><button class="rail-call-demo connection" data-connection-demo>演示消息同步</button><button class="rail-call-demo network" data-call-network-demo>演示通话网络波动</button><p class="rail-copy">页面中的按钮可以点击。聊天页可切换在线状态、发送消息并展开更多菜单；顶部来电卡片、消息同步、通话网络波动、NFC 和通话页面也包含完整演示状态。</p></aside><section class="stage"><header class="stage-heading"><div class="stage-kicker">当前页面 · ${currentLabel}</div><h1>Kin 的界面应安静，但不是静止。</h1><p>信息结构保持熟悉，生命感来自在线呼吸、消息涟漪、状态亮暗和克制的反馈，而不是堆叠功能入口。</p></header><div class="phone-wrap">${renderPage(state.page)}</div></section></div>`;
     }
     function renderGallery() {
       const cards = pages.map(([key, label]) => `<article class="gallery-card"><div class="gallery-label"><b>${label}</b><span>${key}</span></div>${renderPage(key)}</article>`).join("");
@@ -760,6 +769,24 @@
         }, 950);
         return;
       }
+      if (target.hasAttribute("data-call-network-demo")) {
+        if (callConnectTimer) clearTimeout(callConnectTimer);
+        if (state.page === "call") {
+          state.callDemo = "recovering";
+        } else {
+          state.incomingCall = true;
+          state.incomingCallPhase = "recovering";
+          state.incomingCallSeconds = Math.max(state.incomingCallSeconds, 42);
+        }
+        render();
+        callConnectTimer = setTimeout(() => {
+          if (state.page === "call" && state.callDemo === "recovering") state.callDemo = "connected";
+          if (state.incomingCall && state.incomingCallPhase === "recovering") state.incomingCallPhase = "connected";
+          callConnectTimer = null;
+          render();
+        }, 1800);
+        return;
+      }
       if (target.hasAttribute("data-incoming-open")) {
         state.incomingReturnPage = state.page;
         state.incomingCall = false;
@@ -788,7 +815,7 @@
           render();
           if (callDurationTimer) clearInterval(callDurationTimer);
           callDurationTimer = setInterval(() => {
-            if (!state.incomingCall || state.incomingCallPhase !== "connected") return;
+            if (!state.incomingCall || !["connected", "recovering"].includes(state.incomingCallPhase)) return;
             state.incomingCallSeconds += 1;
             document.querySelectorAll(".incoming-call-timer").forEach(timer => {
               timer.textContent = formatDemoCallDuration(state.incomingCallSeconds);
@@ -934,7 +961,7 @@
       if (target.dataset.call === "mute") { state.muted = !state.muted; render(); return; }
       if (target.dataset.call === "speaker") { state.speaker = !state.speaker; render(); return; }
       if (target.hasAttribute("data-call-demo")) {
-        const stages = ["connected", "unanswered", "busy", "permission", "connecting"];
+        const stages = ["connected", "recovering", "unanswered", "busy", "permission", "connecting"];
         state.callDemo = stages[(stages.indexOf(state.callDemo) + 1) % stages.length];
         render();
         return;

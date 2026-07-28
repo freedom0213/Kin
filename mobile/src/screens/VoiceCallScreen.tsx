@@ -9,11 +9,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { type CallFailureReason, webrtcService } from "../services/webrtc";
 import { useAuth } from "../stores/AuthContext";
 
-type CallState = "calling" | "ringing" | "connecting" | "connected" | "ended" | "failed";
-type TerminalReason = CallFailureReason | "unanswered" | "connection-timeout" | "offline" | "busy" | "local-busy" | "rejected" | null;
+type CallState = "calling" | "ringing" | "connecting" | "connected" | "recovering" | "ended" | "failed";
+type TerminalReason = CallFailureReason | "unanswered" | "connection-timeout" | "network-interrupted" | "offline" | "busy" | "local-busy" | "rejected" | null;
 
 const RING_TIMEOUT_MS = 35_000;
 const CONNECTION_TIMEOUT_MS = 18_000;
+const CALL_RECOVERY_GRACE_MS = 8_000;
 
 const COLORS = {
   background: "#1D2421",
@@ -104,6 +105,7 @@ export default function VoiceCallScreen({ route, navigation }: any) {
   const connectTimeRef = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const returnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const finishedRef = useRef(false);
   const autoAcceptStartedRef = useRef(false);
   const ringPulse = useRef(new Animated.Value(0)).current;
@@ -112,7 +114,7 @@ export default function VoiceCallScreen({ route, navigation }: any) {
   const displayName = targetName || "未知用户";
   const myDisplayName = state.user?.nickname || state.user?.username || "";
   const initials = Array.from(displayName).slice(0, 2).join("").toUpperCase();
-  const activeCall = ["calling", "ringing", "connecting", "connected"].includes(callState);
+  const activeCall = ["calling", "ringing", "connecting", "connected", "recovering"].includes(callState);
 
   const scheduleReturn = (delay: number) => {
     if (returnTimerRef.current) clearTimeout(returnTimerRef.current);
@@ -126,6 +128,8 @@ export default function VoiceCallScreen({ route, navigation }: any) {
   ) => {
     if (finishedRef.current) return;
     finishedRef.current = true;
+    if (recoveryTimerRef.current) clearTimeout(recoveryTimerRef.current);
+    recoveryTimerRef.current = null;
     setTerminalReason(reason);
     setCallState(state);
     if (delay !== null) scheduleReturn(delay);
@@ -138,8 +142,8 @@ export default function VoiceCallScreen({ route, navigation }: any) {
   }, []);
 
   useEffect(() => {
-    if (callState !== "connected") return;
-    connectTimeRef.current = Date.now();
+    if (!["connected", "recovering"].includes(callState)) return;
+    if (!connectTimeRef.current) connectTimeRef.current = Date.now();
     timerRef.current = setInterval(() => {
       setCallSeconds(Math.floor((Date.now() - connectTimeRef.current) / 1000));
     }, 1000);
@@ -199,11 +203,15 @@ export default function VoiceCallScreen({ route, navigation }: any) {
   useEffect(() => {
     if (callState === "connected") {
       AccessibilityInfo.announceForAccessibility("语音通话已接通");
+    } else if (callState === "recovering") {
+      AccessibilityInfo.announceForAccessibility("通话网络不稳定，正在等待恢复");
     } else if (callState === "failed") {
       const failureAnnouncement = terminalReason === "microphone-permission"
         ? "需要麦克风权限才能进行语音通话"
         : terminalReason === "connection-timeout"
           ? "通话连接超时"
+          : terminalReason === "network-interrupted"
+            ? "通话连接已中断"
           : terminalReason === "signaling-unavailable"
             ? "当前网络连接不可用"
             : "暂时无法建立语音通话";
@@ -239,9 +247,20 @@ export default function VoiceCallScreen({ route, navigation }: any) {
       onConnectionStateChange: (connectionState) => {
         if (finishedRef.current) return;
         if (connectionState === "connected") {
+          if (recoveryTimerRef.current) clearTimeout(recoveryTimerRef.current);
+          recoveryTimerRef.current = null;
+          if (!connectTimeRef.current) connectTimeRef.current = Date.now();
           setCallState("connected");
         } else if (connectionState === "failed") {
           finishCall("failed");
+        } else if (connectionState === "disconnected" && connectTimeRef.current > 0) {
+          setCallState("recovering");
+          if (recoveryTimerRef.current) clearTimeout(recoveryTimerRef.current);
+          recoveryTimerRef.current = setTimeout(() => {
+            if (finishedRef.current) return;
+            webrtcService.hangup(targetId);
+            finishCall("failed", 2600, "network-interrupted");
+          }, CALL_RECOVERY_GRACE_MS);
         } else if (connectionState === "disconnected" || connectionState === "closed") {
           finishCall("ended");
         }
@@ -271,6 +290,8 @@ export default function VoiceCallScreen({ route, navigation }: any) {
 
     return () => {
       if (returnTimerRef.current) clearTimeout(returnTimerRef.current);
+      if (recoveryTimerRef.current) clearTimeout(recoveryTimerRef.current);
+      recoveryTimerRef.current = null;
       webrtcService.cleanup();
       webrtcService.setHandlers({
         onIncomingCall: () => {},
@@ -401,9 +422,11 @@ export default function VoiceCallScreen({ route, navigation }: any) {
     if (callState === "calling") return "正在等待对方接听";
     if (callState === "connecting") return "正在建立安全连接";
     if (callState === "connected") return formatSeconds(callSeconds);
+    if (callState === "recovering") return "通话网络不稳定，正在等待恢复…";
     if (callState === "failed") {
       if (terminalReason === "microphone-permission") return "需要麦克风权限才能通话";
       if (terminalReason === "connection-timeout") return "连接超时，请稍后重试";
+      if (terminalReason === "network-interrupted") return "通话连接已中断";
       if (terminalReason === "signaling-unavailable") return "网络连接不可用，请稍后重试";
       if (terminalReason === "media-unavailable") return "麦克风暂时不可用";
       return "暂时无法建立通话";
