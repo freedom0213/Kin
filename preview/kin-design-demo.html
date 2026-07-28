@@ -89,6 +89,13 @@
     .page-nav button.active { background: var(--surface); box-shadow: 0 7px 24px rgba(31, 38, 34, .07); }
     .nav-index { color: var(--faint); font-size: 11px; }
     .rail-copy { margin: 28px 10px 0; color: var(--muted); font-size: 12px; line-height: 1.65; }
+    .rail-call-demo {
+      width: 100%; min-height: 44px; margin-top: 14px; padding: 0 13px;
+      border: 1px solid rgba(45, 173, 130, .22); border-radius: 14px;
+      background: rgba(226, 242, 236, .76); color: var(--accent-dark);
+      font-size: 12px; font-weight: 750; cursor: pointer;
+    }
+    .rail-call-demo:hover { background: var(--accent-soft); }
 
     .stage {
       min-width: 0;
@@ -136,6 +143,44 @@
     .screen { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
     .scroll { flex: 1; min-height: 0; overflow-y: auto; scrollbar-width: none; }
     .scroll::-webkit-scrollbar { display: none; }
+
+    .incoming-call-card {
+      position: absolute; z-index: 60; top: 49px; right: 10px; left: 10px;
+      overflow: hidden;
+      border: 1px solid rgba(255, 255, 255, .78); border-radius: 23px;
+      background: rgba(247, 250, 248, .76);
+      box-shadow: 0 16px 38px rgba(12, 23, 18, .2);
+      backdrop-filter: blur(20px) saturate(1.18);
+      -webkit-backdrop-filter: blur(20px) saturate(1.18);
+      animation: incoming-card-enter .26s cubic-bezier(.16, 1, .3, 1) both;
+    }
+    @keyframes incoming-card-enter {
+      from { opacity: 0; transform: translateY(-16px) scale(.985); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    .incoming-call-main {
+      width: 100%; min-height: 70px; padding: 11px 14px;
+      display: flex; align-items: center; gap: 11px;
+      border: 0; background: transparent; text-align: left; cursor: pointer;
+    }
+    .incoming-call-main:hover { background: rgba(255, 255, 255, .22); }
+    .incoming-call-avatar {
+      width: 43px; height: 43px; flex: 0 0 auto;
+      display: grid; place-items: center;
+      border: 1px solid rgba(255, 255, 255, .32); border-radius: 50%;
+      background: #26322d; color: #f7faf8; font-size: 13px; font-weight: 800;
+    }
+    .incoming-call-copy { flex: 1; min-width: 0; }
+    .incoming-call-copy span { display: block; color: #2d8769; font-size: 10px; font-weight: 800; letter-spacing: .06em; }
+    .incoming-call-copy strong { display: block; margin-top: 3px; overflow: hidden; color: #171d1a; font-size: 15px; text-overflow: ellipsis; white-space: nowrap; }
+    .incoming-call-actions { padding: 0 8px 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .incoming-call-action {
+      min-height: 41px; border: 0; border-radius: 15px;
+      font-size: 12px; font-weight: 800; cursor: pointer;
+    }
+    .incoming-call-action.reject { background: rgba(180, 58, 51, .09); color: #a63c36; }
+    .incoming-call-action.accept { background: var(--accent); color: white; }
+    .incoming-call-action:hover { filter: brightness(.97); }
 
     .topbar {
       min-height: 58px; padding: 7px 12px 9px;
@@ -484,6 +529,8 @@
       nfcSheet: true,
       pairStage: "discovered",
       callDemo: "connected",
+      incomingCall: true,
+      incomingReturnPage: "home",
       muted: false,
       speaker: false,
       settings: { messageSound: true, friendOnlineSound: true, haptic: true },
@@ -501,7 +548,9 @@
 
     const statusBar = () => `
       <div class="status-bar"><span>9:41</span><div class="status-icons"><span class="signal"><i></i><i></i><i></i><i></i></span><span>Wi‑Fi</span><span class="battery"></span></div></div>`;
-    const phone = (content, extra = "") => `<div class="phone ${extra}">${statusBar()}<div class="screen">${content}</div></div>`;
+    const incomingCallCard = () => `<div class="incoming-call-card" role="dialog" aria-label="林迟的语音来电"><button class="incoming-call-main" data-incoming-open aria-label="进入林迟的等待接听页面"><span class="incoming-call-avatar">LC</span><span class="incoming-call-copy"><span>语音来电</span><strong>林迟</strong></span></button><div class="incoming-call-actions"><button class="incoming-call-action reject" data-incoming-reject>拒绝</button><button class="incoming-call-action accept" data-incoming-accept>接听</button></div></div>`;
+    const shouldShowIncomingCall = () => state.incomingCall && getVariant() === "flow" && !["login", "register", "call"].includes(state.page);
+    const phone = (content, extra = "") => `<div class="phone ${extra}">${statusBar()}<div class="screen">${content}</div>${shouldShowIncomingCall() ? incomingCallCard() : ""}</div>`;
     const avatar = (name, online = false, size = "sm", delay = 0, arrival = false) => `<div class="avatar ${size} ${online ? "online" : ""} ${arrival ? "arrival" : ""}" style="--pulse-delay:${delay}ms">${name}</div>`;
     const moreIcon = () => `<span class="more-icon"><i></i><i></i><i></i></span>`;
     const escapeAttribute = value => String(value).replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
@@ -560,6 +609,7 @@
     }
     function callScreen() {
       const callStates = {
+        ringing: { label: "等待接听", status: "邀请你进行语音通话", failed: false },
         connected: { label: "通话中", status: "00:42 · 通话中", failed: false },
         unanswered: { label: "未接听", status: "对方暂未接听", failed: false },
         busy: { label: "忙线", status: "对方正在通话", failed: false },
@@ -568,8 +618,11 @@
       };
       const current = callStates[state.callDemo] || callStates.connected;
       const connected = state.callDemo === "connected";
+      const ringing = state.callDemo === "ringing";
       const permission = state.callDemo === "permission";
-      const controls = permission
+      const controls = ringing
+        ? `<div class="call-control"><button class="hangup" data-call-reject>×</button><span>拒绝</span></div><div class="call-control"><button class="active" data-call-answer>接</button><span>接听</span></div>`
+        : permission
         ? `<div class="call-control"><button class="active">设</button><span>打开设置</span></div><div class="call-control"><button data-go="chat">返</button><span>返回</span></div>`
         : `<div class="call-control"><button class="${state.muted ? "active" : ""}" data-call="mute" ${connected ? "" : "disabled"}>${state.muted ? "开" : "静"}</button><span>${state.muted ? "取消静音" : "静音"}</span></div><div class="call-control"><button class="${state.speaker ? "active" : ""}" data-call="speaker" aria-pressed="${state.speaker}" ${connected ? "" : "disabled"}>扬</button><span>${state.speaker ? "扬声器已开" : "扬声器"}</span></div><div class="call-control"><button class="hangup" data-go="chat">×</button><span>挂断</span></div>`;
       return phone(`<div class="call-body"><button class="call-demo-switch" data-call-demo>状态演示 · ${current.label}</button><div class="call-orbit"><div class="call-avatar">LC</div></div><h2>林迟</h2><div class="call-status ${current.failed ? "failed" : ""}">${current.status}</div><div class="wave ${connected ? "" : "inactive"}"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div class="call-controls">${controls}</div></div>`, "call-screen");
@@ -594,7 +647,7 @@
 
     function renderFlow() {
       const currentLabel = pages.find(([key]) => key === state.page)?.[1] || "页面";
-      return `<div class="workspace"><aside class="rail"><div class="brand"><div class="brand-mark">K</div><div><strong>Kin Demo</strong><span>只和见过的人聊天</span></div></div><div class="rail-label">页面</div><nav class="page-nav">${pages.map(([key, label], index) => `<button class="${state.page === key ? "active" : ""}" data-go="${key}"><span>${label}</span><span class="nav-index">${String(index + 1).padStart(2, "0")}</span></button>`).join("")}</nav><p class="rail-copy">页面中的按钮可以点击。聊天页可切换在线状态、发送消息并展开更多菜单；NFC 和通话页面也包含演示状态。</p></aside><section class="stage"><header class="stage-heading"><div class="stage-kicker">当前页面 · ${currentLabel}</div><h1>Kin 的界面应安静，但不是静止。</h1><p>信息结构保持熟悉，生命感来自在线呼吸、消息涟漪、状态亮暗和克制的反馈，而不是堆叠功能入口。</p></header><div class="phone-wrap">${renderPage(state.page)}</div></section></div>`;
+      return `<div class="workspace"><aside class="rail"><div class="brand"><div class="brand-mark">K</div><div><strong>Kin Demo</strong><span>只和见过的人聊天</span></div></div><div class="rail-label">页面</div><nav class="page-nav">${pages.map(([key, label], index) => `<button class="${state.page === key ? "active" : ""}" data-go="${key}"><span>${label}</span><span class="nav-index">${String(index + 1).padStart(2, "0")}</span></button>`).join("")}</nav><button class="rail-call-demo" data-incoming-demo>${state.incomingCall ? "来电卡片展示中" : "模拟林迟来电"}</button><p class="rail-copy">页面中的按钮可以点击。聊天页可切换在线状态、发送消息并展开更多菜单；顶部来电卡片、NFC 和通话页面也包含完整演示状态。</p></aside><section class="stage"><header class="stage-heading"><div class="stage-kicker">当前页面 · ${currentLabel}</div><h1>Kin 的界面应安静，但不是静止。</h1><p>信息结构保持熟悉，生命感来自在线呼吸、消息涟漪、状态亮暗和克制的反馈，而不是堆叠功能入口。</p></header><div class="phone-wrap">${renderPage(state.page)}</div></section></div>`;
     }
     function renderGallery() {
       const cards = pages.map(([key, label]) => `<article class="gallery-card"><div class="gallery-label"><b>${label}</b><span>${key}</span></div>${renderPage(key)}</article>`).join("");
@@ -625,6 +678,48 @@
     document.addEventListener("click", event => {
       const target = event.target.closest("button"); if (!target) return;
       if (target.dataset.go) { state.page = target.dataset.go; state.moreOpen = false; state.messageMenuIndex = null; if (target.dataset.setOnline) state.online = target.dataset.setOnline === "true"; render(); return; }
+      if (target.hasAttribute("data-incoming-demo")) {
+        state.incomingReturnPage = state.page === "call" ? "home" : state.page;
+        state.incomingCall = true;
+        if (state.page === "call") state.page = state.incomingReturnPage;
+        render();
+        return;
+      }
+      if (target.hasAttribute("data-incoming-open")) {
+        state.incomingReturnPage = state.page;
+        state.incomingCall = false;
+        state.callDemo = "ringing";
+        state.page = "call";
+        render();
+        return;
+      }
+      if (target.hasAttribute("data-incoming-reject")) {
+        state.incomingCall = false;
+        render();
+        return;
+      }
+      if (target.hasAttribute("data-incoming-accept") || target.hasAttribute("data-call-answer")) {
+        state.incomingReturnPage = state.page === "call" ? state.incomingReturnPage : state.page;
+        state.incomingCall = false;
+        state.page = "call";
+        state.callDemo = "connecting";
+        render();
+        if (callConnectTimer) clearTimeout(callConnectTimer);
+        callConnectTimer = setTimeout(() => {
+          if (state.page === "call" && state.callDemo === "connecting") {
+            state.callDemo = "connected";
+            render();
+          }
+          callConnectTimer = null;
+        }, 900);
+        return;
+      }
+      if (target.hasAttribute("data-call-reject")) {
+        state.callDemo = "connected";
+        state.page = state.incomingReturnPage || "home";
+        render();
+        return;
+      }
       if (target.hasAttribute("data-presence-demo")) {
         if (presenceBurstTimer) clearTimeout(presenceBurstTimer);
         state.momoOnline = !state.momoOnline;
@@ -743,6 +838,7 @@
       reader.onload = () => { state.profile.banner = String(reader.result || ""); render(); };
       reader.readAsDataURL(file);
     });
+    let callConnectTimer = null;
     let messageHoldTimer = null;
     const openMessageActions = target => {
       const bubble = target.closest?.("[data-message-index]"); if (!bubble) return false;
