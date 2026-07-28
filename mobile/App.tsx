@@ -384,11 +384,12 @@ function IncomingCallCoordinator({ navigationReady }: { navigationReady: boolean
               setCallSeconds(Math.floor((Date.now() - connectedAtRef.current) / 1000));
             }, 1000);
           }
-        } else if (connectionState === "disconnected" && ["connected", "recovering"].includes(callPhaseRef.current)) {
+        } else if (["disconnected", "failed"].includes(connectionState) && ["connected", "recovering"].includes(callPhaseRef.current)) {
           if (callPhaseRef.current === "recovering") return;
           callPhaseRef.current = "recovering";
           setCallPhase("recovering");
-          AccessibilityInfo.announceForAccessibility("通话网络不稳定，正在等待恢复");
+          AccessibilityInfo.announceForAccessibility("通话网络不稳定，正在恢复通话");
+          void webrtcService.beginIceRecovery(call.from);
           if (connectionTimerRef.current) clearTimeout(connectionTimerRef.current);
           connectionTimerRef.current = setTimeout(() => {
             if (incomingCallRef.current?.callId !== call.callId || callPhaseRef.current !== "recovering") return;
@@ -512,7 +513,7 @@ function IncomingCallCoordinator({ navigationReady }: { navigationReady: boolean
   const statusText = callPhase === "connected"
     ? `通话中 · ${formatCallDuration(callSeconds)}`
     : callPhase === "recovering"
-      ? "通话网络不稳定，正在等待恢复…"
+      ? "通话网络不稳定，正在恢复通话…"
     : callPhase === "connecting"
       ? "正在建立通话连接"
       : callPhase === "failed"

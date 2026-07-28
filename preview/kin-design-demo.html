@@ -595,7 +595,7 @@
       const status = connected
         ? `通话中 · <i class="incoming-call-timer">${formatDemoCallDuration(state.incomingCallSeconds)}</i>`
         : recovering
-          ? "通话网络不稳定，正在等待恢复…"
+          ? "通话网络不稳定，正在恢复通话…"
           : connecting
             ? "正在建立通话连接"
             : "语音来电";
@@ -676,7 +676,7 @@
         busy: { label: "忙线", status: "对方正在通话", failed: false },
         permission: { label: "权限", status: "需要麦克风权限才能通话", failed: true },
         connecting: { label: "连接中", status: "正在建立安全连接", failed: false },
-        recovering: { label: "网络波动", status: "通话网络不稳定，正在等待恢复…", failed: false },
+        recovering: { label: "自动恢复", status: "通话网络不稳定，正在恢复通话…", failed: false },
       };
       const current = callStates[state.callDemo] || callStates.connected;
       const connected = state.callDemo === "connected";

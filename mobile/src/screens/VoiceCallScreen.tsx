@@ -204,7 +204,7 @@ export default function VoiceCallScreen({ route, navigation }: any) {
     if (callState === "connected") {
       AccessibilityInfo.announceForAccessibility("语音通话已接通");
     } else if (callState === "recovering") {
-      AccessibilityInfo.announceForAccessibility("通话网络不稳定，正在等待恢复");
+      AccessibilityInfo.announceForAccessibility("通话网络不稳定，正在恢复通话");
     } else if (callState === "failed") {
       const failureAnnouncement = terminalReason === "microphone-permission"
         ? "需要麦克风权限才能进行语音通话"
@@ -251,16 +251,18 @@ export default function VoiceCallScreen({ route, navigation }: any) {
           recoveryTimerRef.current = null;
           if (!connectTimeRef.current) connectTimeRef.current = Date.now();
           setCallState("connected");
+        } else if (["disconnected", "failed"].includes(connectionState) && connectTimeRef.current > 0) {
+          setCallState("recovering");
+          void webrtcService.beginIceRecovery(targetId);
+          if (!recoveryTimerRef.current) {
+            recoveryTimerRef.current = setTimeout(() => {
+              if (finishedRef.current) return;
+              webrtcService.hangup(targetId);
+              finishCall("failed", 2600, "network-interrupted");
+            }, CALL_RECOVERY_GRACE_MS);
+          }
         } else if (connectionState === "failed") {
           finishCall("failed");
-        } else if (connectionState === "disconnected" && connectTimeRef.current > 0) {
-          setCallState("recovering");
-          if (recoveryTimerRef.current) clearTimeout(recoveryTimerRef.current);
-          recoveryTimerRef.current = setTimeout(() => {
-            if (finishedRef.current) return;
-            webrtcService.hangup(targetId);
-            finishCall("failed", 2600, "network-interrupted");
-          }, CALL_RECOVERY_GRACE_MS);
         } else if (connectionState === "disconnected" || connectionState === "closed") {
           finishCall("ended");
         }
@@ -422,7 +424,7 @@ export default function VoiceCallScreen({ route, navigation }: any) {
     if (callState === "calling") return "正在等待对方接听";
     if (callState === "connecting") return "正在建立安全连接";
     if (callState === "connected") return formatSeconds(callSeconds);
-    if (callState === "recovering") return "通话网络不稳定，正在等待恢复…";
+    if (callState === "recovering") return "通话网络不稳定，正在恢复通话…";
     if (callState === "failed") {
       if (terminalReason === "microphone-permission") return "需要麦克风权限才能通话";
       if (terminalReason === "connection-timeout") return "连接超时，请稍后重试";

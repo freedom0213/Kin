@@ -55,8 +55,17 @@ class WebRTCService {
   private audioRouteVersion = 0;
   private sessionVersion = 0;
   private currentCallId: string | null = null;
+  private currentPeerId: string | null = null;
+  private isCaller = false;
   private signalingReady = false;
   private pendingLocalIceCandidates: any[] = [];
+  private recoveryRequested = false;
+  private restartPreparing = false;
+  private restartInFlight = false;
+  private pendingRestartRequest = false;
+  private pendingRestartOffer: any | null = null;
+  private pendingRestartAnswer: any | null = null;
+  private lastRestartSignalAt = 0;
   // 存储来电的 SDP，供 VoiceCallScreen 接听时使用
   private _pendingOffer: {
     callId: string;
@@ -80,6 +89,8 @@ class WebRTCService {
     if (!isValidCallId(callId)) return false;
     if (this.currentCallId && this.currentCallId !== callId) return false;
     this.currentCallId = callId;
+    this.currentPeerId = callerId;
+    this.isCaller = false;
     this.signalingReady = true;
     this._pendingOffer = { callId, callerId, callerName, sdp };
     return true;
@@ -116,6 +127,8 @@ class WebRTCService {
       }
       this.localStream = localStream;
       this.currentCallId = callId;
+      this.currentPeerId = targetUserId;
+      this.isCaller = true;
       this.signalingReady = false;
       this.pendingLocalIceCandidates = [];
 
@@ -133,9 +146,7 @@ class WebRTCService {
         }
       };
 
-      this.pc.onconnectionstatechange = () => {
-        if (this.pc) this.handlers?.onConnectionStateChange(this.pc.connectionState);
-      };
+      this.pc.onconnectionstatechange = () => this.handleConnectionStateChange();
 
       // ICE 候选 → 通过 WebSocket 发送
       this.pc.onicecandidate = (event: any) => {
@@ -197,6 +208,8 @@ class WebRTCService {
         return { ok: false, reason: "cancelled" };
       }
       this.localStream = localStream;
+      this.currentPeerId = callerId;
+      this.isCaller = false;
 
       this.pc = new RTCPeerConnection(ICE_SERVERS);
 
@@ -210,9 +223,7 @@ class WebRTCService {
         }
       };
 
-      this.pc.onconnectionstatechange = () => {
-        if (this.pc) this.handlers?.onConnectionStateChange(this.pc.connectionState);
-      };
+      this.pc.onconnectionstatechange = () => this.handleConnectionStateChange();
 
       this.pc.onicecandidate = (event: any) => {
         if (event.candidate) {
@@ -317,6 +328,139 @@ class WebRTCService {
     }
   }
 
+  /** 标记通话网络异常；呼叫方负责发起 ICE Restart，接听方等待恢复 offer。 */
+  async beginIceRecovery(targetUserId: string): Promise<boolean> {
+    if (!this.pc || !this.currentCallId) return false;
+    this.currentPeerId = targetUserId;
+    this.recoveryRequested = true;
+    if (!this.isCaller) {
+      this.pendingRestartRequest = true;
+      return this.sendPendingRestartRequest();
+    }
+    return this.prepareIceRestart();
+  }
+
+  /** WebSocket 恢复后重新发送尚未投递的恢复协商。 */
+  async resumeIceRecovery(): Promise<boolean> {
+    if (!this.recoveryRequested || !this.currentCallId || !this.currentPeerId) return false;
+    if (this.pendingRestartRequest) return this.sendPendingRestartRequest();
+    if (this.pendingRestartOffer) return this.sendPendingRestartOffer();
+    if (this.pendingRestartAnswer) return this.sendPendingRestartAnswer();
+    if (this.isCaller && !this.restartInFlight) return this.prepareIceRestart();
+    return true;
+  }
+
+  private sendPendingRestartRequest(): boolean {
+    if (!this.pendingRestartRequest || !this.currentCallId || !this.currentPeerId) return false;
+    if (Date.now() - this.lastRestartSignalAt < 300) return true;
+    const sent = this._sendSignal?.({
+      type: "ice_restart_request",
+      to: this.currentPeerId,
+      call_id: this.currentCallId,
+    }) ?? false;
+    if (sent) this.lastRestartSignalAt = Date.now();
+    return sent;
+  }
+
+  async handleRestartRequest(callId: unknown, calleeId: string): Promise<boolean> {
+    if (!isValidCallId(callId) || callId !== this.currentCallId || !this.pc || !this.isCaller) return false;
+    this.currentPeerId = calleeId;
+    this.recoveryRequested = true;
+    return this.prepareIceRestart();
+  }
+
+  private async prepareIceRestart(): Promise<boolean> {
+    if (!this.pc || !this.currentCallId || !this.currentPeerId) return false;
+    if (this.restartPreparing || this.restartInFlight) return true;
+    this.restartPreparing = true;
+    this.signalingReady = false;
+    this.pendingLocalIceCandidates = [];
+    try {
+      this.pc.restartIce();
+      const offer = await this.pc.createOffer({ iceRestart: true, offerToReceiveAudio: true });
+      await this.pc.setLocalDescription(offer);
+      this.pendingRestartOffer = offer;
+      this.restartInFlight = true;
+      return this.sendPendingRestartOffer();
+    } catch (error) {
+      console.log("发起 ICE Restart 失败", error);
+      this.restartInFlight = false;
+      return false;
+    } finally {
+      this.restartPreparing = false;
+    }
+  }
+
+  private sendPendingRestartOffer(): boolean {
+    if (!this.pendingRestartOffer || !this.currentCallId || !this.currentPeerId) return false;
+    if (Date.now() - this.lastRestartSignalAt < 300) return true;
+    const sent = this._sendSignal?.({
+      type: "ice_restart_offer",
+      to: this.currentPeerId,
+      call_id: this.currentCallId,
+      sdp: this.pendingRestartOffer,
+    }) ?? false;
+    if (sent) {
+      this.lastRestartSignalAt = Date.now();
+      this.signalingReady = true;
+      this.flushLocalIceCandidates(this.currentPeerId, this.currentCallId);
+    }
+    return sent;
+  }
+
+  async handleRestartOffer(callId: unknown, callerId: string, remoteSdp: RTCSessionDescription): Promise<boolean> {
+    if (!isValidCallId(callId) || callId !== this.currentCallId || !this.pc || this.isCaller) return false;
+    this.currentPeerId = callerId;
+    this.recoveryRequested = true;
+    this.pendingRestartRequest = false;
+    this.lastRestartSignalAt = 0;
+    this.signalingReady = false;
+    this.pendingLocalIceCandidates = [];
+    this.pendingIceCandidates = [];
+    try {
+      await this.pc.setRemoteDescription(new RTCSessionDescription(remoteSdp));
+      const answer = await this.pc.createAnswer();
+      await this.pc.setLocalDescription(answer);
+      this.pendingRestartAnswer = answer;
+      return this.sendPendingRestartAnswer();
+    } catch (error) {
+      console.log("响应 ICE Restart 失败", error);
+      return false;
+    }
+  }
+
+  private sendPendingRestartAnswer(): boolean {
+    if (!this.pendingRestartAnswer || !this.currentCallId || !this.currentPeerId) return false;
+    if (Date.now() - this.lastRestartSignalAt < 300) return true;
+    const sent = this._sendSignal?.({
+      type: "ice_restart_answer",
+      to: this.currentPeerId,
+      call_id: this.currentCallId,
+      sdp: this.pendingRestartAnswer,
+    }) ?? false;
+    if (sent) {
+      this.lastRestartSignalAt = Date.now();
+      this.signalingReady = true;
+      this.flushLocalIceCandidates(this.currentPeerId, this.currentCallId);
+    }
+    return sent;
+  }
+
+  async handleRestartAnswer(callId: unknown, remoteSdp: RTCSessionDescription): Promise<boolean> {
+    if (!isValidCallId(callId) || callId !== this.currentCallId || !this.pc || !this.isCaller) return false;
+    try {
+      await this.pc.setRemoteDescription(new RTCSessionDescription(remoteSdp));
+      await this.flushPendingIceCandidates();
+      this.restartInFlight = false;
+      this.pendingRestartOffer = null;
+      return true;
+    } catch (error) {
+      console.log("完成 ICE Restart 失败", error);
+      this.restartInFlight = false;
+      return false;
+    }
+  }
+
   // -- 处理 ICE 候选 --
 
   async handleIceCandidate(callId: unknown, candidate: RTCIceCandidate): Promise<void> {
@@ -357,6 +501,21 @@ class WebRTCService {
   private flushLocalIceCandidates(targetUserId: string, callId: string): void {
     const pending = this.pendingLocalIceCandidates.splice(0);
     pending.forEach((candidate) => this.sendIceCandidate(targetUserId, callId, candidate));
+  }
+
+  private handleConnectionStateChange(): void {
+    if (!this.pc) return;
+    const connectionState = this.pc.connectionState;
+    if (connectionState === "connected") {
+      this.recoveryRequested = false;
+      this.restartPreparing = false;
+      this.restartInFlight = false;
+      this.pendingRestartRequest = false;
+      this.pendingRestartOffer = null;
+      this.pendingRestartAnswer = null;
+      this.lastRestartSignalAt = 0;
+    }
+    this.handlers?.onConnectionStateChange(connectionState);
   }
 
   handleRemoteRejected(callId: unknown, reason?: string): boolean {
@@ -439,7 +598,16 @@ class WebRTCService {
     this.pendingIceCandidates = [];
     this.pendingLocalIceCandidates = [];
     this.currentCallId = null;
+    this.currentPeerId = null;
+    this.isCaller = false;
     this.signalingReady = false;
+    this.recoveryRequested = false;
+    this.restartPreparing = false;
+    this.restartInFlight = false;
+    this.pendingRestartRequest = false;
+    this.pendingRestartOffer = null;
+    this.pendingRestartAnswer = null;
+    this.lastRestartSignalAt = 0;
     this._pendingOffer = null;
     void this.restoreAudioRoute().catch(() => undefined);
   }

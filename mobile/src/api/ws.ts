@@ -57,20 +57,25 @@ class KinWebSocket {
         if (type === "heartbeat_ack" && this._resumeRequested) {
           this._completeResume(false);
         }
+        const isCallSignal = [
+          "call_request", "call_accepted", "call_rejected", "ice_candidate",
+          "ice_restart_request", "ice_restart_offer", "ice_restart_answer", "call_end",
+          "call_resumed", "call_peer_resumed", "call_signal_unavailable",
+        ].includes(type);
         if (
           (type === "chat_message" || type === "voice_message")
           && this._incomingMessageProcessor
         ) {
           const processed = await this._incomingMessageProcessor(data);
           if (processed) this._dispatch("inbox_message", processed);
-        } else if (type) {
+        } else if (type && !isCallSignal) {
           this._dispatch(type, data);
         }
         if (this._handlers.has("*")) {
           this._handlers.get("*")!.forEach((fn) => fn(data));
         }
         // WebRTC 信令处理
-        this._handleCallSignaling(data);
+        await this._handleCallSignaling(data);
       } catch { /* ignore parse errors */ }
     };
 
@@ -154,7 +159,7 @@ class KinWebSocket {
   // -- WebRTC 信令分发 --
 
   /** 收到 WebSocket 消息时自动处理通话信令 */
-  private _handleCallSignaling(data: any) {
+  private async _handleCallSignaling(data: any) {
     const { type } = data;
 
     if (type === "call_request") {
@@ -170,15 +175,28 @@ class KinWebSocket {
       }
       this._dispatch("incoming_call", data);
     } else if (type === "call_accepted") {
-      void webrtcService.handleAnswer(data.call_id, data.sdp).then((handled) => {
-        if (handled) this._dispatch("call_accepted", data);
-      });
+      const handled = await webrtcService.handleAnswer(data.call_id, data.sdp);
+      if (handled) this._dispatch("call_accepted", data);
     } else if (type === "call_rejected") {
       if (webrtcService.handleRemoteRejected(data.call_id, data.detail)) {
         this._dispatch("call_rejected", data);
       }
     } else if (type === "ice_candidate" && data.candidate) {
-      void webrtcService.handleIceCandidate(data.call_id, data.candidate);
+      await webrtcService.handleIceCandidate(data.call_id, data.candidate);
+    } else if (type === "ice_restart_request") {
+      const handled = await webrtcService.handleRestartRequest(data.call_id, data.from);
+      if (handled) this._dispatch("ice_restart_request", data);
+    } else if (type === "ice_restart_offer" && data.sdp) {
+      const handled = await webrtcService.handleRestartOffer(data.call_id, data.from, data.sdp);
+      if (handled) this._dispatch("ice_restart_offer", data);
+    } else if (type === "ice_restart_answer" && data.sdp) {
+      const handled = await webrtcService.handleRestartAnswer(data.call_id, data.sdp);
+      if (handled) this._dispatch("ice_restart_answer", data);
+    } else if (type === "call_resumed" || type === "call_peer_resumed") {
+      await webrtcService.resumeIceRecovery();
+      this._dispatch(type, data);
+    } else if (type === "call_signal_unavailable") {
+      this._dispatch(type, data);
     } else if (type === "call_end") {
       if (webrtcService.handleRemoteEnded(data.call_id)) {
         this._dispatch("call_end", data);
