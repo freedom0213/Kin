@@ -1,6 +1,7 @@
 /** 认证状态管理 — Context + useReducer */
 
-import React, { createContext, useContext, useReducer, useEffect, ReactNode } from "react";
+import React, { createContext, useContext, useReducer, useEffect, useRef, ReactNode } from "react";
+import { AppState } from "react-native";
 import * as SecureStore from "expo-secure-store";
 import { setToken, getProfile as apiGetProfile, type UserProfile } from "../api/client";
 import { kinWS } from "../api/ws";
@@ -76,6 +77,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     user: null,
     token: null,
   });
+  const backgroundedAtRef = useRef<number | null>(null);
 
   // 启动时从安全存储恢复令牌
   useEffect(() => {
@@ -140,6 +142,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     kinWS.on("friend_profile", onFriendProfile);
     return () => kinWS.off("friend_profile", onFriendProfile);
   }, [state.user?.id]);
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener("change", (nextState) => {
+      if (nextState !== "active") {
+        backgroundedAtRef.current = Date.now();
+        return;
+      }
+
+      const wasBackgrounded = backgroundedAtRef.current !== null;
+      backgroundedAtRef.current = null;
+      if (wasBackgrounded && state.isLoggedIn && state.token) {
+        kinWS.resume(state.token);
+      }
+    });
+    return () => subscription.remove();
+  }, [state.isLoggedIn, state.token]);
 
   const loginAction = async (token: string, user: User) => {
     await Promise.all([

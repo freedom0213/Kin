@@ -14,13 +14,18 @@ class KinWebSocket {
   private _userId: string | null = null;
   private _shouldReconnect = false;
   private _incomingMessageProcessor: IncomingMessageProcessor | null = null;
+  private _resumeProbeTimer: ReturnType<typeof setTimeout> | null = null;
+  private _resumeRequested = false;
+  private _connectionVersion = 0;
 
   get userId(): string | null {
     return this._userId;
   }
 
   connect(token: string) {
+    const connectionVersion = ++this._connectionVersion;
     this._shouldReconnect = true;
+    this._clearResumeProbe();
     if (this._reconnectTimer) {
       clearTimeout(this._reconnectTimer);
       this._reconnectTimer = null;
@@ -31,20 +36,27 @@ class KinWebSocket {
       this.ws.close();
     }
 
-    this.ws = new WebSocket(`${WS_BASE}/ws?token=${token}`);
+    const socket = new WebSocket(`${WS_BASE}/ws?token=${token}`);
+    this.ws = socket;
 
-    this.ws.onopen = () => {
+    socket.onopen = () => {
+      if (connectionVersion !== this._connectionVersion || this.ws !== socket) return;
       console.log("[WS] 已连接");
       this._startHeartbeat();
       // 设置 WebRTC 信令发送函数
       webrtcService.setSignalSender((data) => this.send(data));
       this._dispatch("connected", { type: "connected" });
+      if (this._resumeRequested) this._completeResume(true);
     };
 
-    this.ws.onmessage = async (event) => {
+    socket.onmessage = async (event) => {
+      if (connectionVersion !== this._connectionVersion || this.ws !== socket) return;
       try {
         const data = JSON.parse(event.data);
         const type = data.type;
+        if (type === "heartbeat_ack" && this._resumeRequested) {
+          this._completeResume(false);
+        }
         if (
           (type === "chat_message" || type === "voice_message")
           && this._incomingMessageProcessor
@@ -62,8 +74,10 @@ class KinWebSocket {
       } catch { /* ignore parse errors */ }
     };
 
-    this.ws.onclose = () => {
+    socket.onclose = () => {
+      if (connectionVersion !== this._connectionVersion || this.ws !== socket) return;
       console.log("[WS] 已断开");
+      this.ws = null;
       this._stopHeartbeat();
       const t = getToken();
       if (t && this._shouldReconnect) {
@@ -71,13 +85,17 @@ class KinWebSocket {
       }
     };
 
-    this.ws.onerror = () => {
-      this.ws?.close();
+    socket.onerror = () => {
+      if (connectionVersion !== this._connectionVersion || this.ws !== socket) return;
+      socket.close();
     };
   }
 
   disconnect() {
+    this._connectionVersion += 1;
     this._shouldReconnect = false;
+    this._resumeRequested = false;
+    this._clearResumeProbe();
     if (this._reconnectTimer) {
       clearTimeout(this._reconnectTimer);
       this._reconnectTimer = null;
@@ -99,6 +117,36 @@ class KinWebSocket {
 
   setIncomingMessageProcessor(processor: IncomingMessageProcessor | null) {
     this._incomingMessageProcessor = processor;
+  }
+
+  /** App 回到前台时先探测现有连接；失活连接在超时后重新建立。 */
+  resume(token: string): void {
+    this._shouldReconnect = true;
+    this._resumeRequested = true;
+    this._clearResumeProbe();
+
+    if (this.ws?.readyState === WebSocket.CONNECTING) {
+      this._resumeProbeTimer = setTimeout(() => {
+        if (!this._resumeRequested) return;
+        console.log("[WS] 前台恢复时连接建立超时，重新连接");
+        this.connect(token);
+      }, 2500);
+      return;
+    }
+    if (this.ws?.readyState !== WebSocket.OPEN) {
+      this.connect(token);
+      return;
+    }
+
+    if (!this.send({ type: "heartbeat" })) {
+      this.connect(token);
+      return;
+    }
+    this._resumeProbeTimer = setTimeout(() => {
+      if (!this._resumeRequested) return;
+      console.log("[WS] 前台恢复探测超时，重新连接");
+      this.connect(token);
+    }, 2500);
   }
 
   // -- WebRTC 信令分发 --
@@ -140,6 +188,18 @@ class KinWebSocket {
     if (this._handlers.has(type)) {
       this._handlers.get(type)!.forEach((fn) => fn(data));
     }
+  }
+
+  private _completeResume(reconnected: boolean): void {
+    if (!this._resumeRequested) return;
+    this._resumeRequested = false;
+    this._clearResumeProbe();
+    this._dispatch("resumed", { type: "resumed", reconnected });
+  }
+
+  private _clearResumeProbe(): void {
+    if (this._resumeProbeTimer) clearTimeout(this._resumeProbeTimer);
+    this._resumeProbeTimer = null;
   }
 
   // -- 消息发送方法 --

@@ -395,6 +395,12 @@ export default function FriendListScreen({ navigation }: any) {
     return () => kinWS.off("friend_added", onFriendAdded);
   }, [loadFriends]);
 
+  useEffect(() => {
+    const onResumed = () => { void loadFriends(); };
+    kinWS.on("resumed", onResumed);
+    return () => kinWS.off("resumed", onResumed);
+  }, [loadFriends]);
+
   // 好友修改公开资料后，保持列表名称与头像即时一致。
   useEffect(() => {
     const onFriendProfile = (data: any) => {

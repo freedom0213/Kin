@@ -39,6 +39,7 @@ class MessageInbox {
     this.secretKey = secretKey;
     kinWS.setIncomingMessageProcessor(this.processIncoming);
     kinWS.on("connected", this.handleConnected);
+    kinWS.on("resumed", this.handleResumed);
     kinWS.on("queued", this.handleQueued);
     kinWS.on("delivered", this.handleDelivered);
     kinWS.on("read_receipt", this.handleRead);
@@ -52,6 +53,7 @@ class MessageInbox {
   stop(): void {
     if (this.started) {
       kinWS.off("connected", this.handleConnected);
+      kinWS.off("resumed", this.handleResumed);
       kinWS.off("queued", this.handleQueued);
       kinWS.off("delivered", this.handleDelivered);
       kinWS.off("read_receipt", this.handleRead);
@@ -142,6 +144,21 @@ class MessageInbox {
   private handleConnected = () => {
     void this.flushAndSync();
   };
+
+  private handleResumed = (data: any) => {
+    void this.recoverAfterResume(!!data?.reconnected);
+  };
+
+  private async recoverAfterResume(reconnected: boolean): Promise<void> {
+    if (reconnected) {
+      await this.refreshFriends();
+      return;
+    }
+    await Promise.all([
+      this.refreshFriends(),
+      this.flushAndSync(),
+    ]);
+  }
 
   private async flushAndSync(): Promise<void> {
     if (!this.userId) return;
