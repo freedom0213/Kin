@@ -26,6 +26,7 @@ class KinFeedbackService {
   private preferences: KinPreferences = { ...DEFAULT_PREFERENCES };
   private lastMessageFeedbackAt = 0;
   private lastIncomingCallId: string | null = null;
+  private stoppedIncomingCallId: string | null = null;
   private incomingCallToneTimer: ReturnType<typeof setTimeout> | null = null;
   private friendPresence = new Map<string, FriendPresence>();
   private pendingOnlineTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -52,6 +53,7 @@ class KinFeedbackService {
   async notifyIncomingCall(callId: string): Promise<void> {
     if (!callId || this.lastIncomingCallId === callId) return;
     this.lastIncomingCallId = callId;
+    this.stoppedIncomingCallId = null;
 
     if (this.incomingCallToneTimer) clearTimeout(this.incomingCallToneTimer);
     this.incomingCallToneTimer = null;
@@ -62,13 +64,25 @@ class KinFeedbackService {
     if (!this.preferences.messageSound) return;
 
     await this.playSoftTone(0.2);
-    if (this.lastIncomingCallId !== callId) return;
+    if (this.lastIncomingCallId !== callId || this.stoppedIncomingCallId === callId) return;
     this.incomingCallToneTimer = setTimeout(() => {
       this.incomingCallToneTimer = null;
-      if (this.lastIncomingCallId === callId && this.preferences.messageSound) {
+      if (
+        this.lastIncomingCallId === callId
+        && this.stoppedIncomingCallId !== callId
+        && this.preferences.messageSound
+      ) {
         void this.playSoftTone(0.16);
       }
     }, INCOMING_CALL_SECOND_TONE_DELAY_MS);
+  }
+
+  stopIncomingCallFeedback(callId?: string): void {
+    if (callId && this.lastIncomingCallId !== callId) return;
+    this.stoppedIncomingCallId = this.lastIncomingCallId;
+    if (this.incomingCallToneTimer) clearTimeout(this.incomingCallToneTimer);
+    this.incomingCallToneTimer = null;
+    Vibration.cancel();
   }
 
   seedFriendStatuses(friends: Array<{ user_id: string; is_online?: boolean }>): void {
@@ -124,6 +138,7 @@ class KinFeedbackService {
     this.lastOnlineFeedbackAt.clear();
     this.lastMessageFeedbackAt = 0;
     this.lastIncomingCallId = null;
+    this.stoppedIncomingCallId = null;
     Vibration.cancel();
     this.activeSounds.forEach((sound) => {
       void sound.unloadAsync().catch(() => undefined);

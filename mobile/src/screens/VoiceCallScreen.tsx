@@ -85,7 +85,7 @@ function ControlButton({
 }
 
 export default function VoiceCallScreen({ route, navigation }: any) {
-  const { direction, targetId, targetName, callId } = route.params;
+  const { direction, targetId, targetName, callId, autoAccept = false } = route.params;
   const insets = useSafeAreaInsets();
   const { state } = useAuth();
   const [remoteSdp, setRemoteSdp] = useState<any>(null);
@@ -105,6 +105,7 @@ export default function VoiceCallScreen({ route, navigation }: any) {
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const returnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const finishedRef = useRef(false);
+  const autoAcceptStartedRef = useRef(false);
   const ringPulse = useRef(new Animated.Value(0)).current;
   const voicePulse = useRef(new Animated.Value(0)).current;
 
@@ -297,6 +298,12 @@ export default function VoiceCallScreen({ route, navigation }: any) {
       );
     }
   };
+
+  useEffect(() => {
+    if (!autoAccept || !remoteSdp || callState !== "ringing" || autoAcceptStartedRef.current) return;
+    autoAcceptStartedRef.current = true;
+    void handleAccept();
+  }, [autoAccept, callState, remoteSdp]);
 
   useEffect(() => {
     if (callState !== "calling" && callState !== "ringing") return;
