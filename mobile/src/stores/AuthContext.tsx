@@ -9,6 +9,12 @@ import { messageInbox } from "../services/messageInbox";
 import { kinFeedback } from "../services/feedback";
 import { updateCachedFriendProfile } from "../services/db";
 import { parseFriendProfileEvent } from "../services/friendProfile";
+import {
+  syncExistingPushRegistration,
+  retryPendingPushUnregistration,
+  subscribePushTokenRefresh,
+  unregisterCurrentPushDevice,
+} from "../services/notifications";
 
 type User = UserProfile;
 
@@ -82,6 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // 启动时从安全存储恢复令牌
   useEffect(() => {
     (async () => {
+      await retryPendingPushUnregistration();
       try {
         const [savedToken, savedProfile] = await Promise.all([
           SecureStore.getItemAsync("kin_token"),
@@ -133,6 +140,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
+    if (!state.isLoggedIn) return;
+    void syncExistingPushRegistration();
+    return subscribePushTokenRefresh();
+  }, [state.isLoggedIn]);
+
+  useEffect(() => {
     const onFriendProfile = (data: any) => {
       const update = parseFriendProfileEvent(data);
       const ownerId = state.user?.id;
@@ -147,11 +160,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const subscription = AppState.addEventListener("change", (nextState) => {
       if (nextState !== "active") {
         backgroundedAtRef.current = Date.now();
+        if (state.isLoggedIn) kinWS.sendAppState("background");
         return;
       }
 
       const wasBackgrounded = backgroundedAtRef.current !== null;
       backgroundedAtRef.current = null;
+      if (state.isLoggedIn) kinWS.sendAppState("foreground");
       if (wasBackgrounded && state.isLoggedIn && state.token) {
         kinWS.resume(state.token);
       }
@@ -171,6 +186,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const logoutAction = async () => {
+    try {
+      await unregisterCurrentPushDevice();
+    } catch {
+      // 注销设备通知失败不应阻止退出账号。
+    }
     await Promise.all([
       SecureStore.deleteItemAsync("kin_token"),
       SecureStore.deleteItemAsync(PROFILE_STORAGE_KEY),

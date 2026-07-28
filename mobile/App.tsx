@@ -13,6 +13,13 @@ import type { Friend } from "./src/api/client";
 import { kinWS } from "./src/api/ws";
 import { kinFeedback } from "./src/services/feedback";
 import { webrtcService } from "./src/services/webrtc";
+import { getCachedFriends } from "./src/services/db";
+import {
+  clearInitialNotificationResponse,
+  getInitialNotificationResponse,
+  subscribeNotificationResponses,
+  type KinNotificationResponse,
+} from "./src/services/notifications";
 import { AuthProvider, useAuth } from "./src/stores/AuthContext";
 import LoginScreen from "./src/screens/LoginScreen";
 import RegisterScreen from "./src/screens/RegisterScreen";
@@ -202,7 +209,13 @@ function ConnectionStatusCoordinator() {
   );
 }
 
-function IncomingCallCoordinator({ navigationReady }: { navigationReady: boolean }) {
+function IncomingCallCoordinator({
+  navigationReady,
+  notificationCallId,
+}: {
+  navigationReady: boolean;
+  notificationCallId: string | null;
+}) {
   const [incomingCall, setIncomingCall] = useState<IncomingCallPayload | null>(null);
   const [actingCallId, setActingCallId] = useState<string | null>(null);
   const [callPhase, setCallPhase] = useState<GlobalCallPhase>("ringing");
@@ -457,6 +470,7 @@ function IncomingCallCoordinator({ navigationReady }: { navigationReady: boolean
     const onIncomingCall = (data: any) => {
       const call = parseIncomingCall(data);
       if (!call) return;
+      if (call.callId === notificationCallId) return;
       if (!navigationReady || !navigationRef.isReady() || !appIsActiveRef.current) {
         pendingCallRef.current = call;
         return;
@@ -465,7 +479,13 @@ function IncomingCallCoordinator({ navigationReady }: { navigationReady: boolean
     };
     kinWS.on("incoming_call", onIncomingCall);
     return () => kinWS.off("incoming_call", onIncomingCall);
-  }, [navigationReady, presentIncomingCall]);
+  }, [navigationReady, notificationCallId, presentIncomingCall]);
+
+  useEffect(() => {
+    if (!notificationCallId) return;
+    if (pendingCallRef.current?.callId === notificationCallId) pendingCallRef.current = null;
+    if (incomingCallRef.current?.callId === notificationCallId) hideIncomingCall(notificationCallId);
+  }, [hideIncomingCall, notificationCallId]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener("change", (nextState) => {
@@ -597,9 +617,137 @@ function IncomingCallCoordinator({ navigationReady }: { navigationReady: boolean
   );
 }
 
+function NotificationResponseCoordinator({
+  navigationReady,
+  onCallIntentChange,
+}: {
+  navigationReady: boolean;
+  onCallIntentChange: (callId: string | null) => void;
+}) {
+  const { state } = useAuth();
+  const [pendingResponse, setPendingResponse] = useState<KinNotificationResponse | null>(null);
+  const [connectionTick, setConnectionTick] = useState(0);
+  const processingRef = useRef(false);
+
+  const captureResponse = useCallback((response: KinNotificationResponse) => {
+    const callId = response.data?.notification_type === "incoming_call"
+      && typeof response.data.call_id === "string"
+      ? response.data.call_id
+      : null;
+    onCallIntentChange(callId);
+    setPendingResponse(response);
+  }, [onCallIntentChange]);
+
+  useEffect(() => {
+    let active = true;
+    void getInitialNotificationResponse().then((response) => {
+      if (active && response) captureResponse(response);
+    });
+    const unsubscribe = subscribeNotificationResponses(captureResponse);
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, [captureResponse]);
+
+  useEffect(() => {
+    const onConnected = () => setConnectionTick((value) => value + 1);
+    const onIncomingCall = () => setConnectionTick((value) => value + 1);
+    kinWS.on("connected", onConnected);
+    kinWS.on("resumed", onConnected);
+    kinWS.on("incoming_call", onIncomingCall);
+    return () => {
+      kinWS.off("connected", onConnected);
+      kinWS.off("resumed", onConnected);
+      kinWS.off("incoming_call", onIncomingCall);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (
+      !pendingResponse
+      || !navigationReady
+      || !navigationRef.isReady()
+      || !state.isLoggedIn
+      || !state.user
+      || processingRef.current
+    ) return;
+
+    const { data, receivedAt } = pendingResponse;
+    const notificationType = data?.notification_type;
+    processingRef.current = true;
+    const finish = () => {
+      if (notificationType === "incoming_call") onCallIntentChange(null);
+      setPendingResponse(null);
+      processingRef.current = false;
+      void clearInitialNotificationResponse().catch(() => {});
+    };
+    if (typeof data?.recipient_id === "string" && data.recipient_id !== state.user.id) {
+      finish();
+      return;
+    }
+    if (notificationType === "incoming_call" && !kinWS.isConnected()) {
+      processingRef.current = false;
+      return;
+    }
+
+    if (notificationType === "incoming_call") {
+      const from = typeof data.from === "string" ? data.from : "";
+      const callId = typeof data.call_id === "string" ? data.call_id : "";
+      const callerName = typeof data.caller_name === "string" && data.caller_name.trim()
+        ? data.caller_name
+        : "未知用户";
+      if (!from || !callId || Date.now() - receivedAt > INCOMING_CALL_TIMEOUT_MS) {
+        finish();
+        return;
+      }
+      const pendingOffer = webrtcService.peekPendingOffer();
+      if (!pendingOffer || pendingOffer.callId !== callId) {
+        processingRef.current = false;
+        return;
+      }
+      const currentRoute = navigationRef.getCurrentRoute();
+      const currentCallId = (currentRoute?.params as RootStackParamList["VoiceCall"] | undefined)?.callId;
+      if (currentRoute?.name !== "VoiceCall" || currentCallId !== callId) {
+        navigationRef.navigate("VoiceCall", {
+          direction: "incoming",
+          targetId: from,
+          targetName: callerName,
+          callId,
+          autoAccept: false,
+        });
+      }
+      finish();
+      return;
+    }
+
+    if (notificationType === "message" && typeof data.sender_id === "string") {
+      void getCachedFriends(state.user.id)
+        .then((friends) => {
+          const friend = friends.find((item) => item.user_id === data.sender_id);
+          if (friend && navigationRef.isReady()) {
+            navigationRef.navigate("Chat", { friend });
+          } else if (navigationRef.isReady()) {
+            navigationRef.navigate("FriendList");
+          }
+        })
+        .catch(() => {
+          if (navigationRef.isReady()) navigationRef.navigate("FriendList");
+        })
+        .finally(finish);
+      return;
+    }
+
+    finish();
+  }, [connectionTick, navigationReady, onCallIntentChange, pendingResponse, state.isLoggedIn, state.user]);
+
+  return null;
+}
+
 function AppNavigator() {
   const { state } = useAuth();
   const [navigationReady, setNavigationReady] = useState(false);
+  const [notificationCallId, setNotificationCallId] = useState<string | null>(null);
 
   if (state.isLoading) {
     return (
@@ -639,7 +787,14 @@ function AppNavigator() {
       {state.isLoggedIn ? (
         <>
           <ConnectionStatusCoordinator />
-          <IncomingCallCoordinator navigationReady={navigationReady} />
+          <NotificationResponseCoordinator
+            navigationReady={navigationReady}
+            onCallIntentChange={setNotificationCallId}
+          />
+          <IncomingCallCoordinator
+            navigationReady={navigationReady}
+            notificationCallId={notificationCallId}
+          />
         </>
       ) : null}
     </NavigationContainer>

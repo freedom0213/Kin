@@ -1,5 +1,6 @@
 """WebSocket 离线消息协议集成测试。"""
 
+import asyncio
 import os
 import sys
 import unittest
@@ -25,6 +26,18 @@ class FakeWebSocket:
         self.sent.append(data)
 
 
+class FakePushSender:
+    def __init__(self):
+        self.sent = []
+
+    def has_devices(self, _user_id):
+        return False
+
+    def send_to_user(self, user_id, **payload):
+        self.sent.append((user_id, payload))
+        return 1
+
+
 class WebSocketOfflineDeliveryTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.engine = create_engine(
@@ -34,7 +47,8 @@ class WebSocketOfflineDeliveryTests(unittest.IsolatedAsyncioTestCase):
         )
         metadata.create_all(self.engine)
         self.store = OfflineMessageStore(self.engine, offline_messages)
-        self.manager = ConnectionManager(self.store)
+        self.push_sender = FakePushSender()
+        self.manager = ConnectionManager(self.store, push_sender=self.push_sender)
         self.alice = FakeWebSocket()
         self.manager._connections["alice"] = self.alice
 
@@ -50,9 +64,11 @@ class WebSocketOfflineDeliveryTests(unittest.IsolatedAsyncioTestCase):
             "content": "ciphertext",
             "encrypted": True,
         })
+        await asyncio.sleep(0)
 
         self.assertEqual("queued", self.alice.sent[-1]["type"])
         self.assertEqual("ciphertext", self.store.get("message-1")["content"])
+        self.assertEqual("message", self.push_sender.sent[-1][1]["data"]["notification_type"])
 
         bob = FakeWebSocket()
         self.manager._connections["bob"] = bob

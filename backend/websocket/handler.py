@@ -2,24 +2,41 @@
 
 import asyncio
 import json
+import time
 from fastapi import WebSocket
 
 from services.auth_service import decode_token
 from services import friend_service, status_service
 from services.offline_message_store import MessageConflictError, message_store
+from services.push_service import push_service
 
 CALL_RECONNECT_GRACE_SECONDS = 12.0
+CALL_RING_TIMEOUT_SECONDS = 35.0
 
 
 class ConnectionManager:
     """管理所有活跃的 WebSocket 连接"""
 
-    def __init__(self, store=message_store, call_reconnect_grace: float = CALL_RECONNECT_GRACE_SECONDS):
+    def __init__(
+        self,
+        store=message_store,
+        call_reconnect_grace: float = CALL_RECONNECT_GRACE_SECONDS,
+        call_ring_timeout: float = CALL_RING_TIMEOUT_SECONDS,
+        push_sender=push_service,
+    ):
         self._connections: dict[str, WebSocket] = {}
+        self._foreground_users: set[str] = set()
         self._store = store
         self._call_reconnect_grace = call_reconnect_grace
+        self._call_ring_timeout = call_ring_timeout
+        self._push_sender = push_sender
         self._active_call_by_user: dict[str, str] = {}
         self._call_participants: dict[str, tuple[str, str]] = {}
+        self._call_created_at: dict[str, float] = {}
+        self._accepted_calls: set[str] = set()
+        self._pending_call_requests: dict[str, dict] = {}
+        self._pending_call_candidates: dict[str, list[dict]] = {}
+        self._pending_call_tasks: dict[str, asyncio.Task] = {}
         self._call_disconnect_tasks: dict[str, asyncio.Task] = {}
 
     async def connect(self, websocket: WebSocket, token: str) -> str | None:
@@ -32,6 +49,7 @@ class ConnectionManager:
         user_id = payload["sub"]
         await websocket.accept()
         self._connections[user_id] = websocket
+        self._foreground_users.add(user_id)
         disconnect_task = self._call_disconnect_tasks.pop(user_id, None)
         if disconnect_task:
             disconnect_task.cancel()
@@ -42,16 +60,27 @@ class ConnectionManager:
         if call_id and participants:
             caller_id, callee_id = participants
             peer_id = callee_id if user_id == caller_id else caller_id
-            await self.send_json(user_id, {
-                "type": "call_resumed",
-                "call_id": call_id,
-                "from": peer_id,
-            })
-            await self.send_json(peer_id, {
-                "type": "call_peer_resumed",
-                "call_id": call_id,
-                "from": user_id,
-            })
+            pending_request = self._pending_call_requests.get(call_id)
+            if pending_request and user_id == callee_id:
+                delivered = await self.send_json(user_id, pending_request)
+                if delivered:
+                    for candidate in self._pending_call_candidates.pop(call_id, []):
+                        await self.send_json(user_id, candidate)
+                    self._pending_call_requests.pop(call_id, None)
+                    pending_task = self._pending_call_tasks.pop(call_id, None)
+                    if pending_task:
+                        pending_task.cancel()
+            else:
+                await self.send_json(user_id, {
+                    "type": "call_resumed",
+                    "call_id": call_id,
+                    "from": peer_id,
+                })
+                await self.send_json(peer_id, {
+                    "type": "call_peer_resumed",
+                    "call_id": call_id,
+                    "from": user_id,
+                })
 
         # 通知好友上线（后台执行，不阻塞连接建立）
         asyncio.create_task(self._notify_status_change(user_id, True))
@@ -63,14 +92,19 @@ class ConnectionManager:
         if websocket is not None and self._connections.get(user_id) is not websocket:
             return
         self._connections.pop(user_id, None)
+        self._foreground_users.discard(user_id)
         call_id = self._active_call_by_user.get(user_id)
         if call_id:
             previous_task = self._call_disconnect_tasks.pop(user_id, None)
             if previous_task:
                 previous_task.cancel()
             try:
+                reconnect_grace = self._call_reconnect_grace
+                if call_id not in self._accepted_calls:
+                    created_at = self._call_created_at.get(call_id, time.time())
+                    reconnect_grace = max(0.0, self._call_ring_timeout - (time.time() - created_at))
                 self._call_disconnect_tasks[user_id] = asyncio.get_running_loop().create_task(
-                    self._expire_disconnected_call(user_id, call_id)
+                    self._expire_disconnected_call(user_id, call_id, reconnect_grace)
                 )
             except RuntimeError:
                 self._release_user_call(user_id)
@@ -99,15 +133,23 @@ class ConnectionManager:
         self._call_participants[call_id] = (caller_id, callee_id)
         self._active_call_by_user[caller_id] = call_id
         self._active_call_by_user[callee_id] = call_id
+        self._call_created_at[call_id] = time.time()
 
     def _release_call(self, call_id: str) -> tuple[str, str] | None:
         participants = self._call_participants.pop(call_id, None)
         if not participants:
             return None
+        self._call_created_at.pop(call_id, None)
+        self._accepted_calls.discard(call_id)
+        self._pending_call_requests.pop(call_id, None)
+        self._pending_call_candidates.pop(call_id, None)
+        pending_task = self._pending_call_tasks.pop(call_id, None)
         try:
             current_task = asyncio.current_task()
         except RuntimeError:
             current_task = None
+        if pending_task and pending_task is not current_task:
+            pending_task.cancel()
         for user_id in participants:
             if self._active_call_by_user.get(user_id) == call_id:
                 self._active_call_by_user.pop(user_id, None)
@@ -116,10 +158,10 @@ class ConnectionManager:
                 disconnect_task.cancel()
         return participants
 
-    async def _expire_disconnected_call(self, user_id: str, call_id: str):
+    async def _expire_disconnected_call(self, user_id: str, call_id: str, delay: float):
         """短暂保留通话，给 WebSocket 重连和 ICE Restart 留出恢复窗口。"""
         try:
-            await asyncio.sleep(self._call_reconnect_grace)
+            await asyncio.sleep(delay)
             if self.is_online(user_id) or self._active_call_by_user.get(user_id) != call_id:
                 return
             released_call = self._release_user_call(user_id)
@@ -136,6 +178,40 @@ class ConnectionManager:
             current_task = asyncio.current_task()
             if self._call_disconnect_tasks.get(user_id) is current_task:
                 self._call_disconnect_tasks.pop(user_id, None)
+
+    async def _expire_pending_call(self, call_id: str, caller_id: str, callee_id: str):
+        try:
+            created_at = self._call_created_at.get(call_id, time.time())
+            await asyncio.sleep(max(0.0, self._call_ring_timeout - (time.time() - created_at)))
+            if call_id not in self._pending_call_requests:
+                return
+            self._release_call(call_id)
+            await self.send_json(caller_id, {
+                "type": "call_rejected",
+                "code": "UNANSWERED",
+                "detail": "对方暂未接听",
+                "call_id": call_id,
+                "from": callee_id,
+            })
+        finally:
+            current_task = asyncio.current_task()
+            if self._pending_call_tasks.get(call_id) is current_task:
+                self._pending_call_tasks.pop(call_id, None)
+
+    def _should_push(self, user_id: str) -> bool:
+        return user_id not in self._foreground_users
+
+    def _schedule_push(self, user_id: str, **payload):
+        async def send():
+            try:
+                await asyncio.to_thread(self._push_sender.send_to_user, user_id, **payload)
+            except Exception:
+                # 系统推送只是补充提醒，失败不能影响消息存储或通话信令主链路。
+                pass
+        try:
+            asyncio.get_running_loop().create_task(send())
+        except RuntimeError:
+            pass
 
     def _release_user_call(self, user_id: str) -> tuple[str, str] | None:
         call_id = self._active_call_by_user.get(user_id)
@@ -216,6 +292,12 @@ class ConnectionManager:
         elif msg_type == "typing":
             await self._handle_typing(from_id, data)
 
+        elif msg_type == "app_state":
+            if data.get("state") == "foreground":
+                self._foreground_users.add(from_id)
+            elif data.get("state") == "background":
+                self._foreground_users.discard(from_id)
+
         # -- WebRTC 通话信令（纯转发） --
         elif msg_type in ("call_request", "call_accepted", "call_rejected",
                           "ice_candidate", "ice_restart_request", "ice_restart_offer",
@@ -260,6 +342,19 @@ class ConnectionManager:
                 "msg_id": data.get("msg_id"),
                 "to": to_id,
             })
+            if delivered and self._should_push(to_id):
+                self._schedule_push(
+                    to_id,
+                    title="Kin",
+                    body="你收到一条新消息",
+                    data={
+                        "notification_type": "message",
+                        "recipient_id": to_id,
+                        "sender_id": from_id,
+                        "msg_id": data.get("msg_id"),
+                    },
+                    channel_id="kin-messages",
+                )
             return
 
         try:
@@ -284,6 +379,20 @@ class ConnectionManager:
             "msg_id": data.get("msg_id"),
             "to": to_id,
         })
+        if stored.get("created") and self._should_push(to_id):
+            message_label = "语音消息" if data.get("type") == "voice_message" else "新消息"
+            self._schedule_push(
+                to_id,
+                title="Kin",
+                body=f"你收到一条{message_label}",
+                data={
+                    "notification_type": "message",
+                    "recipient_id": to_id,
+                    "sender_id": from_id,
+                    "msg_id": data.get("msg_id"),
+                },
+                channel_id="kin-messages",
+            )
         if stored["status"] == "queued" and self.is_online(to_id):
             await self._deliver_pending_to(to_id)
 
@@ -393,7 +502,12 @@ class ConnectionManager:
                 })
                 return
 
-            if not self.is_online(to_id):
+            recipient_online = self.is_online(to_id)
+            try:
+                has_push_device = await asyncio.to_thread(self._push_sender.has_devices, to_id)
+            except Exception:
+                has_push_device = False
+            if not recipient_online and not has_push_device:
                 await self.send_json(from_id, {
                     "type": "call_rejected",
                     "code": "USER_OFFLINE",
@@ -435,7 +549,32 @@ class ConnectionManager:
 
             self._register_call(call_id, from_id, to_id)
             outgoing = {**data, "from": from_id}
-            delivered = await self.send_json(to_id, outgoing)
+            delivered = await self.send_json(to_id, outgoing) if recipient_online else False
+            if not delivered and has_push_device:
+                self._pending_call_requests[call_id] = outgoing
+                self._pending_call_tasks[call_id] = asyncio.create_task(
+                    self._expire_pending_call(call_id, from_id, to_id)
+                )
+                self._schedule_push(
+                    to_id,
+                    title="Kin 语音来电",
+                    body=data.get("caller_name") or "一位好友正在呼叫你",
+                    data={
+                        "notification_type": "incoming_call",
+                        "recipient_id": to_id,
+                        "from": from_id,
+                        "call_id": call_id,
+                        "caller_name": data.get("caller_name") or "未知用户",
+                    },
+                    channel_id="kin-calls",
+                    ttl=int(self._call_ring_timeout),
+                )
+                await self.send_json(from_id, {
+                    "type": "call_queued",
+                    "call_id": call_id,
+                    "from": to_id,
+                })
+                return
             if not delivered:
                 self._release_call(call_id)
                 await self.send_json(from_id, {
@@ -445,6 +584,21 @@ class ConnectionManager:
                     "call_id": call_id,
                     "from": to_id,
                 })
+            elif self._should_push(to_id):
+                self._schedule_push(
+                    to_id,
+                    title="Kin 语音来电",
+                    body=data.get("caller_name") or "一位好友正在呼叫你",
+                    data={
+                        "notification_type": "incoming_call",
+                        "recipient_id": to_id,
+                        "from": from_id,
+                        "call_id": call_id,
+                        "caller_name": data.get("caller_name") or "未知用户",
+                    },
+                    channel_id="kin-calls",
+                    ttl=int(self._call_ring_timeout),
+                )
             return
 
         if not self._matches_call(call_id, from_id, to_id):
@@ -484,6 +638,13 @@ class ConnectionManager:
 
         outgoing = {**data, "from": from_id}
         delivered = await self.send_json(to_id, outgoing)
+        if msg_type == "call_accepted":
+            self._accepted_calls.add(call_id)
+        if msg_type == "ice_candidate" and not delivered and call_id in self._pending_call_requests:
+            candidates = self._pending_call_candidates.setdefault(call_id, [])
+            if len(candidates) < 128:
+                candidates.append(outgoing)
+            return
         recoverable_signal = msg_type in (
             "ice_candidate", "ice_restart_request", "ice_restart_offer", "ice_restart_answer"
         )

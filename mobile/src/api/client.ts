@@ -131,6 +131,24 @@ export async function removeProfileBanner(): Promise<UserProfile> {
   return parseProfileResponse(res);
 }
 
+// -- 系统推送 --
+
+export function registerPushDevice(token: string, platform: "android" | "ios") {
+  return request<{ registered: boolean; token: string; platform: string; unregister_secret: string }>(
+    "POST", "/api/push/devices", { token, platform }
+  );
+}
+
+export function unregisterPushDevice(token: string, unregisterSecret: string) {
+  return request<{ registered: boolean; removed: boolean }>(
+    "DELETE", "/api/push/devices", { token, unregister_secret: unregisterSecret }
+  );
+}
+
+export function getPushDeviceStatus() {
+  return request<{ registered_devices: number }>("GET", "/api/push/status");
+}
+
 // -- 好友 --
 
 export interface Friend {

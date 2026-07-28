@@ -103,6 +103,11 @@ class WebRTCService {
     return offer;
   }
 
+  /** 只查看待处理来电，供通知导航确认 WebSocket Offer 已经补发。 */
+  peekPendingOffer() {
+    return this._pendingOffer;
+  }
+
   // -- 发起呼叫 --
 
   async startCall(targetUserId: string, callerName?: string): Promise<CallSetupResult> {

@@ -17,9 +17,14 @@ class KinWebSocket {
   private _resumeProbeTimer: ReturnType<typeof setTimeout> | null = null;
   private _resumeRequested = false;
   private _connectionVersion = 0;
+  private _appState: "foreground" | "background" = "foreground";
 
   get userId(): string | null {
     return this._userId;
+  }
+
+  isConnected(): boolean {
+    return this.ws?.readyState === WebSocket.OPEN;
   }
 
   connect(token: string) {
@@ -43,6 +48,7 @@ class KinWebSocket {
       if (connectionVersion !== this._connectionVersion || this.ws !== socket) return;
       console.log("[WS] 已连接");
       this._startHeartbeat();
+      this.send({ type: "app_state", state: this._appState });
       // 设置 WebRTC 信令发送函数
       webrtcService.setSignalSender((data) => this.send(data));
       this._dispatch("connected", { type: "connected" });
@@ -264,6 +270,11 @@ class KinWebSocket {
   /** 发送正在输入 */
   sendTyping(to: string) {
     this.send({ type: "typing", to });
+  }
+
+  sendAppState(state: "foreground" | "background") {
+    this._appState = state;
+    this.send({ type: "app_state", state });
   }
 
   // -- 事件监听 --

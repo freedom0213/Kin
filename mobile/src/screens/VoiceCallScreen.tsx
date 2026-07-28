@@ -233,7 +233,9 @@ export default function VoiceCallScreen({ route, navigation }: any) {
         }
       },
       onCallRejected: (reason) => {
-        const terminalReason = reason === "对方不在线"
+        const terminalReason = reason === "对方暂未接听"
+          ? "unanswered"
+          : reason === "对方不在线"
           ? "offline"
           : reason === "对方正在通话"
             ? "busy"

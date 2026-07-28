@@ -10,7 +10,7 @@ import config
 
 from database import init_db
 from websocket.handler import manager
-from routers import auth, friends, status
+from routers import auth, friends, push, status
 
 
 @asynccontextmanager
@@ -43,6 +43,7 @@ app.mount("/media", StaticFiles(directory=config.MEDIA_ROOT, check_dir=False), n
 app.include_router(auth.router, prefix="/api/auth", tags=["认证"])
 app.include_router(friends.router, prefix="/api/friends", tags=["好友"])
 app.include_router(status.router, prefix="/api/status", tags=["在线状态"])
+app.include_router(push.router, prefix="/api/push", tags=["系统通知"])
 
 
 # -- WebSocket 路由 --

@@ -40,3 +40,8 @@ PAIRING_SESSION_TTL = int(os.getenv("KIN_PAIRING_SESSION_TTL", "120"))
 # 离线加密消息
 OFFLINE_MESSAGE_TTL_DAYS = int(os.getenv("KIN_OFFLINE_MESSAGE_TTL_DAYS", "7"))
 MAX_MESSAGE_BYTES = int(os.getenv("KIN_MAX_MESSAGE_BYTES", str(8 * 1024 * 1024)))
+
+# Expo Push 服务
+EXPO_PUSH_URL = os.getenv("KIN_EXPO_PUSH_URL", "https://exp.host/--/api/v2/push/send")
+EXPO_PUSH_ACCESS_TOKEN = os.getenv("KIN_EXPO_PUSH_ACCESS_TOKEN", "")
+EXPO_PUSH_TIMEOUT_SECONDS = float(os.getenv("KIN_EXPO_PUSH_TIMEOUT_SECONDS", "5"))

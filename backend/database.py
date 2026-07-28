@@ -97,6 +97,18 @@ Index("idx_offline_recipient_status", offline_messages.c.recipient_id, offline_m
 Index("idx_offline_sender_status", offline_messages.c.sender_id, offline_messages.c.status)
 Index("idx_offline_expires", offline_messages.c.expires_at)
 
+# -- 系统推送设备 --
+push_devices = Table(
+    "push_devices", metadata,
+    Column("token", Text, primary_key=True),
+    Column("user_id", Text, nullable=False),
+    Column("platform", Text, nullable=False),
+    Column("unregister_secret_hash", Text, nullable=False),
+    Column("created_at", Float, nullable=False),
+    Column("updated_at", Float, nullable=False),
+)
+Index("idx_push_devices_user", push_devices.c.user_id)
+
 
 def init_db():
     """创建所有表（幂等：已存在则跳过）"""
@@ -106,6 +118,12 @@ def init_db():
     if "profile_banner" not in user_columns:
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE users ADD COLUMN profile_banner TEXT"))
+    push_columns = {column["name"] for column in inspect(engine).get_columns("push_devices")}
+    if "unregister_secret_hash" not in push_columns:
+        with engine.begin() as conn:
+            conn.execute(text(
+                "ALTER TABLE push_devices ADD COLUMN unregister_secret_hash TEXT NOT NULL DEFAULT ''"
+            ))
 
 
 def get_table(name: str) -> Table:

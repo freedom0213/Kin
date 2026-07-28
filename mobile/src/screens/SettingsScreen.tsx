@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Switch,
-  Text, TouchableOpacity, View,
+  Linking, Text, TouchableOpacity, View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../stores/AuthContext";
@@ -16,6 +16,11 @@ import {
   updatePreference,
   type KinPreferences,
 } from "../services/preferences";
+import {
+  enablePushNotifications,
+  getPushNotificationStatus,
+  type PushNotificationStatus,
+} from "../services/notifications";
 
 const COLORS = {
   background: "#F4F5F2",
@@ -143,6 +148,8 @@ export default function SettingsScreen({ navigation }: any) {
   const [busyPreference, setBusyPreference] = useState<PreferenceKey | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
+  const [pushStatus, setPushStatus] = useState<PushNotificationStatus>("error");
+  const [pushBusy, setPushBusy] = useState(false);
 
   const user = state.user;
   const displayName = user?.nickname || user?.username || "Kin 用户";
@@ -153,7 +160,8 @@ export default function SettingsScreen({ navigation }: any) {
       getLocalMessageStats(),
       getStoredKeyPair(),
       getPreferences(),
-    ]).then(([statsResult, keyResult, preferencesResult]) => {
+      getPushNotificationStatus(),
+    ]).then(([statsResult, keyResult, preferencesResult, pushResult]) => {
       if (!active) return;
       if (statsResult.status === "fulfilled") {
         setMessageCount(statsResult.value.messageCount);
@@ -165,6 +173,7 @@ export default function SettingsScreen({ navigation }: any) {
       if (preferencesResult.status === "fulfilled") {
         setPreferences(preferencesResult.value);
       }
+      if (pushResult.status === "fulfilled") setPushStatus(pushResult.value);
     }).finally(() => {
       if (active) setLoading(false);
     });
@@ -198,6 +207,55 @@ export default function SettingsScreen({ navigation }: any) {
         ? "本机已保存端到端加密密钥。消息在发送设备上加密，在对方设备上解密。"
         : "当前设备没有完整密钥对。重新登录不会自动恢复其他设备上的私钥。"
     );
+  };
+
+  const handleSystemNotifications = async () => {
+    if (pushBusy) return;
+    if (pushStatus === "enabled") {
+      Alert.alert("系统通知已开启", "Kin 可以在后台通过系统通知提醒你收到的新消息和语音来电。", [
+        { text: "知道了" },
+        { text: "系统设置", onPress: () => { void Linking.openSettings(); } },
+      ]);
+      return;
+    }
+    if (pushStatus === "denied") {
+      Alert.alert("系统通知已关闭", "请前往系统设置允许 Kin 发送通知。", [
+        { text: "取消", style: "cancel" },
+        { text: "打开设置", onPress: () => { void Linking.openSettings(); } },
+      ]);
+      return;
+    }
+    if (pushStatus === "simulator") {
+      Alert.alert("需要真机", "远程系统推送不能在模拟器中注册，请使用安装了 Kin 开发版本的真实手机测试。");
+      return;
+    }
+    if (pushStatus === "unsupported") {
+      Alert.alert("当前平台不支持", "Kin Web 演示页不会注册手机系统通知。");
+      return;
+    }
+    setPushBusy(true);
+    const nextStatus = await enablePushNotifications();
+    setPushStatus(nextStatus);
+    setPushBusy(false);
+    if (nextStatus === "enabled") {
+      Alert.alert("系统通知已开启", "新消息和语音来电现在可以通过系统通知提醒你。");
+    } else if (nextStatus === "unconfigured") {
+      Alert.alert("等待推送服务配置", "通知权限已经准备好，但当前开发版本还没有配置 Expo EAS projectId。配置后重新进入 Kin 即可注册。");
+    } else if (nextStatus === "denied") {
+      Alert.alert("未获得通知权限", "你可以稍后在系统设置中允许 Kin 发送通知。");
+    } else {
+      Alert.alert("暂时无法开启", "请检查网络和项目推送配置后重试。");
+    }
+  };
+
+  const pushStatusCopy: Record<PushNotificationStatus, { value: string; hint: string }> = {
+    enabled: { value: "已开启", hint: "后台接收新消息和语音来电提醒" },
+    not_requested: { value: "未开启", hint: "点击后由系统询问通知权限" },
+    denied: { value: "已关闭", hint: "需要前往系统设置重新允许" },
+    simulator: { value: "需要真机", hint: "模拟器无法注册远程推送 Token" },
+    unconfigured: { value: "待配置", hint: "通知权限可用，等待 EAS projectId" },
+    unsupported: { value: "不支持", hint: "当前平台不提供手机系统通知" },
+    error: { value: "重试", hint: "暂时无法读取系统通知状态" },
   };
 
   const handleExport = async () => {
@@ -293,6 +351,13 @@ export default function SettingsScreen({ navigation }: any) {
         </TouchableOpacity>
 
         <Section title="通知与状态">
+          <ActionRow
+            title="系统通知"
+            hint={pushStatusCopy[pushStatus].hint}
+            value={pushStatusCopy[pushStatus].value}
+            onPress={() => { void handleSystemNotifications(); }}
+            loading={pushBusy}
+          />
           <PreferenceRow
             title="消息提示音"
             hint="收到新消息时播放一声轻提示"
