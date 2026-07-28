@@ -74,6 +74,133 @@ function formatCallDuration(totalSeconds: number): string {
   return `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
 }
 
+type ConnectionNoticeState = "restoring" | "synced" | "offline";
+
+function ConnectionStatusCoordinator() {
+  const [notice, setNotice] = useState<ConnectionNoticeState | null>(null);
+  const [reduceMotion, setReduceMotion] = useState(false);
+  const recoveryActiveRef = useRef(false);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const progress = useRef(new Animated.Value(0)).current;
+
+  const clearHideTimer = useCallback(() => {
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    hideTimerRef.current = null;
+  }, []);
+
+  const showNotice = useCallback((nextNotice: ConnectionNoticeState) => {
+    clearHideTimer();
+    setNotice(nextNotice);
+    progress.stopAnimation();
+    if (reduceMotion) {
+      progress.setValue(1);
+      return;
+    }
+    Animated.timing(progress, {
+      toValue: 1,
+      duration: 180,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [clearHideTimer, progress, reduceMotion]);
+
+  const hideNotice = useCallback(() => {
+    clearHideTimer();
+    const finish = () => setNotice(null);
+    if (reduceMotion) {
+      progress.setValue(0);
+      finish();
+      return;
+    }
+    Animated.timing(progress, {
+      toValue: 0,
+      duration: 160,
+      easing: Easing.in(Easing.cubic),
+      useNativeDriver: true,
+    }).start(finish);
+  }, [clearHideTimer, progress, reduceMotion]);
+
+  const showSynced = useCallback(() => {
+    if (!recoveryActiveRef.current) return;
+    recoveryActiveRef.current = false;
+    showNotice("synced");
+    AccessibilityInfo.announceForAccessibility("消息与在线状态已同步");
+    hideTimerRef.current = setTimeout(hideNotice, 1600);
+  }, [hideNotice, showNotice]);
+
+  useEffect(() => {
+    AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
+    const subscription = AccessibilityInfo.addEventListener(
+      "reduceMotionChanged",
+      setReduceMotion
+    );
+    return () => subscription.remove();
+  }, []);
+
+  useEffect(() => {
+    const onConnectionState = (data: any) => {
+      if (data?.state === "restoring") {
+        recoveryActiveRef.current = true;
+        showNotice("restoring");
+      } else if (data?.state === "offline") {
+        recoveryActiveRef.current = true;
+        showNotice("offline");
+      }
+    };
+    const onConnected = () => showSynced();
+    kinWS.on("connection_state", onConnectionState);
+    kinWS.on("connected", onConnected);
+    kinWS.on("resumed", onConnected);
+    return () => {
+      kinWS.off("connection_state", onConnectionState);
+      kinWS.off("connected", onConnected);
+      kinWS.off("resumed", onConnected);
+    };
+  }, [showNotice, showSynced]);
+
+  useEffect(() => () => {
+    clearHideTimer();
+    progress.stopAnimation();
+  }, [clearHideTimer, progress]);
+
+  if (!notice) return null;
+  const copy = notice === "restoring"
+    ? "正在恢复连接…"
+    : notice === "synced"
+      ? "消息与状态已同步"
+      : "当前离线，正在使用本地缓存";
+  const mark = notice === "restoring" ? "·" : notice === "synced" ? "✓" : "!";
+  const animatedStyle = {
+    opacity: progress,
+    transform: [{
+      translateY: progress.interpolate({ inputRange: [0, 1], outputRange: [-8, 0] }),
+    }],
+  };
+
+  return (
+    <View style={styles.connectionOverlay} pointerEvents="none">
+      <Animated.View style={[styles.connectionNotice, animatedStyle]}>
+        <BlurView
+          style={styles.connectionBlur}
+          intensity={64}
+          tint="systemMaterialLight"
+          blurMethod="dimezisBlurView"
+          blurReductionFactor={3}
+        >
+          <Text style={[
+            styles.connectionMark,
+            notice === "synced" && styles.connectionMarkSynced,
+            notice === "offline" && styles.connectionMarkOffline,
+          ]}>
+            {mark}
+          </Text>
+          <Text style={styles.connectionText}>{copy}</Text>
+        </BlurView>
+      </Animated.View>
+    </View>
+  );
+}
+
 function IncomingCallCoordinator({ navigationReady }: { navigationReady: boolean }) {
   const [incomingCall, setIncomingCall] = useState<IncomingCallPayload | null>(null);
   const [actingCallId, setActingCallId] = useState<string | null>(null);
@@ -492,13 +619,43 @@ function AppNavigator() {
         )}
       </Stack.Navigator>
       {state.isLoggedIn ? (
-        <IncomingCallCoordinator navigationReady={navigationReady} />
+        <>
+          <ConnectionStatusCoordinator />
+          <IncomingCallCoordinator navigationReady={navigationReady} />
+        </>
       ) : null}
     </NavigationContainer>
   );
 }
 
 const styles = StyleSheet.create({
+  connectionOverlay: {
+    position: "absolute", left: 0, right: 0,
+    top: Platform.OS === "android" ? (StatusBar.currentHeight || 24) + 7 : 53,
+    zIndex: 90, elevation: 18,
+    alignItems: "center",
+  },
+  connectionNotice: {
+    overflow: "hidden", maxWidth: "86%",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "rgba(255,255,255,0.72)", borderRadius: 16,
+    shadowColor: "#0C1712", shadowOpacity: 0.12,
+    shadowRadius: 13, shadowOffset: { width: 0, height: 6 },
+  },
+  connectionBlur: {
+    minHeight: 32, paddingHorizontal: 11,
+    flexDirection: "row", alignItems: "center", gap: 6,
+    backgroundColor: "rgba(247,250,248,0.22)",
+  },
+  connectionMark: {
+    width: 16, height: 16, borderRadius: 8,
+    textAlign: "center", lineHeight: 16,
+    color: "#65716C", fontSize: 10, fontWeight: "800",
+    borderWidth: StyleSheet.hairlineWidth, borderColor: "#8D9792",
+  },
+  connectionMarkSynced: { color: "#1D7B5C", borderColor: "#54A889" },
+  connectionMarkOffline: { color: "#955D25", borderColor: "#B77A3C" },
+  connectionText: { flexShrink: 1, color: "#46514C", fontSize: 10, fontWeight: "600" },
   incomingOverlay: {
     position: "absolute", left: 0, right: 0,
     top: Platform.OS === "android" ? (StatusBar.currentHeight || 24) + 8 : 54,

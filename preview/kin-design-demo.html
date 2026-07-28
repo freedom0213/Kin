@@ -96,6 +96,7 @@
       font-size: 12px; font-weight: 750; cursor: pointer;
     }
     .rail-call-demo:hover { background: var(--accent-soft); }
+    .rail-call-demo.connection { margin-top: 7px; border-color: rgba(111, 117, 125, .18); background: rgba(255, 255, 255, .54); color: #59635f; }
 
     .stage {
       min-width: 0;
@@ -190,6 +191,28 @@
     .incoming-call-action.accept { background: var(--accent); color: white; }
     .incoming-call-action.reject { font-size: 22px; font-weight: 300; }
     .incoming-call-action:hover { filter: brightness(.97); }
+
+    .connection-notice {
+      position: absolute; z-index: 55; top: 50px; left: 50%; transform: translateX(-50%);
+      min-height: 32px; max-width: 86%; padding: 0 11px;
+      display: flex; align-items: center; gap: 6px;
+      border: 1px solid rgba(255, 255, 255, .7); border-radius: 16px;
+      background: rgba(247, 250, 248, .34);
+      box-shadow: 0 8px 22px rgba(12, 23, 18, .13);
+      backdrop-filter: blur(20px) saturate(1.18);
+      -webkit-backdrop-filter: blur(20px) saturate(1.18);
+      color: #46514c; font-size: 9px; font-weight: 700; white-space: nowrap;
+      animation: connection-notice-enter .18s cubic-bezier(.16, 1, .3, 1) both;
+    }
+    @keyframes connection-notice-enter { from { opacity: 0; transform: translate(-50%, -8px); } }
+    .connection-notice-mark {
+      width: 16px; height: 16px; flex: 0 0 auto;
+      display: grid; place-items: center;
+      border: 1px solid #8d9792; border-radius: 50%; color: #65716c;
+      font-size: 9px; font-weight: 850;
+    }
+    .connection-notice.synced .connection-notice-mark { border-color: #54a889; color: #1d7b5c; }
+    .connection-notice.offline .connection-notice-mark { border-color: #b77a3c; color: #955d25; }
 
     .topbar {
       min-height: 58px; padding: 7px 12px 9px;
@@ -542,6 +565,7 @@
       incomingCallPhase: "ringing",
       incomingCallSeconds: 0,
       incomingReturnPage: "home",
+      connectionNotice: null,
       muted: false,
       speaker: false,
       settings: { messageSound: true, friendOnlineSound: true, haptic: true },
@@ -558,6 +582,7 @@
     let presenceBurstTimer = null;
     let callConnectTimer = null;
     let callDurationTimer = null;
+    let connectionDemoTimer = null;
 
     const statusBar = () => `
       <div class="status-bar"><span>9:41</span><div class="status-icons"><span class="signal"><i></i><i></i><i></i><i></i></span><span>Wi‑Fi</span><span class="battery"></span></div></div>`;
@@ -571,8 +596,14 @@
         : `<button class="incoming-call-action reject" data-incoming-hangup aria-label="挂断语音通话">×</button>`;
       return `<div class="incoming-call-card" role="dialog" aria-label="林迟的语音${connected ? "通话" : "来电"}"><button class="incoming-call-main" data-incoming-open aria-label="进入林迟的等待接听页面" ${state.incomingCallPhase === "ringing" ? "" : "disabled"}><span class="incoming-call-avatar">LC</span><span class="incoming-call-copy"><strong>林迟</strong><span class="${state.incomingCallPhase}">${status}</span></span></button><div class="incoming-call-actions">${actions}</div></div>`;
     };
+    const connectionNotice = () => {
+      if (!state.connectionNotice) return "";
+      const copy = state.connectionNotice === "restoring" ? "正在恢复连接…" : state.connectionNotice === "synced" ? "消息与状态已同步" : "当前离线，正在使用本地缓存";
+      const mark = state.connectionNotice === "restoring" ? "·" : state.connectionNotice === "synced" ? "✓" : "!";
+      return `<div class="connection-notice ${state.connectionNotice}" role="status"><span class="connection-notice-mark">${mark}</span><span>${copy}</span></div>`;
+    };
     const shouldShowIncomingCall = () => state.incomingCall && getVariant() === "flow" && !["login", "register", "call"].includes(state.page);
-    const phone = (content, extra = "") => `<div class="phone ${extra}">${statusBar()}<div class="screen">${content}</div>${shouldShowIncomingCall() ? incomingCallCard() : ""}</div>`;
+    const phone = (content, extra = "") => `<div class="phone ${extra}">${statusBar()}<div class="screen">${content}</div>${getVariant() === "flow" ? connectionNotice() : ""}${shouldShowIncomingCall() ? incomingCallCard() : ""}</div>`;
     const avatar = (name, online = false, size = "sm", delay = 0, arrival = false) => `<div class="avatar ${size} ${online ? "online" : ""} ${arrival ? "arrival" : ""}" style="--pulse-delay:${delay}ms">${name}</div>`;
     const moreIcon = () => `<span class="more-icon"><i></i><i></i><i></i></span>`;
     const escapeAttribute = value => String(value).replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
@@ -669,7 +700,7 @@
 
     function renderFlow() {
       const currentLabel = pages.find(([key]) => key === state.page)?.[1] || "页面";
-      return `<div class="workspace"><aside class="rail"><div class="brand"><div class="brand-mark">K</div><div><strong>Kin Demo</strong><span>只和见过的人聊天</span></div></div><div class="rail-label">页面</div><nav class="page-nav">${pages.map(([key, label], index) => `<button class="${state.page === key ? "active" : ""}" data-go="${key}"><span>${label}</span><span class="nav-index">${String(index + 1).padStart(2, "0")}</span></button>`).join("")}</nav><button class="rail-call-demo" data-incoming-demo>${state.incomingCall ? "来电卡片展示中" : "模拟林迟来电"}</button><p class="rail-copy">页面中的按钮可以点击。聊天页可切换在线状态、发送消息并展开更多菜单；顶部来电卡片、NFC 和通话页面也包含完整演示状态。</p></aside><section class="stage"><header class="stage-heading"><div class="stage-kicker">当前页面 · ${currentLabel}</div><h1>Kin 的界面应安静，但不是静止。</h1><p>信息结构保持熟悉，生命感来自在线呼吸、消息涟漪、状态亮暗和克制的反馈，而不是堆叠功能入口。</p></header><div class="phone-wrap">${renderPage(state.page)}</div></section></div>`;
+      return `<div class="workspace"><aside class="rail"><div class="brand"><div class="brand-mark">K</div><div><strong>Kin Demo</strong><span>只和见过的人聊天</span></div></div><div class="rail-label">页面</div><nav class="page-nav">${pages.map(([key, label], index) => `<button class="${state.page === key ? "active" : ""}" data-go="${key}"><span>${label}</span><span class="nav-index">${String(index + 1).padStart(2, "0")}</span></button>`).join("")}</nav><button class="rail-call-demo" data-incoming-demo>${state.incomingCall ? "来电卡片展示中" : "模拟林迟来电"}</button><button class="rail-call-demo connection" data-connection-demo>演示连接恢复</button><p class="rail-copy">页面中的按钮可以点击。聊天页可切换在线状态、发送消息并展开更多菜单；顶部来电卡片、连接恢复、NFC 和通话页面也包含完整演示状态。</p></aside><section class="stage"><header class="stage-heading"><div class="stage-kicker">当前页面 · ${currentLabel}</div><h1>Kin 的界面应安静，但不是静止。</h1><p>信息结构保持熟悉，生命感来自在线呼吸、消息涟漪、状态亮暗和克制的反馈，而不是堆叠功能入口。</p></header><div class="phone-wrap">${renderPage(state.page)}</div></section></div>`;
     }
     function renderGallery() {
       const cards = pages.map(([key, label]) => `<article class="gallery-card"><div class="gallery-label"><b>${label}</b><span>${key}</span></div>${renderPage(key)}</article>`).join("");
@@ -711,6 +742,22 @@
         state.incomingCallSeconds = 0;
         if (state.page === "call") state.page = state.incomingReturnPage;
         render();
+        return;
+      }
+      if (target.hasAttribute("data-connection-demo")) {
+        if (connectionDemoTimer) clearTimeout(connectionDemoTimer);
+        state.incomingCall = false;
+        state.connectionNotice = "restoring";
+        render();
+        connectionDemoTimer = setTimeout(() => {
+          state.connectionNotice = "synced";
+          render();
+          connectionDemoTimer = setTimeout(() => {
+            state.connectionNotice = null;
+            connectionDemoTimer = null;
+            render();
+          }, 1600);
+        }, 950);
         return;
       }
       if (target.hasAttribute("data-incoming-open")) {
@@ -796,7 +843,20 @@
       if (target.hasAttribute("data-cache-demo")) {
         state.friendListOffline = !state.friendListOffline;
         state.presenceBurst = false;
+        state.connectionNotice = state.friendListOffline ? "offline" : "restoring";
         render();
+        if (!state.friendListOffline) {
+          if (connectionDemoTimer) clearTimeout(connectionDemoTimer);
+          connectionDemoTimer = setTimeout(() => {
+            state.connectionNotice = "synced";
+            render();
+            connectionDemoTimer = setTimeout(() => {
+              state.connectionNotice = null;
+              connectionDemoTimer = null;
+              render();
+            }, 1600);
+          }, 700);
+        }
         return;
       }
       if (target.hasAttribute("data-more")) { state.moreOpen = !state.moreOpen; render(); return; }

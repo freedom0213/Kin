@@ -81,6 +81,7 @@ class KinWebSocket {
       this._stopHeartbeat();
       const t = getToken();
       if (t && this._shouldReconnect) {
+        this._dispatch("connection_state", { type: "connection_state", state: "offline" });
         this._reconnectTimer = setTimeout(() => this.connect(t), 3000);
       }
     };
@@ -124,6 +125,7 @@ class KinWebSocket {
     this._shouldReconnect = true;
     this._resumeRequested = true;
     this._clearResumeProbe();
+    this._dispatch("connection_state", { type: "connection_state", state: "restoring" });
 
     if (this.ws?.readyState === WebSocket.CONNECTING) {
       this._resumeProbeTimer = setTimeout(() => {
