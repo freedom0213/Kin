@@ -108,21 +108,31 @@ class KinWebSocket {
     const { type } = data;
 
     if (type === "call_request") {
-      // 存储来电 SDP，然后通知 UI
-      webrtcService.saveIncomingOffer(data.from, data.caller_name || "", data.sdp);
+      const saved = webrtcService.saveIncomingOffer(
+        data.call_id,
+        data.from,
+        data.caller_name || "",
+        data.sdp
+      );
+      if (!saved) {
+        webrtcService.rejectIncomingOffer(data.from, data.call_id);
+        return;
+      }
       this._dispatch("incoming_call", data);
     } else if (type === "call_accepted") {
-      // 对方接听 → 设置远端 SDP
-      void webrtcService.handleAnswer(data.sdp);
-      this._dispatch("call_accepted", data);
+      void webrtcService.handleAnswer(data.call_id, data.sdp).then((handled) => {
+        if (handled) this._dispatch("call_accepted", data);
+      });
     } else if (type === "call_rejected") {
-      webrtcService.handleRemoteRejected(data.detail);
-      this._dispatch("call_rejected", data);
+      if (webrtcService.handleRemoteRejected(data.call_id, data.detail)) {
+        this._dispatch("call_rejected", data);
+      }
     } else if (type === "ice_candidate" && data.candidate) {
-      webrtcService.handleIceCandidate(data.candidate);
+      void webrtcService.handleIceCandidate(data.call_id, data.candidate);
     } else if (type === "call_end") {
-      webrtcService.handleRemoteEnded();
-      this._dispatch("call_end", data);
+      if (webrtcService.handleRemoteEnded(data.call_id)) {
+        this._dispatch("call_end", data);
+      }
     }
   }
 

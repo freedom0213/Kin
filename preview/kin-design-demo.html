@@ -562,6 +562,7 @@
       const callStates = {
         connected: { label: "通话中", status: "00:42 · 通话中", failed: false },
         unanswered: { label: "未接听", status: "对方暂未接听", failed: false },
+        busy: { label: "忙线", status: "对方正在通话", failed: false },
         permission: { label: "权限", status: "需要麦克风权限才能通话", failed: true },
         connecting: { label: "连接中", status: "正在建立安全连接", failed: false },
       };
@@ -717,7 +718,7 @@
       if (target.dataset.call === "mute") { state.muted = !state.muted; render(); return; }
       if (target.dataset.call === "speaker") { state.speaker = !state.speaker; render(); return; }
       if (target.hasAttribute("data-call-demo")) {
-        const stages = ["connected", "unanswered", "permission", "connecting"];
+        const stages = ["connected", "unanswered", "busy", "permission", "connecting"];
         state.callDemo = stages[(stages.indexOf(state.callDemo) + 1) % stages.length];
         render();
         return;

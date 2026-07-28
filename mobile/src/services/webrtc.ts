@@ -18,6 +18,15 @@ const ICE_SERVERS = {
   ],
 };
 
+function createCallId(): string {
+  const randomPart = Math.random().toString(36).slice(2, 12);
+  return `call_${Date.now().toString(36)}_${randomPart}`;
+}
+
+function isValidCallId(callId: unknown): callId is string {
+  return typeof callId === "string" && callId.length >= 8 && callId.length <= 128;
+}
+
 export type CallFailureReason =
   | "microphone-permission"
   | "signaling-unavailable"
@@ -45,8 +54,16 @@ class WebRTCService {
   private pendingIceCandidates: RTCIceCandidate[] = [];
   private audioRouteVersion = 0;
   private sessionVersion = 0;
+  private currentCallId: string | null = null;
+  private signalingReady = false;
+  private pendingLocalIceCandidates: any[] = [];
   // 存储来电的 SDP，供 VoiceCallScreen 接听时使用
-  private _pendingOffer: { callerId: string; sdp: any; callerName: string } | null = null;
+  private _pendingOffer: {
+    callId: string;
+    callerId: string;
+    sdp: any;
+    callerName: string;
+  } | null = null;
 
   /** 注入信令发送函数 */
   setSignalSender(sendFn: (data: any) => boolean) {
@@ -59,8 +76,13 @@ class WebRTCService {
   }
 
   /** 存储来电 SDP 供后续接听使用 */
-  saveIncomingOffer(callerId: string, callerName: string, sdp: any) {
-    this._pendingOffer = { callerId, callerName, sdp };
+  saveIncomingOffer(callId: unknown, callerId: string, callerName: string, sdp: any): boolean {
+    if (!isValidCallId(callId)) return false;
+    if (this.currentCallId && this.currentCallId !== callId) return false;
+    this.currentCallId = callId;
+    this.signalingReady = true;
+    this._pendingOffer = { callId, callerId, callerName, sdp };
+    return true;
   }
 
   /** 获取并清除待处理的来电 */
@@ -74,6 +96,7 @@ class WebRTCService {
 
   async startCall(targetUserId: string, callerName?: string): Promise<CallSetupResult> {
     const sessionVersion = ++this.sessionVersion;
+    const callId = createCallId();
     try {
       const permission = await Audio.requestPermissionsAsync();
       if (!permission.granted) {
@@ -92,6 +115,9 @@ class WebRTCService {
         return { ok: false, reason: "cancelled" };
       }
       this.localStream = localStream;
+      this.currentCallId = callId;
+      this.signalingReady = false;
+      this.pendingLocalIceCandidates = [];
 
       this.pc = new RTCPeerConnection(ICE_SERVERS);
 
@@ -114,11 +140,7 @@ class WebRTCService {
       // ICE 候选 → 通过 WebSocket 发送
       this.pc.onicecandidate = (event: any) => {
         if (event.candidate) {
-          this._sendSignal?.({
-            type: "ice_candidate",
-            to: targetUserId,
-            candidate: event.candidate,
-          });
+          this.sendIceCandidate(targetUserId, callId, event.candidate);
         }
       };
 
@@ -133,6 +155,7 @@ class WebRTCService {
       const sent = this._sendSignal?.({
         type: "call_request",
         to: targetUserId,
+        call_id: callId,
         sdp: offer,
         caller_name: callerName || "",
       }) ?? false;
@@ -140,6 +163,8 @@ class WebRTCService {
         this.cleanup();
         return { ok: false, reason: "signaling-unavailable" };
       }
+      this.signalingReady = true;
+      this.flushLocalIceCandidates(targetUserId, callId);
       return { ok: true };
     } catch (error) {
       console.log("发起呼叫失败", error);
@@ -152,6 +177,8 @@ class WebRTCService {
 
   async answerCall(callerId: string, remoteSdp: RTCSessionDescription): Promise<CallSetupResult> {
     const sessionVersion = ++this.sessionVersion;
+    const callId = this.currentCallId;
+    if (!callId) return { ok: false, reason: "cancelled" };
     try {
       const permission = await Audio.requestPermissionsAsync();
       if (!permission.granted) {
@@ -192,6 +219,7 @@ class WebRTCService {
           this._sendSignal?.({
             type: "ice_candidate",
             to: callerId,
+            call_id: callId,
             candidate: event.candidate,
           });
         }
@@ -209,6 +237,7 @@ class WebRTCService {
       const sent = this._sendSignal?.({
         type: "call_accepted",
         to: callerId,
+        call_id: callId,
         sdp: answer,
       }) ?? false;
       if (!sent) {
@@ -234,7 +263,7 @@ class WebRTCService {
   }
 
   hasActiveCall(): boolean {
-    return !!this.pc || !!this.localStream;
+    return !!this.currentCallId || !!this.pc || !!this.localStream;
   }
 
   /** 当前无需额外原生依赖即可切换通话音频输出的平台。 */
@@ -272,8 +301,9 @@ class WebRTCService {
 
   // -- 处理对方 answer --
 
-  async handleAnswer(remoteSdp: RTCSessionDescription): Promise<boolean> {
+  async handleAnswer(callId: unknown, remoteSdp: RTCSessionDescription): Promise<boolean> {
     try {
+      if (!isValidCallId(callId) || callId !== this.currentCallId) return false;
       if (!this.pc) throw new Error("呼叫连接尚未初始化");
       await this.pc.setRemoteDescription(new RTCSessionDescription(remoteSdp));
       await this.flushPendingIceCandidates();
@@ -289,8 +319,9 @@ class WebRTCService {
 
   // -- 处理 ICE 候选 --
 
-  async handleIceCandidate(candidate: RTCIceCandidate): Promise<void> {
+  async handleIceCandidate(callId: unknown, candidate: RTCIceCandidate): Promise<void> {
     try {
+      if (!isValidCallId(callId) || callId !== this.currentCallId) return;
       const normalized = new RTCIceCandidate(candidate);
       if (!this.pc || !this.pc.remoteDescription) {
         this.pendingIceCandidates.push(normalized);
@@ -310,14 +341,36 @@ class WebRTCService {
     }
   }
 
-  handleRemoteRejected(reason?: string) {
-    this.cleanup();
-    this.handlers?.onCallRejected(reason);
+  private sendIceCandidate(targetUserId: string, callId: string, candidate: any): void {
+    if (!this.signalingReady) {
+      this.pendingLocalIceCandidates.push(candidate);
+      return;
+    }
+    this._sendSignal?.({
+      type: "ice_candidate",
+      to: targetUserId,
+      call_id: callId,
+      candidate,
+    });
   }
 
-  handleRemoteEnded() {
+  private flushLocalIceCandidates(targetUserId: string, callId: string): void {
+    const pending = this.pendingLocalIceCandidates.splice(0);
+    pending.forEach((candidate) => this.sendIceCandidate(targetUserId, callId, candidate));
+  }
+
+  handleRemoteRejected(callId: unknown, reason?: string): boolean {
+    if (!isValidCallId(callId) || callId !== this.currentCallId) return false;
+    this.cleanup();
+    this.handlers?.onCallRejected(reason);
+    return true;
+  }
+
+  handleRemoteEnded(callId: unknown): boolean {
+    if (!isValidCallId(callId) || callId !== this.currentCallId) return false;
     this.cleanup();
     this.handlers?.onCallEnded();
+    return true;
   }
 
   /** 读取可用的 WebRTC 音频强度；运行时不提供 audioLevel 时返回 0。 */
@@ -344,17 +397,31 @@ class WebRTCService {
   // -- 挂断 --
 
   hangup(targetUserId?: string) {
+    const callId = this.currentCallId;
     this.cleanup();
-    if (targetUserId) {
-      this._sendSignal?.({ type: "call_end", to: targetUserId });
+    if (targetUserId && callId) {
+      this._sendSignal?.({ type: "call_end", to: targetUserId, call_id: callId });
     }
   }
 
   // -- 拒绝 --
 
   reject(callerId: string) {
+    const callId = this.currentCallId;
     this.cleanup();
-    this._sendSignal?.({ type: "call_rejected", to: callerId });
+    if (callId) {
+      this._sendSignal?.({ type: "call_rejected", to: callerId, call_id: callId });
+    }
+  }
+
+  rejectIncomingOffer(callerId: string, callId: unknown): void {
+    if (!isValidCallId(callId)) return;
+    this._sendSignal?.({
+      type: "call_rejected",
+      to: callerId,
+      call_id: callId,
+      detail: "对方正在通话",
+    });
   }
 
   // -- 清理资源 --
@@ -370,6 +437,10 @@ class WebRTCService {
     this.pc?.close();
     this.pc = null;
     this.pendingIceCandidates = [];
+    this.pendingLocalIceCandidates = [];
+    this.currentCallId = null;
+    this.signalingReady = false;
+    this._pendingOffer = null;
     void this.restoreAudioRoute().catch(() => undefined);
   }
 }

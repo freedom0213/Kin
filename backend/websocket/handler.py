@@ -15,6 +15,8 @@ class ConnectionManager:
     def __init__(self, store=message_store):
         self._connections: dict[str, WebSocket] = {}
         self._store = store
+        self._active_call_by_user: dict[str, str] = {}
+        self._call_participants: dict[str, tuple[str, str]] = {}
 
     async def connect(self, websocket: WebSocket, token: str) -> str | None:
         """认证并建立连接，成功返回 user_id，失败返回 None"""
@@ -38,6 +40,18 @@ class ConnectionManager:
         if websocket is not None and self._connections.get(user_id) is not websocket:
             return
         self._connections.pop(user_id, None)
+        released_call = self._release_user_call(user_id)
+        if released_call:
+            call_id, peer_id = released_call
+            try:
+                asyncio.get_running_loop().create_task(self.send_json(peer_id, {
+                    "type": "call_end",
+                    "call_id": call_id,
+                    "from": user_id,
+                    "detail": "对方连接已断开",
+                }))
+            except RuntimeError:
+                pass
         status_service.set_offline(user_id)
         # 通知好友离线（后台执行）
         asyncio.create_task(self._notify_status_change(user_id, False))
@@ -58,6 +72,37 @@ class ConnectionManager:
 
     def get_online_count(self) -> int:
         return len(self._connections)
+
+    def _register_call(self, call_id: str, caller_id: str, callee_id: str):
+        self._call_participants[call_id] = (caller_id, callee_id)
+        self._active_call_by_user[caller_id] = call_id
+        self._active_call_by_user[callee_id] = call_id
+
+    def _release_call(self, call_id: str) -> tuple[str, str] | None:
+        participants = self._call_participants.pop(call_id, None)
+        if not participants:
+            return None
+        for user_id in participants:
+            if self._active_call_by_user.get(user_id) == call_id:
+                self._active_call_by_user.pop(user_id, None)
+        return participants
+
+    def _release_user_call(self, user_id: str) -> tuple[str, str] | None:
+        call_id = self._active_call_by_user.get(user_id)
+        if not call_id:
+            return None
+        participants = self._release_call(call_id)
+        if not participants:
+            return None
+        caller_id, callee_id = participants
+        peer_id = callee_id if user_id == caller_id else caller_id
+        return call_id, peer_id
+
+    def _matches_call(self, call_id: str, from_id: str, to_id: str) -> bool:
+        participants = self._call_participants.get(call_id)
+        if not participants:
+            return False
+        return {from_id, to_id} == set(participants)
 
     async def _notify_status_change(self, user_id: str, online: bool):
         """通知所有好友上线/离线状态变化（后台任务，出错不影响主流程）"""
@@ -263,22 +308,129 @@ class ConnectionManager:
         await self.send_json(to_id, data)
 
     async def _handle_call_signaling(self, from_id: str, data: dict):
-        """转发 WebRTC 通话信令（服务器不解密，只转发）"""
+        """校验通话会话和忙线状态后转发 WebRTC 信令。"""
+        msg_type = data.get("type")
         to_id = data.get("to")
-        if not to_id:
-            return
-
-        if not self.is_online(to_id):
+        call_id = data.get("call_id")
+        if (
+            not to_id
+            or to_id == from_id
+            or not isinstance(call_id, str)
+            or not 8 <= len(call_id) <= 128
+        ):
             await self.send_json(from_id, {
                 "type": "call_rejected",
-                "detail": "对方不在线",
+                "code": "INVALID_CALL",
+                "detail": "通话标识无效",
+                "call_id": call_id,
                 "from": to_id,
             })
             return
 
-        # 添加发送方信息后转发
-        data["from"] = from_id
-        await self.send_json(to_id, data)
+        if msg_type == "call_request":
+            loop = asyncio.get_running_loop()
+            is_friend = await loop.run_in_executor(
+                None, friend_service.are_friends, from_id, to_id
+            )
+            if not is_friend:
+                await self.send_json(from_id, {
+                    "type": "call_rejected",
+                    "code": "NOT_FRIEND",
+                    "detail": "只能与好友进行语音通话",
+                    "call_id": call_id,
+                    "from": to_id,
+                })
+                return
+
+            if not self.is_online(to_id):
+                await self.send_json(from_id, {
+                    "type": "call_rejected",
+                    "code": "USER_OFFLINE",
+                    "detail": "对方不在线",
+                    "call_id": call_id,
+                    "from": to_id,
+                })
+                return
+
+            if call_id in self._call_participants:
+                await self.send_json(from_id, {
+                    "type": "call_rejected",
+                    "code": "INVALID_CALL",
+                    "detail": "通话标识已被使用",
+                    "call_id": call_id,
+                    "from": to_id,
+                })
+                return
+
+            if from_id in self._active_call_by_user:
+                await self.send_json(from_id, {
+                    "type": "call_rejected",
+                    "code": "CALLER_BUSY",
+                    "detail": "你正在进行另一场通话",
+                    "call_id": call_id,
+                    "from": to_id,
+                })
+                return
+
+            if to_id in self._active_call_by_user:
+                await self.send_json(from_id, {
+                    "type": "call_rejected",
+                    "code": "CALL_BUSY",
+                    "detail": "对方正在通话",
+                    "call_id": call_id,
+                    "from": to_id,
+                })
+                return
+
+            self._register_call(call_id, from_id, to_id)
+            outgoing = {**data, "from": from_id}
+            delivered = await self.send_json(to_id, outgoing)
+            if not delivered:
+                self._release_call(call_id)
+                await self.send_json(from_id, {
+                    "type": "call_rejected",
+                    "code": "DELIVERY_FAILED",
+                    "detail": "暂时无法联系对方",
+                    "call_id": call_id,
+                    "from": to_id,
+                })
+            return
+
+        if not self._matches_call(call_id, from_id, to_id):
+            await self.send_json(from_id, {
+                "type": "call_rejected",
+                "code": "INVALID_CALL",
+                "detail": "通话已失效",
+                "call_id": call_id,
+                "from": to_id,
+            })
+            return
+
+        caller_id, callee_id = self._call_participants[call_id]
+        if msg_type in ("call_accepted", "call_rejected") and (
+            from_id != callee_id or to_id != caller_id
+        ):
+            await self.send_json(from_id, {
+                "type": "call_rejected",
+                "code": "INVALID_CALL",
+                "detail": "通话信令方向无效",
+                "call_id": call_id,
+                "from": to_id,
+            })
+            return
+
+        outgoing = {**data, "from": from_id}
+        delivered = await self.send_json(to_id, outgoing)
+        if msg_type in ("call_rejected", "call_end") or not delivered:
+            self._release_call(call_id)
+        if not delivered:
+            await self.send_json(from_id, {
+                "type": "call_rejected",
+                "code": "DELIVERY_FAILED",
+                "detail": "对方连接已断开",
+                "call_id": call_id,
+                "from": to_id,
+            })
 
 
 manager = ConnectionManager()

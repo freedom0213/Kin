@@ -10,7 +10,7 @@ import { type CallFailureReason, webrtcService } from "../services/webrtc";
 import { useAuth } from "../stores/AuthContext";
 
 type CallState = "calling" | "ringing" | "connecting" | "connected" | "ended" | "failed";
-type TerminalReason = CallFailureReason | "unanswered" | "connection-timeout" | "offline" | "rejected" | null;
+type TerminalReason = CallFailureReason | "unanswered" | "connection-timeout" | "offline" | "busy" | "local-busy" | "rejected" | null;
 
 const RING_TIMEOUT_MS = 35_000;
 const CONNECTION_TIMEOUT_MS = 18_000;
@@ -85,7 +85,7 @@ function ControlButton({
 }
 
 export default function VoiceCallScreen({ route, navigation }: any) {
-  const { direction, targetId, targetName } = route.params;
+  const { direction, targetId, targetName, callId } = route.params;
   const insets = useSafeAreaInsets();
   const { state } = useAuth();
   const [remoteSdp, setRemoteSdp] = useState<any>(null);
@@ -223,11 +223,16 @@ export default function VoiceCallScreen({ route, navigation }: any) {
           setCallState((current) => current === "connected" ? current : "connecting");
         }
       },
-      onCallRejected: (reason) => finishCall(
-        "ended",
-        2200,
-        reason === "对方不在线" ? "offline" : "rejected"
-      ),
+      onCallRejected: (reason) => {
+        const terminalReason = reason === "对方不在线"
+          ? "offline"
+          : reason === "对方正在通话"
+            ? "busy"
+            : reason === "你正在进行另一场通话"
+              ? "local-busy"
+              : "rejected";
+        finishCall("ended", 2200, terminalReason);
+      },
       onCallEnded: () => finishCall("ended"),
       onRemoteStream: () => {},
       onConnectionStateChange: (connectionState) => {
@@ -256,7 +261,7 @@ export default function VoiceCallScreen({ route, navigation }: any) {
       });
     } else {
       const pending = webrtcService.getPendingOffer();
-      if (pending) {
+      if (pending && pending.callId === callId) {
         setRemoteSdp(pending.sdp);
       } else {
         finishCall("failed");
@@ -275,7 +280,7 @@ export default function VoiceCallScreen({ route, navigation }: any) {
         onConnectionStateChange: () => {},
       });
     };
-  }, [direction, myDisplayName, navigation, targetId]);
+  }, [callId, direction, myDisplayName, navigation, targetId]);
 
   const handleAccept = async () => {
     if (!remoteSdp || callState !== "ringing") return;
@@ -398,6 +403,8 @@ export default function VoiceCallScreen({ route, navigation }: any) {
     }
     if (terminalReason === "unanswered") return "对方暂未接听";
     if (terminalReason === "offline") return "对方当前离线";
+    if (terminalReason === "busy") return "对方正在通话";
+    if (terminalReason === "local-busy") return "你正在进行另一场通话";
     if (terminalReason === "rejected") return "对方已拒绝通话";
     return callSeconds > 0
       ? `通话结束 · ${formatSeconds(callSeconds)}`

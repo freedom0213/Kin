@@ -363,6 +363,7 @@ export default function FriendListScreen({ navigation }: any) {
         direction: "incoming",
         targetId: data.from,
         targetName: callerName,
+        callId: data.call_id,
       });
     };
     kinWS.on("incoming_call", onIncomingCall);
