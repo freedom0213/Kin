@@ -1,6 +1,6 @@
 /** Kin 的轻量声音与触觉反馈，并负责过滤消息连响和在线状态抖动。 */
 
-import { Audio } from "expo-av";
+import { createAudioPlayer, type AudioPlayer } from "expo-audio";
 import { File, Paths } from "expo-file-system";
 import { Platform, Vibration } from "react-native";
 import {
@@ -31,7 +31,7 @@ class KinFeedbackService {
   private friendPresence = new Map<string, FriendPresence>();
   private pendingOnlineTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private lastOnlineFeedbackAt = new Map<string, number>();
-  private activeSounds = new Set<Audio.Sound>();
+  private activeSounds = new Set<AudioPlayer>();
   private toneUriPromise: Promise<string> | null = null;
 
   constructor() {
@@ -141,7 +141,7 @@ class KinFeedbackService {
     this.stoppedIncomingCallId = null;
     Vibration.cancel();
     this.activeSounds.forEach((sound) => {
-      void sound.unloadAsync().catch(() => undefined);
+      sound.remove();
     });
     this.activeSounds.clear();
   }
@@ -155,14 +155,12 @@ class KinFeedbackService {
   private async playSoftTone(volume: number): Promise<void> {
     try {
       const uri = await this.getToneUri();
-      const { sound } = await Audio.Sound.createAsync(
-        { uri },
-        { shouldPlay: true, volume }
-      );
+      const sound = createAudioPlayer({ uri });
+      sound.volume = volume;
       this.activeSounds.add(sound);
+      sound.play();
       setTimeout(() => {
-        this.activeSounds.delete(sound);
-        void sound.unloadAsync().catch(() => undefined);
+        if (this.activeSounds.delete(sound)) sound.remove();
       }, 1_000);
     } catch {
       // 声音不可用时保持安静，不阻塞消息接收或在线状态更新。

@@ -1,4 +1,4 @@
-/** 语音录制/播放组件 — 基于 expo-av */
+/** 语音录制/播放组件 — 基于 expo-audio */
 
 import React, { useCallback, useRef, useState } from "react";
 import {
@@ -11,7 +11,14 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { Audio } from "expo-av";
+import {
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+  useAudioPlayer,
+  useAudioPlayerStatus,
+  useAudioRecorder,
+} from "expo-audio";
 import { File, Paths } from "expo-file-system";
 
 interface VoiceRecorderProps {
@@ -35,7 +42,8 @@ export function VoiceRecorder({ onRecordComplete, disabled = false }: VoiceRecor
   const [isCancelling, setIsCancelling] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [notice, setNotice] = useState<RecorderNotice>(null);
-  const recordingRef = useRef<Audio.Recording | null>(null);
+  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recordingRef = useRef<typeof recorder | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pressStartRef = useRef(0);
@@ -73,10 +81,10 @@ export function VoiceRecorder({ onRecordComplete, disabled = false }: VoiceRecor
 
   const restorePlaybackMode = useCallback(async () => {
     try {
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: false,
-        playsInSilentModeIOS: true,
-        playThroughEarpieceAndroid: false,
+      await setAudioModeAsync({
+        allowsRecording: false,
+        playsInSilentMode: true,
+        shouldRouteThroughEarpiece: false,
       });
     } catch {
       // 音频路由恢复失败不应覆盖已经完成的发送或取消结果。
@@ -86,7 +94,7 @@ export function VoiceRecorder({ onRecordComplete, disabled = false }: VoiceRecor
   // 权限弹窗出现时用户可能先松手，因此创建录音后还要再次检查手势状态。
   const startRecording = useCallback(async () => {
     try {
-      const permission = await Audio.requestPermissionsAsync();
+      const permission = await requestRecordingPermissionsAsync();
       if (!permission.granted) {
         gestureActiveRef.current = false;
         Alert.alert(
@@ -100,22 +108,20 @@ export function VoiceRecorder({ onRecordComplete, disabled = false }: VoiceRecor
         return;
       }
 
-      await Audio.setAudioModeAsync({
-        allowsRecordingIOS: true,
-        playsInSilentModeIOS: true,
+      await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
       });
 
-      const { recording } = await Audio.Recording.createAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
-      );
+      await recorder.prepareToRecordAsync();
 
       if (!gestureActiveRef.current) {
-        await recording.stopAndUnloadAsync();
         await restorePlaybackMode();
         return;
       }
 
-      recordingRef.current = recording;
+      recorder.record();
+      recordingRef.current = recorder;
       pressStartRef.current = Date.now();
       setIsRecording(true);
       setRecordingSeconds(0);
@@ -138,7 +144,7 @@ export function VoiceRecorder({ onRecordComplete, disabled = false }: VoiceRecor
       showNotice("failed");
       console.log("录音启动失败", error);
     }
-  }, [clearTimer, restorePlaybackMode, showNotice]);
+  }, [clearTimer, recorder, restorePlaybackMode, showNotice]);
 
   // 正常松手发送；进入取消区后松手丢弃；达到上限时自动发送。
   const finishRecording = useCallback(async (cancelled: boolean, reachedLimit = false) => {
@@ -154,8 +160,8 @@ export function VoiceRecorder({ onRecordComplete, disabled = false }: VoiceRecor
     );
 
     try {
-      await activeRecording.stopAndUnloadAsync();
-      const uri = activeRecording.getURI();
+      await activeRecording.stop();
+      const uri = activeRecording.uri;
       if (cancelled || !uri) return;
 
       if (duration < MIN_RECORDING_SECONDS) {
@@ -222,7 +228,9 @@ export function VoiceRecorder({ onRecordComplete, disabled = false }: VoiceRecor
     const activeRecording = recordingRef.current;
     recordingRef.current = null;
     if (activeRecording) {
-      void activeRecording.stopAndUnloadAsync().finally(() => restorePlaybackMode());
+      void activeRecording.stop()
+        .catch(() => undefined)
+        .finally(() => restorePlaybackMode());
     }
   }, [clearNoticeTimer, clearTimer, restorePlaybackMode]);
 
@@ -294,41 +302,35 @@ export function VoiceMessageBubble({
   audioBase64: string;
   isMine: boolean;
 }) {
-  const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
-  const soundRef = useRef<Audio.Sound | null>(null);
+  const player = useAudioPlayer(null);
+  const playbackStatus = useAudioPlayerStatus(player);
+  const loadedAudioRef = useRef<string | null>(null);
+  const playing = playbackStatus.playing;
 
   const togglePlay = useCallback(async () => {
     if (playing) {
-      await soundRef.current?.pauseAsync();
-      setPlaying(false);
+      player.pause();
       return;
     }
 
     setLoading(true);
     try {
-      const tmpFile = new File(Paths.cache, `voice_${Date.now()}.m4a`);
-      await tmpFile.write(audioBase64, { encoding: "base64" } as any);
-
-      const { sound } = await Audio.Sound.createAsync(
-        { uri: tmpFile.uri },
-        { shouldPlay: true },
-        (status) => {
-          if (status.isLoaded && status.didJustFinish) setPlaying(false);
-        }
-      );
-      soundRef.current = sound;
-      setPlaying(true);
+      if (loadedAudioRef.current !== audioBase64) {
+        const tmpFile = new File(Paths.cache, `voice_${Date.now()}.m4a`);
+        await tmpFile.write(audioBase64, { encoding: "base64" } as any);
+        player.replace({ uri: tmpFile.uri });
+        loadedAudioRef.current = audioBase64;
+      } else if (playbackStatus.didJustFinish) {
+        await player.seekTo(0);
+      }
+      player.play();
     } catch (error) {
       console.log("语音播放失败", error);
     } finally {
       setLoading(false);
     }
-  }, [audioBase64, playing]);
-
-  React.useEffect(() => () => {
-    void soundRef.current?.unloadAsync();
-  }, []);
+  }, [audioBase64, playbackStatus.didJustFinish, player, playing]);
 
   return (
     <TouchableOpacity onPress={togglePlay} style={styles.voiceBubble}>

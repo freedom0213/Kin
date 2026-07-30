@@ -47,7 +47,7 @@
         }
       ],
       [
-        "expo-av",
+        "expo-audio",
         {
           "microphonePermission": "允许 Kin 使用麦克风，以便发送语音消息和进行语音通话。"
         }

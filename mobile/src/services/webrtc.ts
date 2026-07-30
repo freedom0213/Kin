@@ -7,7 +7,7 @@ import {
   RTCIceCandidate,
   MediaStream,
 } from "react-native-webrtc";
-import { Audio } from "expo-av";
+import { requestRecordingPermissionsAsync, setAudioModeAsync } from "expo-audio";
 import { Platform } from "react-native";
 
 // STUN 服务器（Google 免费 STUN，用于 NAT 穿透）
@@ -114,7 +114,7 @@ class WebRTCService {
     const sessionVersion = ++this.sessionVersion;
     const callId = createCallId();
     try {
-      const permission = await Audio.requestPermissionsAsync();
+      const permission = await requestRecordingPermissionsAsync();
       if (!permission.granted) {
         return { ok: false, reason: "microphone-permission" };
       }
@@ -196,7 +196,7 @@ class WebRTCService {
     const callId = this.currentCallId;
     if (!callId) return { ok: false, reason: "cancelled" };
     try {
-      const permission = await Audio.requestPermissionsAsync();
+      const permission = await requestRecordingPermissionsAsync();
       if (!permission.granted) {
         return { ok: false, reason: "microphone-permission" };
       }
@@ -292,9 +292,10 @@ class WebRTCService {
     if (!this.supportsSpeakerSelection() || !this.localStream) return false;
     const routeVersion = this.audioRouteVersion;
     try {
-      await Audio.setAudioModeAsync({
-        shouldDuckAndroid: false,
-        playThroughEarpieceAndroid: !enabled,
+      await setAudioModeAsync({
+        allowsRecording: true,
+        interruptionMode: "doNotMix",
+        shouldRouteThroughEarpiece: !enabled,
       });
       if (routeVersion !== this.audioRouteVersion || !this.localStream) {
         await this.restoreAudioRoute();
@@ -309,9 +310,10 @@ class WebRTCService {
 
   private async restoreAudioRoute(): Promise<void> {
     if (Platform.OS !== "android") return;
-    await Audio.setAudioModeAsync({
-      shouldDuckAndroid: true,
-      playThroughEarpieceAndroid: false,
+    await setAudioModeAsync({
+      allowsRecording: false,
+      interruptionMode: "duckOthers",
+      shouldRouteThroughEarpiece: false,
     });
   }
 
