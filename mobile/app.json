@@ -1,22 +1,29 @@
 {
   "expo": {
-    "name": "mobile",
-    "slug": "mobile",
-    "version": "1.0.0",
+    "name": "Kin",
+    "slug": "kin",
+    "version": "0.1.0",
+    "scheme": "kin",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.freedom0213.kin"
     },
     "android": {
+      "package": "com.freedom0213.kin",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -25,6 +32,12 @@
       "expo-secure-store",
       "expo-sqlite",
       "expo-notifications",
+      [
+        "expo-dev-client",
+        {
+          "launchMode": "most-recent"
+        }
+      ],
       [
         "expo-image-picker",
         {
@@ -39,6 +52,12 @@
           "microphonePermission": "允许 Kin 使用麦克风，以便发送语音消息和进行语音通话。"
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "928eabb6-1cbe-4618-92dc-7a6480b74287"
+      }
+    },
+    "owner": "freedom0213"
   }
 }
