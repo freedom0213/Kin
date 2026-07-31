@@ -3,33 +3,57 @@
 import * as SecureStore from "expo-secure-store";
 import { generateKeyPair } from "./encryption";
 
-const SECRET_KEY_KEY = "kin_secret_key";
-const PUBLIC_KEY_KEY = "kin_public_key";
-
-/** 生成新密钥对并存到安全存储，返回公钥（用于上传服务器） */
-export async function generateAndStoreKeyPair(): Promise<{ publicKey: string; secretKey: string }> {
-  const { publicKey, secretKey } = generateKeyPair();
-  await SecureStore.setItemAsync(SECRET_KEY_KEY, secretKey);
-  await SecureStore.setItemAsync(PUBLIC_KEY_KEY, publicKey);
-  return { publicKey, secretKey };
+export interface AccountKeyPair {
+  publicKey: string;
+  secretKey: string;
 }
 
-/** 读取已有的密钥对 */
-export async function getStoredKeyPair(): Promise<{ publicKey: string; secretKey: string } | null> {
+function accountKey(ownerId: string, kind: "secret" | "public"): string {
+  const safeOwnerId = ownerId.replace(/[^a-zA-Z0-9._-]/g, "_");
+  return `kin_${kind}_key_${safeOwnerId}`;
+}
+
+/** 生成尚未绑定账号的密钥材料。注册成功后再按返回的账号 ID 保存。 */
+export function createAccountKeyPair(): AccountKeyPair {
+  return generateKeyPair();
+}
+
+/** 将密钥对保存到指定账号自己的 SecureStore 命名空间。 */
+export async function storeAccountKeyPair(
+  ownerId: string,
+  keyPair: AccountKeyPair
+): Promise<void> {
+  await Promise.all([
+    SecureStore.setItemAsync(accountKey(ownerId, "secret"), keyPair.secretKey),
+    SecureStore.setItemAsync(accountKey(ownerId, "public"), keyPair.publicKey),
+  ]);
+}
+
+/** 读取指定账号已有的密钥对。 */
+export async function getStoredKeyPair(ownerId: string): Promise<AccountKeyPair | null> {
   const [secretKey, publicKey] = await Promise.all([
-    SecureStore.getItemAsync(SECRET_KEY_KEY),
-    SecureStore.getItemAsync(PUBLIC_KEY_KEY),
+    SecureStore.getItemAsync(accountKey(ownerId, "secret")),
+    SecureStore.getItemAsync(accountKey(ownerId, "public")),
   ]);
   if (secretKey && publicKey) return { publicKey, secretKey };
   return null;
 }
 
-/** 读取私钥 */
-export function getSecretKey(): Promise<string | null> {
-  return SecureStore.getItemAsync(SECRET_KEY_KEY);
+/** 确保指定账号在当前设备拥有独立密钥。 */
+export async function ensureAccountKeyPair(ownerId: string): Promise<AccountKeyPair> {
+  const existing = await getStoredKeyPair(ownerId);
+  if (existing) return existing;
+  const keyPair = createAccountKeyPair();
+  await storeAccountKeyPair(ownerId, keyPair);
+  return keyPair;
 }
 
-/** 读取公钥 */
-export function getPublicKey(): Promise<string | null> {
-  return SecureStore.getItemAsync(PUBLIC_KEY_KEY);
+/** 读取指定账号的私钥。 */
+export function getSecretKey(ownerId: string): Promise<string | null> {
+  return SecureStore.getItemAsync(accountKey(ownerId, "secret"));
+}
+
+/** 读取指定账号的公钥。 */
+export function getPublicKey(ownerId: string): Promise<string | null> {
+  return SecureStore.getItemAsync(accountKey(ownerId, "public"));
 }

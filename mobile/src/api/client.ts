@@ -56,6 +56,7 @@ export interface AuthResult {
     avatar?: string | null;
     profile_banner?: string | null;
     status_msg?: string | null;
+    public_key?: string | null;
   };
   token: string;
 }
@@ -67,6 +68,7 @@ export interface UserProfile {
   avatar: string | null;
   profile_banner: string | null;
   status_msg: string | null;
+  public_key: string | null;
 }
 
 export function resolveMediaUrl(value: string | null | undefined): string | null {
@@ -93,6 +95,12 @@ export function updateProfile(nickname: string | null, statusMsg: string | null)
   return request<UserProfile>("PUT", "/api/auth/me", {
     nickname,
     status_msg: statusMsg,
+  });
+}
+
+export function updatePublicKey(publicKey: string) {
+  return request<UserProfile>("PUT", "/api/auth/me/public-key", {
+    public_key: publicKey,
   });
 }
 

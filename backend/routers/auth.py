@@ -32,6 +32,10 @@ class UpdateProfileBody(BaseModel):
     status_msg: str | None = Field(None, max_length=80, description="个性签名，留空表示未设置")
 
 
+class UpdatePublicKeyBody(BaseModel):
+    public_key: str = Field(..., min_length=40, max_length=64, description="设备端 Curve25519 公钥")
+
+
 @router.post("/register")
 async def api_register(body: RegisterBody):
     """用户注册"""
@@ -66,6 +70,20 @@ async def api_update_me(body: UpdateProfileBody, authorization: str = Header(...
     user_id = get_user_id(authorization)
     try:
         profile = auth_service.update_profile(user_id, body.nickname, body.status_msg)
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    if not profile:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    await _notify_profile_change(user_id, profile)
+    return profile
+
+
+@router.put("/me/public-key")
+async def api_update_public_key(body: UpdatePublicKeyBody, authorization: str = Header(...)):
+    """为当前登录账号激活或轮换本设备的公开加密密钥。"""
+    user_id = get_user_id(authorization)
+    try:
+        profile = auth_service.update_public_key(user_id, body.public_key)
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     if not profile:

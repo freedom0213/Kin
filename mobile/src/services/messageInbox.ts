@@ -33,7 +33,7 @@ class MessageInbox {
     this.stop();
     this.userId = userId;
     const [secretKey] = await Promise.all([
-      getSecretKey(),
+      getSecretKey(userId),
       this.refreshFriends(),
     ]);
     this.secretKey = secretKey;

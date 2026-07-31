@@ -9,6 +9,7 @@ export interface FriendProfileEvent {
   avatar: string | null;
   profile_banner: string | null;
   status_msg: string | null;
+  public_key: string | null;
 }
 
 function isNullableString(value: unknown): value is string | null {
@@ -23,6 +24,7 @@ export function parseFriendProfileEvent(data: any): FriendProfileEvent | null {
     || !isNullableString(data.avatar)
     || !isNullableString(data.profile_banner)
     || !isNullableString(data.status_msg)
+    || !isNullableString(data.public_key)
   ) return null;
 
   return {
@@ -32,6 +34,7 @@ export function parseFriendProfileEvent(data: any): FriendProfileEvent | null {
     avatar: data.avatar,
     profile_banner: data.profile_banner,
     status_msg: data.status_msg,
+    public_key: data.public_key,
   };
 }
 
@@ -44,5 +47,6 @@ export function mergeFriendProfile(friend: Friend, update: FriendProfileEvent): 
     avatar: update.avatar,
     profile_banner: update.profile_banner,
     status_msg: update.status_msg,
+    public_key: update.public_key,
   };
 }

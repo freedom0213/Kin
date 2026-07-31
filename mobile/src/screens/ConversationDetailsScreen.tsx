@@ -123,8 +123,13 @@ export default function ConversationDetailsScreen({ route, navigation }: any) {
           : "查看这段会话如何受到保护";
 
   useEffect(() => {
+    const ownerId = state.user?.id;
+    if (!ownerId) {
+      setLocalKeyState("missing");
+      return;
+    }
     let active = true;
-    getSecretKey()
+    getSecretKey(ownerId)
       .then((secretKey) => {
         if (active) setLocalKeyState(secretKey ? "ready" : "missing");
       })
@@ -132,7 +137,7 @@ export default function ConversationDetailsScreen({ route, navigation }: any) {
         if (active) setLocalKeyState("error");
       });
     return () => { active = false; };
-  }, []);
+  }, [state.user?.id]);
 
   useEffect(() => {
     const onFriendProfile = (data: any) => {

@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 import config
 
 from database import init_db
+from services.test_account_seed import seed_test_accounts
 from websocket.handler import manager
 from routers import auth, friends, push, status
 
@@ -17,6 +18,8 @@ from routers import auth, friends, push, status
 async def lifespan(app: FastAPI):
     """应用生命周期：启动时建表"""
     init_db()
+    if config.SEED_TEST_ACCOUNTS:
+        seed_test_accounts()
     yield
 
 

@@ -336,7 +336,7 @@ export default function ChatScreen({ route }: any) {
 
   useEffect(() => {
     let active = true;
-    getSecretKey()
+    getSecretKey(myId)
       .then((secretKey) => {
         if (!active) return;
         setMySecretKey(secretKey);
@@ -348,7 +348,7 @@ export default function ChatScreen({ route }: any) {
         setLocalKeyState("error");
       });
     return () => { active = false; };
-  }, []);
+  }, [myId]);
 
   // 加载私钥 + 本地历史消息
   useEffect(() => {

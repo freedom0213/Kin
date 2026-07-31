@@ -231,18 +231,22 @@ export async function removeCachedFriend(ownerId: string, friendId: string): Pro
 export async function updateCachedFriendProfile(
   ownerId: string,
   friendId: string,
-  profile: Pick<Friend, "username" | "nickname" | "avatar" | "profile_banner" | "status_msg">
+  profile: Pick<
+    Friend,
+    "username" | "nickname" | "avatar" | "profile_banner" | "status_msg" | "public_key"
+  >
 ): Promise<void> {
   const db = await getDb();
   await db.runAsync(
     `UPDATE contacts
-     SET username = ?, nickname = ?, avatar = ?, profile_banner = ?, status_msg = ?, updated_at = ?
+     SET username = ?, nickname = ?, avatar = ?, profile_banner = ?, status_msg = ?, public_key = ?, updated_at = ?
      WHERE owner_id = ? AND user_id = ?`,
     profile.username,
     profile.nickname,
     profile.avatar,
     profile.profile_banner,
     profile.status_msg,
+    profile.public_key,
     new Date().toISOString(),
     ownerId,
     friendId

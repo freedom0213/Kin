@@ -2,6 +2,13 @@
 
 import os
 
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
 # JWT 配置
 JWT_SECRET = os.getenv("KIN_JWT_SECRET", "kin-dev-secret-change-in-production")
 JWT_ALGORITHM = "HS256"
@@ -45,3 +52,6 @@ MAX_MESSAGE_BYTES = int(os.getenv("KIN_MAX_MESSAGE_BYTES", str(8 * 1024 * 1024))
 EXPO_PUSH_URL = os.getenv("KIN_EXPO_PUSH_URL", "https://exp.host/--/api/v2/push/send")
 EXPO_PUSH_ACCESS_TOKEN = os.getenv("KIN_EXPO_PUSH_ACCESS_TOKEN", "")
 EXPO_PUSH_TIMEOUT_SECONDS = float(os.getenv("KIN_EXPO_PUSH_TIMEOUT_SECONDS", "5"))
+
+# 仅开发/内部测试环境使用。默认关闭，避免生产环境意外创建公开测试账号。
+SEED_TEST_ACCOUNTS = _env_flag("KIN_SEED_TEST_ACCOUNTS")

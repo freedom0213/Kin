@@ -162,7 +162,7 @@ export default function SettingsScreen({ navigation }: any) {
     let active = true;
     Promise.allSettled([
       getLocalMessageStats(user.id),
-      getStoredKeyPair(),
+      getStoredKeyPair(user.id),
       getPreferences(),
       getPushNotificationStatus(),
     ]).then(([statsResult, keyResult, preferencesResult, pushResult]) => {

@@ -30,6 +30,7 @@ export default function LoginScreen({ navigation }: any) {
           avatar: result.user.avatar ?? null,
           profile_banner: result.user.profile_banner ?? null,
           status_msg: result.user.status_msg ?? null,
+          public_key: result.user.public_key ?? null,
         });
       }
     } catch (e: any) {

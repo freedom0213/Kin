@@ -3,12 +3,18 @@
 import React, { createContext, useContext, useReducer, useEffect, useRef, ReactNode } from "react";
 import { AppState } from "react-native";
 import * as SecureStore from "expo-secure-store";
-import { setToken, getProfile as apiGetProfile, type UserProfile } from "../api/client";
+import {
+  setToken,
+  getProfile as apiGetProfile,
+  updatePublicKey,
+  type UserProfile,
+} from "../api/client";
 import { kinWS } from "../api/ws";
 import { messageInbox } from "../services/messageInbox";
 import { kinFeedback } from "../services/feedback";
 import { updateCachedFriendProfile } from "../services/db";
 import { parseFriendProfileEvent } from "../services/friendProfile";
+import { ensureAccountKeyPair, type AccountKeyPair } from "../services/keys";
 import {
   syncExistingPushRegistration,
   retryPendingPushUnregistration,
@@ -32,6 +38,7 @@ function parseCachedUser(value: string | null): User | null {
       avatar: typeof user.avatar === "string" ? user.avatar : null,
       profile_banner: typeof user.profile_banner === "string" ? user.profile_banner : null,
       status_msg: typeof user.status_msg === "string" ? user.status_msg : null,
+      public_key: typeof user.public_key === "string" ? user.public_key : null,
     };
   } catch {
     return null;
@@ -58,6 +65,12 @@ const AuthContext = createContext<{
   updateProfileAction: (user: User) => Promise<void>;
   logoutAction: () => Promise<void>;
 } | null>(null);
+
+async function activateAccountEncryption(userId: string): Promise<AccountKeyPair> {
+  const keyPair = await ensureAccountKeyPair(userId);
+  await updatePublicKey(keyPair.publicKey);
+  return keyPair;
+}
 
 function authReducer(state: AuthState, action: AuthAction): AuthState {
   switch (action.type) {
@@ -98,10 +111,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setToken(savedToken);
           try {
             const profile = await apiGetProfile() as User;
-            await SecureStore.setItemAsync(PROFILE_STORAGE_KEY, JSON.stringify(profile));
-            await messageInbox.start(profile.id);
+            let restoredProfile = profile;
+            try {
+              const keyPair = await activateAccountEncryption(profile.id);
+              restoredProfile = { ...profile, public_key: keyPair.publicKey };
+            } catch {
+              // 已有登录恢复不应因短暂网络问题被强制退出；下次显式登录会再次上传。
+            }
+            await SecureStore.setItemAsync(PROFILE_STORAGE_KEY, JSON.stringify(restoredProfile));
+            await messageInbox.start(restoredProfile.id);
             kinWS.connect(savedToken);
-            dispatch({ type: "RESTORE_TOKEN", token: savedToken, user: profile });
+            dispatch({ type: "RESTORE_TOKEN", token: savedToken, user: restoredProfile });
           } catch (error: any) {
             if ([401, 403, 404].includes(error?.status)) {
               await Promise.all([
@@ -115,6 +135,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
             const cachedUser = parseCachedUser(savedProfile);
             if (cachedUser) {
+              await ensureAccountKeyPair(cachedUser.id);
               await messageInbox.start(cachedUser.id);
               kinWS.connect(savedToken);
               dispatch({ type: "RESTORE_TOKEN", token: savedToken, user: cachedUser });
@@ -175,14 +196,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [state.isLoggedIn, state.token]);
 
   const loginAction = async (token: string, user: User) => {
-    await Promise.all([
-      SecureStore.setItemAsync("kin_token", token),
-      SecureStore.setItemAsync(PROFILE_STORAGE_KEY, JSON.stringify(user)),
-    ]);
     setToken(token);
-    await messageInbox.start(user.id);
-    kinWS.connect(token);
-    dispatch({ type: "LOGIN", token, user });
+    try {
+      const keyPair = await activateAccountEncryption(user.id);
+      const activatedUser = { ...user, public_key: keyPair.publicKey };
+      await Promise.all([
+        SecureStore.setItemAsync("kin_token", token),
+        SecureStore.setItemAsync(PROFILE_STORAGE_KEY, JSON.stringify(activatedUser)),
+      ]);
+      await messageInbox.start(user.id);
+      kinWS.connect(token);
+      dispatch({ type: "LOGIN", token, user: activatedUser });
+    } catch (error) {
+      setToken(null);
+      throw error;
+    }
   };
 
   const logoutAction = async () => {

@@ -103,7 +103,7 @@ class WebSocketOfflineDeliveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(self.store.get("message-2"))
 
     @patch("websocket.handler.friend_service.get_friend_list")
-    async def test_profile_change_only_broadcasts_public_fields(self, get_friend_list):
+    async def test_profile_change_broadcasts_public_identity_fields(self, get_friend_list):
         get_friend_list.return_value = [{"user_id": "bob"}, {"user_id": "offline-user"}]
         bob = FakeWebSocket()
         self.manager._connections["bob"] = bob
@@ -115,14 +115,14 @@ class WebSocketOfflineDeliveryTests(unittest.IsolatedAsyncioTestCase):
             "avatar": "/media/avatar.jpg",
             "profile_banner": "/media/profile-banners/card.jpg",
             "status_msg": "hello",
-            "public_key": "must-not-leak",
+            "public_key": "shared-encryption-identity",
             "password_hash": "must-not-leak",
         })
 
         self.assertEqual(1, len(bob.sent))
         self.assertEqual("friend_profile", bob.sent[0]["type"])
         self.assertEqual("alice", bob.sent[0]["user_id"])
-        self.assertNotIn("public_key", bob.sent[0])
+        self.assertEqual("shared-encryption-identity", bob.sent[0]["public_key"])
         self.assertNotIn("password_hash", bob.sent[0])
 
 

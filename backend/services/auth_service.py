@@ -2,6 +2,8 @@
 
 import re
 import uuid
+import base64
+import binascii
 from datetime import datetime, timedelta, timezone
 
 import bcrypt as _bcrypt
@@ -48,6 +50,18 @@ def _validate_password(password: str) -> str | None:
     return None
 
 
+def _validate_public_key(public_key: str) -> str:
+    """校验 Curve25519 公钥的 Base64 编码并返回规范值。"""
+    normalized = public_key.strip()
+    try:
+        decoded = base64.b64decode(normalized, validate=True)
+    except (ValueError, binascii.Error) as error:
+        raise ValueError("无效的端到端加密公钥") from error
+    if len(decoded) != 32:
+        raise ValueError("无效的端到端加密公钥")
+    return normalized
+
+
 def _generate_token(user_id: str, username: str) -> str:
     """生成 JWT access token"""
     payload = {
@@ -77,6 +91,12 @@ def register(username: str, password: str, public_key: str | None = None) -> dic
     err = _validate_password(password)
     if err:
         return {"success": False, "message": err}
+
+    if public_key is not None:
+        try:
+            public_key = _validate_public_key(public_key)
+        except ValueError as error:
+            return {"success": False, "message": str(error)}
 
     table = get_table("users")
 
@@ -139,6 +159,7 @@ def login(username: str, password: str) -> dict:
             "avatar": row.get("avatar"),
             "profile_banner": row.get("profile_banner"),
             "status_msg": row.get("status_msg"),
+            "public_key": row.get("public_key"),
         },
         "token": token,
     }
@@ -159,6 +180,7 @@ def get_profile(user_id: str) -> dict | None:
         "avatar": row.get("avatar"),
         "profile_banner": row.get("profile_banner"),
         "status_msg": row.get("status_msg"),
+        "public_key": row.get("public_key"),
     }
 
 
@@ -202,3 +224,18 @@ def update_profile_banner(user_id: str, profile_banner: str | None) -> tuple[dic
     if result.rowcount == 0:
         return None, None
     return get_profile(user_id), old_banner
+
+
+def update_public_key(user_id: str, public_key: str) -> dict | None:
+    """更新当前设备对应的公开加密身份密钥。"""
+    normalized_key = _validate_public_key(public_key)
+    table = get_table("users")
+    with engine.begin() as conn:
+        result = conn.execute(
+            table.update()
+            .where(table.c.id == user_id)
+            .values(public_key=normalized_key)
+        )
+    if result.rowcount == 0:
+        return None
+    return get_profile(user_id)

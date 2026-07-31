@@ -7,7 +7,7 @@ import {
 } from "react-native";
 import { register } from "../api/client";
 import { useAuth } from "../stores/AuthContext";
-import { generateAndStoreKeyPair } from "../services/keys";
+import { createAccountKeyPair, storeAccountKeyPair } from "../services/keys";
 
 export default function RegisterScreen({ navigation }: any) {
   const { loginAction } = useAuth();
@@ -22,12 +22,13 @@ export default function RegisterScreen({ navigation }: any) {
     }
     setLoading(true);
     try {
-      // 1. 本地生成 E2E 密钥对，私钥存入 SecureStore
-      const { publicKey } = await generateAndStoreKeyPair();
+      // 1. 先生成密钥材料；注册成功拿到账号 ID 后再按账号保存私钥。
+      const keyPair = createAccountKeyPair();
 
       // 2. 注册并上传公钥
-      const result = await register(username.trim(), password, publicKey);
+      const result = await register(username.trim(), password, keyPair.publicKey);
       if (result.success) {
+        await storeAccountKeyPair(result.user.id, keyPair);
         // 注册成功直接登录
         await loginAction(result.token, {
           id: result.user.id,
@@ -36,6 +37,7 @@ export default function RegisterScreen({ navigation }: any) {
           avatar: result.user.avatar ?? null,
           profile_banner: result.user.profile_banner ?? null,
           status_msg: result.user.status_msg ?? null,
+          public_key: result.user.public_key ?? keyPair.publicKey,
         });
       }
     } catch (e: any) {

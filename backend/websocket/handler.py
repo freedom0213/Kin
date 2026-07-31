@@ -246,7 +246,7 @@ class ConnectionManager:
             pass
 
     async def notify_profile_change(self, user_id: str, profile: dict):
-        """向当前在线好友广播公开资料变更，不包含密码、公钥等敏感字段。"""
+        """向当前在线好友广播公开资料与用于 E2E 加密的公开身份密钥。"""
         try:
             loop = asyncio.get_running_loop()
             friends = await loop.run_in_executor(None, friend_service.get_friend_list, user_id)
@@ -258,6 +258,7 @@ class ConnectionManager:
                 "avatar": profile.get("avatar"),
                 "profile_banner": profile.get("profile_banner"),
                 "status_msg": profile.get("status_msg"),
+                "public_key": profile.get("public_key"),
             }
             for friend in friends:
                 await self.send_json(friend["user_id"], payload)

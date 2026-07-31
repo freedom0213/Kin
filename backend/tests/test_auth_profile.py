@@ -3,6 +3,7 @@
 import os
 import sys
 import unittest
+import base64
 
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
@@ -71,6 +72,17 @@ class AuthProfileTests(unittest.TestCase):
     def test_service_rejects_overlong_values(self):
         with self.assertRaisesRegex(ValueError, "昵称最多 24 个字符"):
             auth_service.update_profile("alice", "a" * 25, None)
+
+    def test_update_public_key_accepts_curve25519_key(self):
+        public_key = base64.b64encode(bytes(range(32))).decode("ascii")
+
+        profile = auth_service.update_public_key("alice", public_key)
+
+        self.assertEqual(public_key, profile["public_key"])
+
+    def test_update_public_key_rejects_invalid_key(self):
+        with self.assertRaisesRegex(ValueError, "无效的端到端加密公钥"):
+            auth_service.update_public_key("alice", "not-a-key")
 
 
 if __name__ == "__main__":
