@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Kin 高级黑主题 Demo</title>
+  <!--
+    PROTOTYPE — throwaway visual exploration, not production code.
+    Three variants of Kin's dark mobile shell, switchable via ?variant=A|B|C.
+    THESIS: Kin 的黑色不是科技霓虹，而是现实关系在暗处仍清晰可见；拒绝通用聊天 App 的亮白列表。
+    OWN-WORLD: 石墨、煤黑、温和灰白、低饱和桉树绿；哑光层级、细边线、克制光场。
+    STORY: 用户先看见谁在线，再进入对话；通讯录管理真实见过的人；个人页承载身份与设置。
+    FIRST VIEWPORT: 手机框内显示会话首页，底部固定三栏导航，右上角碰一碰入口。
+    FORM: 三个结构不同的 Operate 原型；A 为推荐方向，B 强调沉浸关系，C 强调排版效率。
+  -->
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      --page: #0a0b0b;
+      --phone: #0f1110;
+      --surface: #171a18;
+      --surface-2: #202420;
+      --surface-3: #292e2a;
+      --line: rgba(239, 244, 240, .1);
+      --text: #f2f4f1;
+      --muted: #a3aaa5;
+      --faint: #747b76;
+      --accent: #62c59f;
+      --accent-soft: rgba(98, 197, 159, .14);
+      --danger: #e27d75;
+      --shadow: rgba(0,0,0,.55);
+      --radius: 22px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 18% 18%, rgba(82, 105, 95, .16), transparent 31%),
+        radial-gradient(circle at 82% 82%, rgba(51, 71, 63, .13), transparent 28%),
+        var(--page);
+      display: grid;
+      place-items: center;
+      padding: 28px 18px 104px;
+      overflow-x: hidden;
+    }
+    button, input { font: inherit; }
+    button { color: inherit; }
+    .stage {
+      width: min(100%, 1120px);
+      display: grid;
+      grid-template-columns: minmax(240px, 1fr) 390px minmax(240px, 1fr);
+      gap: 42px;
+      align-items: center;
+    }
+    .notes { max-width: 330px; }
+    .notes.right { justify-self: end; }
+    .eyebrow {
+      color: var(--accent);
+      font-size: 12px;
+      font-weight: 750;
+      letter-spacing: .08em;
+    }
+    .notes h1 { margin: 12px 0 14px; font-size: clamp(28px, 4vw, 48px); line-height: 1.02; letter-spacing: -.04em; }
+    .notes p { color: var(--muted); font-size: 14px; line-height: 1.75; }
+    .notes-list { display: grid; gap: 10px; margin-top: 22px; }
+    .note-item { display: flex; gap: 10px; align-items: flex-start; color: #cbd0cc; font-size: 13px; line-height: 1.5; }
+    .note-index { color: var(--accent); font-variant-numeric: tabular-nums; }
+    .phone {
+      position: relative;
+      width: 390px;
+      height: 844px;
+      max-height: calc(100vh - 82px);
+      border: 1px solid rgba(255,255,255,.2);
+      border-radius: 48px;
+      background: #050606;
+      padding: 10px;
+      box-shadow: 0 34px 100px rgba(0,0,0,.62), 0 0 0 5px #252826;
+      overflow: hidden;
+    }
+    .phone::before {
+      content: "";
+      position: absolute;
+      top: 17px;
+      left: 50%;
+      z-index: 20;
+      width: 116px;
+      height: 30px;
+      border-radius: 18px;
+      background: #050505;
+      transform: translateX(-50%);
+    }
+    .screen {
+      position: relative;
+      height: 100%;
+      border-radius: 39px;
+      overflow: hidden;
+      background: var(--phone);
+      isolation: isolate;
+    }
+    .statusbar {
+      position: absolute;
+      inset: 0 0 auto;
+      z-index: 14;
+      height: 48px;
+      padding: 13px 23px 0;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      font-size: 12px;
+      font-weight: 700;
+      pointer-events: none;
+    }
+    .status-icons { display: flex; gap: 5px; align-items: center; }
+    .signal { width: 13px; height: 8px; border-bottom: 2px solid currentColor; border-radius: 50%; opacity: .9; }
+    .battery { width: 18px; height: 9px; border: 1px solid currentColor; border-radius: 3px; position: relative; }
+    .battery::after { content:""; position:absolute; right:-3px; top:2px; width:2px; height:4px; border-radius:0 2px 2px 0; background:currentColor; }
+    .battery::before { content:""; position:absolute; inset:2px; width:10px; border-radius:1px; background:currentColor; }
+    .app { position: absolute; inset: 0; display: flex; flex-direction: column; }
+    .view { flex: 1; min-height: 0; padding-top: 48px; padding-bottom: 82px; overflow: auto; scrollbar-width: none; }
+    .view::-webkit-scrollbar { display: none; }
+    .topbar { min-height: 70px; padding: 10px 20px 12px; display: flex; align-items: center; justify-content: space-between; }
+    .title-block small { display: block; color: var(--muted); font-size: 12px; margin-bottom: 3px; }
+    .title-block h2 { margin: 0; font-size: 28px; line-height: 1; letter-spacing: -.04em; }
+    .icon-btn {
+      width: 44px;
+      height: 44px;
+      border: 1px solid var(--line);
+      border-radius: 50%;
+      background: var(--surface);
+      display: grid;
+      place-items: center;
+      cursor: pointer;
+      transition: transform .18s ease, background .18s ease;
+    }
+    .icon-btn:active { transform: scale(.94); background: var(--surface-2); }
+    .icon { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+    .content { padding: 0 16px 22px; }
+    .section { margin-top: 19px; }
+    .section-head { display: flex; align-items: baseline; justify-content: space-between; margin: 0 4px 10px; }
+    .section-head h3 { margin: 0; font-size: 14px; letter-spacing: .01em; }
+    .section-head span { color: var(--faint); font-size: 11px; }
+    .row {
+      width: 100%;
+      min-height: 72px;
+      border: 0;
+      background: transparent;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 4px;
+      text-align: left;
+      cursor: pointer;
+      border-bottom: 1px solid var(--line);
+    }
+    .row:last-child { border-bottom: 0; }
+    .avatar-wrap { position: relative; flex: 0 0 auto; }
+    .avatar {
+      width: 48px;
+      height: 48px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      color: #eef3ef;
+      font-weight: 800;
+      background: #303632;
+      overflow: hidden;
+    }
+    .avatar.a1 { background: #375148; }
+    .avatar.a2 { background: #463e4d; }
+    .avatar.a3 { background: #55463b; }
+    .avatar.a4 { background: #344653; }
+    .presence { position: absolute; right: -1px; bottom: 1px; width: 13px; height: 13px; border-radius: 50%; border: 3px solid var(--phone); background: #656c67; }
+    .presence.online { background: var(--accent); box-shadow: 0 0 0 4px rgba(98,197,159,.09); }
+    .row-main { min-width: 0; flex: 1; }
+    .row-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .name { font-size: 15px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .time { color: var(--faint); font-size: 11px; }
+    .preview { margin-top: 4px; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .unread { min-width: 20px; height: 20px; padding: 0 6px; border-radius: 10px; background: var(--accent); color: #07120e; display: grid; place-items: center; font-size: 10px; font-weight: 850; }
+    .online-strip { display: flex; gap: 15px; overflow: hidden; padding: 5px 3px 9px; }
+    .online-person { flex: 0 0 60px; border: 0; background: none; color: inherit; cursor: pointer; text-align: center; }
+    .online-person .avatar { width: 54px; height: 54px; margin: auto; border: 1px solid rgba(98,197,159,.45); box-shadow: 0 0 0 5px rgba(98,197,159,.055); }
+    .online-person span { display: block; margin-top: 7px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .nav {
+      position: absolute;
+      inset: auto 10px 10px;
+      z-index: 11;
+      height: 66px;
+      padding: 5px 7px;
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      background: rgba(20,23,21,.96);
+      box-shadow: 0 14px 36px rgba(0,0,0,.42);
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+    }
+    .nav button { border: 0; background: transparent; color: var(--faint); border-radius: 18px; display: grid; place-items: center; align-content: center; gap: 3px; cursor: pointer; }
+    .nav button.active { color: var(--text); background: var(--accent-soft); }
+    .nav .icon { width: 19px; height: 19px; }
+    .nav-label { font-size: 10px; font-weight: 650; }
+    .search { margin: 4px 16px 12px; height: 42px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); display: flex; align-items: center; gap: 9px; padding: 0 13px; color: var(--muted); }
+    .search input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; color: var(--text); font-size: 13px; }
+    .search input::placeholder { color: var(--faint); }
+    .alpha { color: var(--accent); font-size: 11px; font-weight: 800; margin: 14px 4px 2px; }
+    .contact-row .preview { color: var(--faint); }
+    .profile-cover { position: relative; height: 285px; overflow: hidden; background: #27332f; }
+    .cover-field { position: absolute; border-radius: 50%; filter: blur(1px); opacity: .75; }
+    .cover-field.one { width: 250px; height: 250px; right: -65px; top: -90px; background: #49665a; }
+    .cover-field.two { width: 180px; height: 180px; left: -45px; bottom: -85px; background: #202c28; }
+    .cover-lines { position: absolute; inset: 0; opacity: .22; background-image: linear-gradient(rgba(255,255,255,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.05) 1px, transparent 1px); background-size: 34px 34px; mask-image: linear-gradient(to bottom, black, transparent); }
+    .profile-top-actions { position: absolute; z-index: 2; top: 55px; left: 18px; right: 18px; display: flex; justify-content: space-between; }
+    .profile-body { position: relative; min-height: 500px; margin-top: -36px; border-radius: 38px 38px 0 0; background: var(--phone); padding: 70px 18px 110px; }
+    .profile-avatar { position: absolute; top: -47px; left: 50%; width: 94px; height: 94px; border: 5px solid var(--phone); transform: translateX(-50%); font-size: 27px; box-shadow: 0 10px 26px var(--shadow); }
+    .profile-name { text-align: center; font-size: 23px; font-weight: 800; letter-spacing: -.025em; }
+    .profile-id { text-align: center; color: var(--muted); font-size: 12px; margin-top: 5px; }
+    .profile-state { width: fit-content; margin: 10px auto 23px; display: flex; align-items: center; gap: 6px; color: var(--accent); font-size: 11px; }
+    .profile-state::before { content:""; width:7px; height:7px; border-radius:50%; background:var(--accent); }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .tile { min-height: 92px; border: 1px solid var(--line); border-radius: 18px; background: var(--surface); padding: 15px; display: flex; flex-direction: column; justify-content: space-between; text-align: left; cursor: pointer; }
+    .tile .icon { color: #dfe4e0; }
+    .tile strong { font-size: 13px; }
+    .tile small { color: var(--faint); font-size: 10px; }
+    .chat { padding-bottom: 0; overflow: hidden; }
+    .chat-head { min-height: 68px; padding: 8px 14px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
+    .back { border: 0; background: transparent; width: 36px; height: 40px; display: grid; place-items: center; cursor: pointer; }
+    .chat-person { flex: 1; }
+    .chat-person strong { display: block; font-size: 14px; }
+    .chat-person small { color: var(--accent); font-size: 10px; }
+    .messages { height: calc(100% - 132px); padding: 16px 13px; overflow: auto; display: flex; flex-direction: column; gap: 9px; }
+    .bubble { max-width: 78%; padding: 10px 13px 8px; border-radius: 18px; font-size: 13px; line-height: 1.4; box-shadow: 0 8px 18px rgba(0,0,0,.12); }
+    .bubble.other { align-self: flex-start; background: var(--surface-2); border-bottom-left-radius: 6px; }
+    .bubble.mine { align-self: flex-end; background: #2b6d57; border-bottom-right-radius: 6px; }
+    .bubble time { display: block; text-align: right; opacity: .62; font-size: 9px; margin-top: 4px; }
+    .composer { position: absolute; inset: auto 0 0; min-height: 64px; padding: 8px 9px 11px; border-top: 1px solid var(--line); background: #111311; display: flex; align-items: center; gap: 7px; }
+    .composer .field { flex: 1; height: 42px; border: 1px solid var(--line); border-radius: 21px; background: var(--surface); display: flex; align-items: center; padding: 0 13px; color: var(--faint); font-size: 12px; }
+    .composer .icon-btn { width: 42px; height: 42px; }
+    .send { width: 48px; height: 42px; border: 0; border-radius: 21px; background: var(--accent); color: #08120e; font-size: 12px; font-weight: 800; cursor: pointer; }
+    .scrim { position: absolute; inset: 0; z-index: 30; background: rgba(0,0,0,.58); display: grid; align-items: end; animation: fade .2s ease both; }
+    .sheet { position: relative; padding: 11px 18px 24px; border: 1px solid rgba(255,255,255,.12); border-radius: 30px 30px 0 0; background: #181b19; box-shadow: 0 -18px 55px rgba(0,0,0,.5); animation: sheetIn .38s cubic-bezier(.2,.85,.2,1) both; }
+    .grabber { width: 43px; height: 4px; margin: 0 auto 18px; border-radius: 3px; background: #535a55; }
+    .pair-visual { height: 170px; display: grid; place-items: center; position: relative; overflow: hidden; border: 1px solid var(--line); border-radius: 22px; background: #111411; }
+    .pair-orbit { position: absolute; width: 150px; height: 150px; border: 1px solid rgba(98,197,159,.2); border-radius: 50%; animation: breathe 2.2s ease-in-out infinite; }
+    .pair-mark { position: relative; display: flex; align-items: center; gap: 18px; }
+    .device { width: 43px; height: 76px; border: 1.5px solid #727a74; border-radius: 12px; background: #1f2421; }
+    .wave { width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid var(--accent); box-shadow: 0 0 0 8px rgba(98,197,159,.05); }
+    .sheet h3 { margin: 18px 0 6px; text-align: center; font-size: 21px; }
+    .sheet p { margin: 0 auto 18px; max-width: 310px; color: var(--muted); text-align: center; font-size: 12px; line-height: 1.6; }
+    .primary { width: 100%; height: 50px; border: 0; border-radius: 17px; background: var(--accent); color: #07110d; font-weight: 850; cursor: pointer; }
+    .secondary { width: 100%; height: 46px; margin-top: 8px; border: 1px solid var(--line); border-radius: 16px; background: transparent; color: var(--muted); cursor: pointer; }
+    .settings { padding: 0 16px 110px; }
+    .settings-group { margin-top: 14px; border: 1px solid var(--line); border-radius: 20px; background: var(--surface); overflow: hidden; }
+    .setting-row { min-height: 58px; padding: 0 14px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .setting-row:last-child { border-bottom:0; }
+    .setting-row span { font-size: 13px; }
+    .setting-row small { color: var(--faint); font-size: 10px; }
+    .toggle { width: 39px; height: 23px; border-radius: 13px; background: #343a36; padding: 3px; }
+    .toggle::after { content:""; display:block; width:17px; height:17px; border-radius:50%; background:#e8ebe8; }
+    .toggle.on { background: #347a62; }
+    .toggle.on::after { margin-left:16px; }
+    .prototype-switcher {
+      position: fixed;
+      z-index: 100;
+      left: 50%;
+      bottom: 20px;
+      transform: translateX(-50%);
+      min-width: 300px;
+      height: 58px;
+      border: 1px solid rgba(255,255,255,.22);
+      border-radius: 29px;
+      background: rgba(6,7,7,.94);
+      box-shadow: 0 18px 45px rgba(0,0,0,.55);
+      display: grid;
+      grid-template-columns: 54px 1fr 54px;
+      align-items: center;
+      backdrop-filter: blur(14px);
+    }
+    .prototype-switcher button { height: 100%; border: 0; background: transparent; cursor: pointer; font-size: 20px; }
+    body:has(.scrim) .prototype-switcher { opacity: 0; pointer-events: none; }
+    .variant-label { text-align: center; }
+    .variant-label strong { display:block; font-size:12px; }
+    .variant-label small { color:#8e9690; font-size:10px; }
+    .variant-badge { display:inline-block; margin-left:5px; padding:2px 5px; border-radius:6px; background:rgba(98,197,159,.16); color:var(--accent); font-size:8px; vertical-align:1px; }
+    @keyframes fade { from { opacity:0; } }
+    @keyframes sheetIn { from { transform: translateY(34px) scale(.985); opacity:.2; } }
+    @keyframes breathe { 50% { transform: scale(1.08); opacity:.5; } }
+
+    /* Variant B — Immersive rooms */
+    body.variant-B { --phone:#090a09; --surface:#141514; --surface-2:#1b1d1b; --accent:#b8d9c8; --accent-soft:rgba(184,217,200,.1); --radius:12px; }
+    .variant-B .topbar { padding-top:18px; min-height:84px; }
+    .variant-B .title-block h2 { font-size:35px; font-weight:550; }
+    .variant-B .online-zone { margin: 0 -16px; padding: 22px 18px 20px; border-top:1px solid var(--line); border-bottom:1px solid var(--line); background:#101210; }
+    .variant-B .online-strip { gap:22px; }
+    .variant-B .online-person { flex-basis:68px; }
+    .variant-B .online-person .avatar { width:62px; height:62px; border-radius:22px; box-shadow:none; }
+    .variant-B .row { min-height:82px; padding:13px 5px; }
+    .variant-B .avatar { border-radius:17px; }
+    .variant-B .nav { inset:auto 0 0; height:74px; border-width:1px 0 0; border-radius:0; background:#0d0e0d; box-shadow:none; }
+    .variant-B .nav button.active { background:transparent; color:var(--accent); }
+    .variant-B .nav button.active::before { content:""; position:absolute; margin-top:-48px; width:26px; height:2px; background:var(--accent); }
+    .variant-B .profile-body { border-radius:0; margin-top:0; background:#090a09; border-top:1px solid var(--line); }
+    .variant-B .profile-avatar { left:24px; transform:none; border-radius:20px; }
+    .variant-B .profile-name, .variant-B .profile-id, .variant-B .profile-state { text-align:left; margin-left:0; margin-right:0; }
+    .variant-B .grid { grid-template-columns:1fr; }
+    .variant-B .tile { min-height:66px; border-width:0 0 1px; border-radius:0; background:transparent; flex-direction:row; align-items:center; }
+    .variant-B .tile small { margin-left:auto; }
+
+    /* Variant C — Carbon editorial */
+    body.variant-C { --phone:#111318; --surface:#191c22; --surface-2:#22262d; --surface-3:#2b3038; --accent:#88b9a6; --accent-soft:rgba(136,185,166,.13); --line:rgba(225,233,229,.11); }
+    .variant-C .topbar { align-items:flex-end; min-height:102px; border-bottom:1px solid var(--line); }
+    .variant-C .title-block small { color:var(--accent); }
+    .variant-C .title-block h2 { font-size:42px; font-weight:800; letter-spacing:-.055em; }
+    .variant-C .section-head { padding-bottom:7px; border-bottom:1px solid var(--line); }
+    .variant-C .online-strip { display:grid; grid-template-columns:1fr 1fr; gap:8px; overflow:visible; }
+    .variant-C .online-person { width:auto; height:62px; padding:7px 10px; border:1px solid var(--line); border-radius:16px; background:var(--surface); display:flex; align-items:center; gap:10px; text-align:left; }
+    .variant-C .online-person .avatar { width:42px; height:42px; margin:0; box-shadow:none; }
+    .variant-C .online-person span { margin:0; }
+    .variant-C .row { padding:12px 3px; }
+    .variant-C .avatar { width:42px; height:42px; }
+    .variant-C .nav { border-radius:16px; }
+    .variant-C .nav button.active { box-shadow:inset 0 0 0 1px rgba(136,185,166,.22); }
+    .variant-C .profile-cover { height:235px; }
+    .variant-C .profile-body { margin-top:-20px; border-radius:20px 20px 0 0; padding-top:78px; }
+    .variant-C .profile-avatar { left:22px; transform:none; width:86px; height:86px; border-radius:22px; }
+    .variant-C .profile-name, .variant-C .profile-id, .variant-C .profile-state { text-align:left; margin-left:0; margin-right:0; }
+    .variant-C .grid { gap:1px; border:1px solid var(--line); border-radius:18px; overflow:hidden; background:var(--line); }
+    .variant-C .tile { border:0; border-radius:0; background:var(--surface); }
+
+    @media (max-width: 900px) {
+      body { padding: 0; display:block; background:#050606; }
+      .stage { display:block; width:100%; }
+      .notes { display:none; }
+      .phone { width:100%; height:100dvh; max-height:none; padding:0; border:0; border-radius:0; box-shadow:none; }
+      .phone::before { top:8px; }
+      .screen { border-radius:0; }
+      .prototype-switcher { bottom: 12px; transform:translateX(-50%) scale(.88); transform-origin:bottom center; }
+      .nav { bottom:76px; }
+      .view { padding-bottom:148px; }
+      .composer { bottom:76px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; scroll-behavior:auto !important; }
+    }
+  </style>
+</head>
+<body>
+  <main class="stage">
+    <aside class="notes">
+      <div class="eyebrow">KIN · DARK SYSTEM STUDY</div>
+      <h1 id="directionTitle">Graphite Flow</h1>
+      <p id="directionCopy">哑光石墨层级配合克制的 Kin 绿，让在线关系成为唯一亮点。适合长期使用，也是推荐的正式方向。</p>
+      <div class="notes-list" id="directionNotes"></div>
+    </aside>
+
+    <div class="phone" aria-label="Kin 深色主题手机界面原型">
+      <div class="screen">
+        <div class="statusbar"><span>9:41</span><span class="status-icons"><i class="signal"></i><i class="battery"></i></span></div>
+        <div class="app" id="app"></div>
+      </div>
+    </div>
+
+    <aside class="notes right">
+      <div class="eyebrow">可交互 Demo</div>
+      <p>点击手机内底部导航查看会话、通讯录和个人页面。点击好友进入聊天；点击右上角图标打开碰一碰弹窗。</p>
+      <div class="notes-list">
+        <div class="note-item"><span class="note-index">01</span><span>左右箭头或键盘方向键切换三套方案。</span></div>
+        <div class="note-item"><span class="note-index">02</span><span>三套方案结构不同，不只是颜色差异。</span></div>
+        <div class="note-item"><span class="note-index">03</span><span>原型只用于选择方向，不是生产代码。</span></div>
+      </div>
+    </aside>
+  </main>
+
+  <div class="prototype-switcher" aria-label="原型方案切换器">
+    <button type="button" id="prevVariant" aria-label="上一套方案">←</button>
+    <div class="variant-label"><strong id="variantLabel"></strong><small>使用 ← → 切换</small></div>
+    <button type="button" id="nextVariant" aria-label="下一套方案">→</button>
+  </div>
+
+  <script>
+    const variants = {
+      A: {
+        name: "Graphite Flow",
+        recommended: true,
+        copy: "哑光石墨层级配合克制的 Kin 绿，让在线关系成为唯一亮点。适合长期使用，也是推荐的正式方向。",
+        notes: ["圆形头像保留亲密感", "悬浮底栏强调三个核心入口", "Profile Card 延续已确认的深色封面结构"]
+      },
+      B: {
+        name: "Obsidian Rooms",
+        copy: "更深、更沉浸，把在线好友设计成进入不同关系房间的入口。视觉个性强，但整体会更冷静、更硬朗。",
+        notes: ["方圆头像像独立房间", "全宽底栏更接近系统工具", "个人页改为纵向功能清单"]
+      },
+      C: {
+        name: "Carbon Editorial",
+        copy: "以大字号、细分隔线和紧凑信息组织深色界面。效率最高，适合联系人较多，但亲密感弱于 A。",
+        notes: ["大标题形成强烈页面识别", "在线好友使用双列信息模块", "个人功能保持两列但更规整"]
+      }
+    };
+    const people = [
+      { id:"momo", name:"Momo", initial:"M", cls:"a1", online:true, preview:"刚刚上线", time:"现在", unread:2 },
+      { id:"lin", name:"林迟", initial:"林", cls:"a2", online:true, preview:"明天下午三点见", time:"23:18", unread:0 },
+      { id:"chen", name:"陈默", initial:"陈", cls:"a3", online:false, preview:"[语音] 8″", time:"昨天", unread:0 },
+      { id:"yu", name:"余声", initial:"余", cls:"a4", online:false, preview:"到家告诉我", time:"周二", unread:1 }
+    ];
+    let variant = new URLSearchParams(location.search).get("variant") || "A";
+    if (!variants[variant]) variant = "A";
+    let route = "chats";
+
+    const icons = {
+      chat: '<svg class="icon" viewBox="0 0 24 24"><path d="M5 18.5 3.5 21l4.1-1.1A9 9 0 1 0 5 18.5Z"/><path d="M8 10h8M8 14h5"/></svg>',
+      contacts: '<svg class="icon" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3.5 19c.6-3.3 2.4-5 5.5-5s4.9 1.7 5.5 5M16 7h5M18.5 4.5v5"/></svg>',
+      user: '<svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5.5 20c.8-4.1 2.9-6.2 6.5-6.2s5.7 2.1 6.5 6.2"/></svg>',
+      bump: '<svg class="icon" viewBox="0 0 24 24"><rect x="3" y="6" width="6" height="12" rx="2"/><rect x="15" y="6" width="6" height="12" rx="2"/><path d="M11 9c1.2 1 1.2 5 0 6M13 8c1.8 1.5 1.8 6.5 0 8"/></svg>',
+      search: '<svg class="icon" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg>',
+      back: '<svg class="icon" viewBox="0 0 24 24"><path d="m15 5-7 7 7 7"/></svg>',
+      dots: '<svg class="icon" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1" fill="currentColor" stroke="none"/></svg>',
+      card: '<svg class="icon" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><circle cx="9" cy="11" r="2"/><path d="M6.5 16c.4-1.8 1.2-2.7 2.5-2.7s2.1.9 2.5 2.7M14 10h4M14 14h4"/></svg>',
+      bell: '<svg class="icon" viewBox="0 0 24 24"><path d="M6 17h12l-1.5-2.5V10a4.5 4.5 0 0 0-9 0v4.5L6 17Z"/><path d="M10 20h4"/></svg>',
+      lock: '<svg class="icon" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="3"/><path d="M8.5 10V7.5a3.5 3.5 0 0 1 7 0V10"/></svg>',
+      data: '<svg class="icon" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/></svg>',
+      help: '<svg class="icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.8 9a2.4 2.4 0 1 1 3 2.3c-.8.3-1.3.8-1.3 1.7v.3M12 17h.01"/></svg>',
+      edit: '<svg class="icon" viewBox="0 0 24 24"><path d="m4 20 4.2-1 10.7-10.7a2.1 2.1 0 0 0-3-3L5.2 16 4 20Z"/><path d="m14.5 6.7 3 3"/></svg>'
+    };
+
+    function nav(active) {
+      return `<nav class="nav">
+        <button class="${active==='chats'?'active':''}" data-route="chats">${icons.chat}<span class="nav-label">会话</span></button>
+        <button class="${active==='contacts'?'active':''}" data-route="contacts">${icons.contacts}<span class="nav-label">通讯录</span></button>
+        <button class="${active==='profile'?'active':''}" data-route="profile">${icons.user}<span class="nav-label">我的</span></button>
+      </nav>`;
+    }
+    function personAvatar(p) { return `<div class="avatar-wrap"><div class="avatar ${p.cls}">${p.initial}</div><i class="presence ${p.online?'online':''}"></i></div>`; }
+    function row(p, contact=false) {
+      return `<button class="row ${contact?'contact-row':''}" data-chat="${p.id}">${personAvatar(p)}<span class="row-main"><span class="row-top"><span class="name">${p.name}</span><span class="time">${contact?(p.online?'Online':'Offline'):p.time}</span></span><span class="preview">${contact?(p.online?'可以实时聊天':'消息将在上线后送达'):p.preview}</span></span>${p.unread&&!contact?`<span class="unread">${p.unread}</span>`:''}</button>`;
+    }
+    function topbar(kicker, title) {
+      return `<header class="topbar"><div class="title-block"><small>${kicker}</small><h2>${title}</h2></div><button class="icon-btn" data-sheet="pair" aria-label="开启碰一碰">${icons.bump}</button></header>`;
+    }
+    function chatsView() {
+      const online = people.filter(p=>p.online);
+      const offline = people.filter(p=>!p.online);
+      return `<section class="view">${topbar('只和见过的人聊天','会话')}
+        <div class="content">
+          <section class="section online-zone"><div class="section-head"><h3>Online</h3><span>${online.length} 人</span></div><div class="online-strip">${online.map(p=>`<button class="online-person" data-chat="${p.id}">${personAvatar(p)}<span>${p.name}</span></button>`).join('')}</div></section>
+          <section class="section"><div class="section-head"><h3>最近会话</h3><span>本机记录</span></div>${people.map(p=>row(p)).join('')}</section>
+          <section class="section"><div class="section-head"><h3>Offline</h3><span>${offline.length} 人</span></div>${offline.map(p=>row(p)).join('')}</section>
+        </div>${nav('chats')}</section>`;
+    }
+    function contactsView() {
+      return `<section class="view">${topbar('你真正见过的人','通讯录')}<label class="search">${icons.search}<input aria-label="搜索通讯录" placeholder="搜索昵称或用户名" /></label><div class="content"><div class="alpha">L</div>${row(people[1],true)}<div class="alpha">M</div>${row(people[0],true)}<div class="alpha">Y</div>${row(people[3],true)}<div class="alpha">Z</div>${row(people[2],true)}</div>${nav('contacts')}</section>`;
+    }
+    function tile(icon,title,small,action='') { return `<button class="tile" ${action?`data-action="${action}"`:''}>${icon}<strong>${title}</strong><small>${small}</small></button>`; }
+    function profileView() {
+      return `<section class="view"><div class="profile-cover"><div class="cover-field one"></div><div class="cover-field two"></div><div class="cover-lines"></div><div class="profile-top-actions"><button class="icon-btn" aria-label="编辑封面">${icons.edit}</button><button class="icon-btn" data-action="settings" aria-label="打开设置">${icons.dots}</button></div></div><div class="profile-body"><div class="avatar profile-avatar a1">K</div><div class="profile-name">Freedom</div><div class="profile-id">@freedom0213</div><div class="profile-state">Online</div><div class="grid">${tile(icons.card,'我的名片','预览展示效果')}${tile(icons.user,'个人资料','头像、背景与签名')}${tile(icons.bell,'通知与状态','声音与在线状态')}${tile(icons.lock,'账户与安全','设备与密码','settings')}${tile(icons.data,'聊天数据','导入、导出与存储')}${tile(icons.help,'帮助与法律','隐私与关于 Kin')}</div></div>${nav('profile')}</section>`;
+    }
+    function chatView(id) {
+      const p=people.find(x=>x.id===id)||people[0];
+      return `<section class="view chat"><header class="chat-head"><button class="back" data-back="chats" aria-label="返回会话">${icons.back}</button>${personAvatar(p)}<div class="chat-person"><strong>${p.name}</strong><small>${p.online?'Online':'Offline'}</small></div><button class="icon-btn" aria-label="更多">${icons.dots}</button></header><div class="messages"><div class="bubble other">今天的 APK 测试怎么样？<time>22:46</time></div><div class="bubble mine">基础聊天已经能用了，我正在调整界面。<time>22:47 ✓✓</time></div><div class="bubble other">那等你做好，我们碰一碰试试。<time>22:48</time></div><div class="bubble mine">好，这次会让整个流程更自然。<time>22:49 ✓✓</time></div></div><div class="composer"><button class="icon-btn" aria-label="切换语音">${icons.bump}</button><div class="field">说点什么…</div><button class="send">发送</button></div></section>`;
+    }
+    function settingsView() {
+      return `<section class="view"><header class="topbar"><button class="back" data-back="profile">${icons.back}</button><div class="title-block"><small>Kin</small><h2>设置</h2></div><span style="width:44px"></span></header><div class="settings"><div class="section-head"><h3>通知与状态</h3></div><div class="settings-group"><div class="setting-row"><span>消息提示音<br><small>收到好友消息时提醒</small></span><i class="toggle on"></i></div><div class="setting-row"><span>好友上线提示<br><small>稳定上线后提醒</small></span><i class="toggle"></i></div></div><div class="section-head" style="margin-top:24px"><h3>安全与数据</h3></div><div class="settings-group"><div class="setting-row"><span>端到端加密<br><small>仅你和对方可读取</small></span><small>已保护</small></div><div class="setting-row"><span>聊天数据<br><small>导入、导出与本机存储</small></span><small>›</small></div></div></div></section>`;
+    }
+    function pairSheet() {
+      return `<div class="scrim" data-close-sheet><div class="sheet" role="dialog" aria-modal="true" aria-label="碰一碰"><div class="grabber"></div><div class="pair-visual"><div class="pair-orbit"></div><div class="pair-mark"><i class="device"></i><i class="wave"></i><i class="device"></i></div></div><h3>开启碰一碰</h3><p>请让对方也开启碰一碰，然后将两台手机背面靠近。只有双方确认后才会成为好友。</p><button class="primary">开启碰一碰</button><button class="secondary" data-close-sheet>暂不</button></div></div>`;
+    }
+    function render() {
+      document.body.className = `variant-${variant}`;
+      const app=document.getElementById('app');
+      if(route==='chats') app.innerHTML=chatsView();
+      else if(route==='contacts') app.innerHTML=contactsView();
+      else if(route==='profile') app.innerHTML=profileView();
+      else if(route==='settings') app.innerHTML=settingsView();
+      else if(route.startsWith('chat:')) app.innerHTML=chatView(route.split(':')[1]);
+      const meta=variants[variant];
+      document.getElementById('directionTitle').textContent=meta.name;
+      document.getElementById('directionCopy').textContent=meta.copy;
+      document.getElementById('directionNotes').innerHTML=meta.notes.map((n,i)=>`<div class="note-item"><span class="note-index">0${i+1}</span><span>${n}</span></div>`).join('');
+      document.getElementById('variantLabel').innerHTML=`${variant} — ${meta.name}${meta.recommended?'<span class="variant-badge">推荐</span>':''}`;
+      bind();
+    }
+    function bind() {
+      document.querySelectorAll('[data-route]').forEach(el=>el.onclick=()=>{route=el.dataset.route;render();});
+      document.querySelectorAll('[data-chat]').forEach(el=>el.onclick=()=>{route=`chat:${el.dataset.chat}`;render();});
+      document.querySelectorAll('[data-back]').forEach(el=>el.onclick=()=>{route=el.dataset.back;render();});
+      document.querySelectorAll('[data-sheet]').forEach(el=>el.onclick=()=>{document.getElementById('app').insertAdjacentHTML('beforeend',pairSheet());bindSheet();});
+      document.querySelectorAll('[data-action="settings"]').forEach(el=>el.onclick=()=>{route='settings';render();});
+    }
+    function bindSheet(){ document.querySelectorAll('[data-close-sheet]').forEach(el=>el.onclick=(e)=>{if(e.target===el || el.tagName==='BUTTON') document.querySelector('.scrim')?.remove();}); }
+    function setVariant(next){ variant=next; const url=new URL(location.href); url.searchParams.set('variant',variant); history.replaceState({},'',url); render(); }
+    function cycle(delta){ const keys=Object.keys(variants); const i=keys.indexOf(variant); setVariant(keys[(i+delta+keys.length)%keys.length]); }
+    document.getElementById('prevVariant').onclick=()=>cycle(-1);
+    document.getElementById('nextVariant').onclick=()=>cycle(1);
+    document.addEventListener('keydown',e=>{ if(['INPUT','TEXTAREA'].includes(document.activeElement.tagName)) return; if(e.key==='ArrowLeft') cycle(-1); if(e.key==='ArrowRight') cycle(1); });
+    render();
+  </script>
+</body>
+</html>
