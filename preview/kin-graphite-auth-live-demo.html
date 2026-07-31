@@ -1,0 +1,596 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Kin Graphite Flow · 登录注册在线 Demo</title>
+  <!--
+    PROTOTYPE — throwaway interactive preview, not production code.
+    Question: What do the completed password controls feel like inside the approved Graphite Flow theme?
+    Run: cd preview && npm run dev
+    Route: /kin-graphite-auth-live-demo.html?screen=login|register
+  -->
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif;
+      --page: #080a09;
+      --phone: #0f1210;
+      --surface: #171b18;
+      --surface-strong: #1d221e;
+      --surface-pressed: #242a25;
+      --line: rgba(235, 242, 237, .11);
+      --line-strong: rgba(235, 242, 237, .2);
+      --text: #f1f4f1;
+      --muted: #a3aca6;
+      --faint: #737c76;
+      --green: #69c8a4;
+      --green-strong: #8edabb;
+      --green-ink: #07120d;
+      --green-soft: rgba(105, 200, 164, .13);
+      --danger: #e59087;
+      --shadow: rgba(0, 0, 0, .56);
+    }
+
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    html { min-height: 100%; background: var(--page); }
+    body {
+      min-height: 100vh;
+      margin: 0;
+      padding: 32px 22px 108px;
+      color: var(--text);
+      background: var(--page);
+      overflow-x: hidden;
+    }
+    body::before,
+    body::after {
+      content: "";
+      position: fixed;
+      z-index: 0;
+      width: 360px;
+      height: 360px;
+      border-radius: 50%;
+      filter: blur(110px);
+      pointer-events: none;
+      opacity: .16;
+    }
+    body::before { top: -120px; left: -120px; background: #567a69; }
+    body::after { right: -130px; bottom: -120px; background: #2f5948; }
+    button, input { font: inherit; }
+    button { color: inherit; }
+
+    .workspace {
+      position: relative;
+      z-index: 1;
+      width: min(1180px, 100%);
+      min-height: calc(100vh - 140px);
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: minmax(260px, 1fr) 390px minmax(260px, 1fr);
+      align-items: center;
+      gap: 52px;
+    }
+    .brief { max-width: 340px; }
+    .brief.right { justify-self: end; }
+    .kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--green-strong);
+      font-size: 12px;
+      font-weight: 760;
+    }
+    .kicker::before { content: ""; width: 16px; height: 1px; background: currentColor; }
+    .brief h1 {
+      max-width: 320px;
+      margin: 15px 0 18px;
+      font-size: clamp(32px, 4vw, 52px);
+      line-height: 1.02;
+      letter-spacing: -.045em;
+    }
+    .brief > p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.75; }
+    .status-card {
+      margin-top: 28px;
+      padding: 18px 0;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+    }
+    .status-row { display: flex; align-items: flex-start; gap: 11px; }
+    .status-row + .status-row { margin-top: 15px; }
+    .status-dot { width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 5px var(--green-soft); }
+    .status-dot.pending { background: var(--faint); box-shadow: none; }
+    .status-copy strong { display: block; font-size: 13px; }
+    .status-copy span { display: block; margin-top: 3px; color: var(--faint); font-size: 11px; line-height: 1.5; }
+
+    .phone {
+      position: relative;
+      width: 390px;
+      height: min(844px, calc(100vh - 72px));
+      min-height: 670px;
+      padding: 10px;
+      border: 1px solid rgba(255, 255, 255, .2);
+      border-radius: 49px;
+      background: #050606;
+      box-shadow: 0 36px 110px var(--shadow), 0 0 0 5px #252a26;
+    }
+    .phone::before {
+      content: "";
+      position: absolute;
+      z-index: 8;
+      top: 17px;
+      left: 50%;
+      width: 116px;
+      height: 30px;
+      border-radius: 18px;
+      background: #050505;
+      transform: translateX(-50%);
+    }
+    .screen {
+      position: relative;
+      height: 100%;
+      overflow: hidden;
+      border-radius: 39px;
+      background: var(--phone);
+      isolation: isolate;
+    }
+    .screen::before,
+    .screen::after {
+      content: "";
+      position: absolute;
+      z-index: -1;
+      border-radius: 50%;
+      filter: blur(68px);
+      opacity: .18;
+      transition: transform .7s cubic-bezier(.2, .8, .2, 1);
+    }
+    .screen::before { width: 260px; height: 260px; top: 70px; right: -150px; background: #65957f; }
+    .screen::after { width: 210px; height: 210px; left: -130px; bottom: 70px; background: #345c4c; }
+    .screen.registering::before { transform: translate(-40px, 85px) scale(1.08); }
+    .screen.registering::after { transform: translate(80px, -90px) scale(.9); }
+    .statusbar {
+      height: 48px;
+      padding: 13px 23px 0;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      font-size: 12px;
+      font-weight: 750;
+    }
+    .status-icons { display: flex; align-items: center; gap: 6px; }
+    .signal { width: 13px; height: 8px; border-bottom: 2px solid currentColor; border-radius: 50%; }
+    .battery { position: relative; width: 18px; height: 9px; border: 1px solid currentColor; border-radius: 3px; }
+    .battery::before { content: ""; position: absolute; inset: 2px; width: 10px; border-radius: 1px; background: currentColor; }
+    .battery::after { content: ""; position: absolute; right: -3px; top: 2px; width: 2px; height: 4px; background: currentColor; }
+    .auth-scroll {
+      height: calc(100% - 48px);
+      overflow-y: auto;
+      scrollbar-width: none;
+      padding: 24px 25px 34px;
+    }
+    .auth-scroll::-webkit-scrollbar { display: none; }
+    .brand-mark {
+      width: 54px;
+      height: 54px;
+      display: grid;
+      place-items: center;
+      border: 1px solid rgba(105, 200, 164, .28);
+      border-radius: 18px;
+      color: var(--green-strong);
+      background: var(--green-soft);
+      font-size: 24px;
+      font-weight: 820;
+      letter-spacing: -.06em;
+    }
+    .auth-heading { margin-top: 27px; }
+    .auth-heading h2 { margin: 0; font-size: 31px; line-height: 1.08; letter-spacing: -.04em; }
+    .auth-heading p { margin: 9px 0 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
+    .mode-switch {
+      margin: 27px 0 22px;
+      padding: 4px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      border: 1px solid var(--line);
+      border-radius: 15px;
+      background: rgba(23, 27, 24, .72);
+    }
+    .mode-switch button {
+      min-height: 39px;
+      border: 0;
+      border-radius: 11px;
+      background: transparent;
+      color: var(--faint);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 720;
+    }
+    .mode-switch button.active { color: var(--text); background: var(--surface-pressed); box-shadow: 0 5px 14px rgba(0, 0, 0, .2); }
+    .field { margin-top: 15px; }
+    .field-head { min-height: 20px; margin: 0 3px 7px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .field-head label { font-size: 12px; font-weight: 670; }
+    .field-head span { color: var(--faint); font-size: 10px; }
+    .input-shell {
+      min-height: 52px;
+      display: flex;
+      align-items: center;
+      border: 1px solid var(--line);
+      border-radius: 15px;
+      background: rgba(23, 27, 24, .92);
+      transition: border-color .18s ease, background .18s ease, box-shadow .18s ease;
+    }
+    .input-shell:focus-within { border-color: rgba(105, 200, 164, .62); background: var(--surface-strong); box-shadow: 0 0 0 3px rgba(105, 200, 164, .08); }
+    .input-shell.invalid { border-color: rgba(229, 144, 135, .55); }
+    .field-icon { width: 45px; display: grid; place-items: center; color: var(--faint); }
+    .field-icon svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+    .input-shell input {
+      flex: 1;
+      min-width: 0;
+      height: 50px;
+      padding: 0 4px 0 0;
+      border: 0;
+      outline: 0;
+      color: var(--text);
+      caret-color: var(--green);
+      background: transparent;
+      font-size: 14px;
+    }
+    .input-shell input::placeholder { color: #737d76; opacity: 1; }
+    .input-shell input::selection { color: #06110c; background: var(--green-strong); }
+    .visibility {
+      width: 46px;
+      height: 46px;
+      border: 0;
+      border-radius: 13px;
+      display: grid;
+      place-items: center;
+      color: var(--muted);
+      background: transparent;
+      cursor: pointer;
+    }
+    .visibility:hover { color: var(--text); background: rgba(255, 255, 255, .035); }
+    .visibility:active { transform: scale(.94); }
+    .visibility svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+    .rules { margin-top: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+    .rule { display: flex; align-items: center; gap: 7px; color: var(--faint); font-size: 10px; }
+    .rule::before { content: ""; width: 6px; height: 6px; border-radius: 50%; border: 1px solid currentColor; }
+    .rule.ok { color: var(--green); }
+    .rule.ok::before { border-color: var(--green); background: var(--green); box-shadow: 0 0 0 3px var(--green-soft); }
+    .error-line { min-height: 19px; margin: 8px 3px 0; color: var(--danger); font-size: 10px; line-height: 1.5; }
+    .primary {
+      width: 100%;
+      min-height: 53px;
+      margin-top: 13px;
+      border: 0;
+      border-radius: 16px;
+      color: var(--green-ink);
+      background: var(--green);
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 820;
+      box-shadow: 0 13px 28px rgba(0, 0, 0, .34);
+      transition: transform .16s ease, background .16s ease, opacity .16s ease;
+    }
+    .primary:hover { background: var(--green-strong); }
+    .primary:active { transform: scale(.985); }
+    .primary:disabled { opacity: .5; cursor: not-allowed; box-shadow: none; }
+    .privacy { margin: 14px 10px 0; color: var(--faint); font-size: 9px; line-height: 1.6; text-align: center; }
+    .test-accounts { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--line); }
+    .test-accounts > span { color: var(--faint); font-size: 10px; }
+    .account-list { margin-top: 10px; display: flex; gap: 7px; flex-wrap: wrap; }
+    .account-chip { min-height: 34px; padding: 0 11px; border: 1px solid var(--line); border-radius: 11px; color: var(--muted); background: transparent; cursor: pointer; font-size: 10px; }
+    .account-chip:hover { border-color: var(--line-strong); color: var(--text); background: var(--surface); }
+    .success-view {
+      position: absolute;
+      inset: 48px 0 0;
+      z-index: 5;
+      padding: 42px 25px 30px;
+      display: none;
+      background: var(--phone);
+    }
+    .success-view.show { display: block; animation: reveal .5s cubic-bezier(.16, 1, .3, 1) both; }
+    .success-orbit { position: relative; width: 120px; height: 120px; margin: 72px auto 28px; }
+    .success-orbit::before,
+    .success-orbit::after { content: ""; position: absolute; top: 50%; width: 68px; height: 68px; border-radius: 50%; transform: translateY(-50%); }
+    .success-orbit::before { left: 0; background: #31453c; }
+    .success-orbit::after { right: 0; background: #4f8b73; mix-blend-mode: screen; }
+    .success-mark { position: absolute; z-index: 2; inset: 0; display: grid; place-items: center; color: var(--text); font-size: 25px; }
+    .success-view h3 { margin: 0; text-align: center; font-size: 25px; letter-spacing: -.035em; }
+    .success-view p { margin: 10px auto 0; max-width: 260px; color: var(--muted); text-align: center; font-size: 12px; line-height: 1.7; }
+    .success-preview { margin-top: 36px; border-top: 1px solid var(--line); }
+    .preview-row { min-height: 70px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--line); }
+    .avatar { width: 43px; height: 43px; display: grid; place-items: center; border-radius: 50%; color: #dfe8e2; background: #30473e; font-size: 12px; font-weight: 760; }
+    .preview-copy { flex: 1; min-width: 0; }
+    .preview-copy strong { display: block; font-size: 12px; }
+    .preview-copy span { display: block; margin-top: 4px; color: var(--faint); font-size: 10px; }
+    .online-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+    .back-demo { width: 100%; min-height: 46px; margin-top: 25px; border: 1px solid var(--line); border-radius: 14px; color: var(--muted); background: var(--surface); cursor: pointer; }
+
+    .feature-list { margin-top: 26px; display: grid; gap: 17px; }
+    .feature { padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+    .feature:last-child { border-bottom: 0; }
+    .feature strong { display: flex; align-items: center; gap: 9px; font-size: 13px; }
+    .feature strong::before { content: "✓"; color: var(--green); }
+    .feature p { margin: 5px 0 0 25px; color: var(--faint); font-size: 11px; line-height: 1.55; }
+    .demo-note { margin-top: 22px; padding: 14px 15px; border: 1px solid var(--line); border-radius: 15px; color: var(--muted); background: rgba(23, 27, 24, .54); font-size: 11px; line-height: 1.65; }
+
+    .demo-switcher {
+      position: fixed;
+      z-index: 20;
+      left: 50%;
+      bottom: 22px;
+      min-height: 50px;
+      padding: 5px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      border: 1px solid rgba(255, 255, 255, .16);
+      border-radius: 18px;
+      background: #eef2ef;
+      color: #151a17;
+      box-shadow: 0 16px 42px rgba(0, 0, 0, .48);
+      transform: translateX(-50%);
+    }
+    .demo-switcher button { min-width: 92px; height: 40px; padding: 0 14px; border: 0; border-radius: 13px; color: #56605a; background: transparent; cursor: pointer; font-size: 11px; font-weight: 760; }
+    .demo-switcher button.active { color: #07120d; background: #86d5b5; }
+    .demo-switcher .open-full { min-width: auto; border-left: 1px solid #d5dbd7; border-radius: 0 13px 13px 0; }
+
+    @keyframes reveal {
+      from { opacity: 0; transform: translateY(16px); filter: blur(7px); }
+      to { opacity: 1; transform: translateY(0); filter: blur(0); }
+    }
+    @media (max-width: 980px) {
+      .workspace { grid-template-columns: 1fr 390px; gap: 38px; }
+      .brief.right { display: none; }
+    }
+    @media (max-width: 720px) {
+      body { padding: 18px 0 94px; }
+      .workspace { min-height: auto; display: block; }
+      .brief { display: none; }
+      .phone { width: min(390px, 100%); height: calc(100vh - 112px); min-height: 650px; margin: auto; border-radius: 42px; box-shadow: none; }
+      .screen { border-radius: 33px; }
+      .auth-scroll { padding-bottom: 104px; }
+      .demo-switcher { bottom: 14px; width: calc(100% - 24px); justify-content: center; }
+      .demo-switcher button { flex: 1; min-width: 0; }
+      .demo-switcher .open-full { display: none; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <main class="workspace">
+    <section class="brief">
+      <div class="kicker">Graphite Flow · 交互预览</div>
+      <h1>高级黑不是以后再看，而是现在就能体验。</h1>
+      <p>正式 App 仍按风险顺序逐项改造；这个在线 Demo 把已完成的密码功能放进最终方案 A 中，让你提前判断完整体验。</p>
+      <div class="status-card" aria-label="当前开发进度">
+        <div class="status-row">
+          <span class="status-dot"></span>
+          <div class="status-copy"><strong>密码功能已完成</strong><span>颜色、显隐、焦点、点击区域与无障碍均已进入正式代码。</span></div>
+        </div>
+        <div class="status-row">
+          <span class="status-dot pending"></span>
+          <div class="status-copy"><strong>全局主题尚未迁移</strong><span>登录、注册及其他页面仍会在后续统一切换到 Graphite Flow。</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="phone" aria-label="Kin 登录注册手机预览">
+      <div class="screen" id="screen">
+        <div class="statusbar"><span>9:41</span><span class="status-icons"><i class="signal"></i><span>5G</span><i class="battery"></i></span></div>
+        <div class="auth-scroll" id="authView">
+          <div class="brand-mark">K</div>
+          <header class="auth-heading">
+            <h2 id="heading">回到 Kin</h2>
+            <p id="subheading">登录后，只与你在现实中见过的人继续聊天。</p>
+          </header>
+
+          <nav class="mode-switch" aria-label="登录注册切换">
+            <button type="button" data-mode="login" class="active">登录</button>
+            <button type="button" data-mode="register">注册</button>
+          </nav>
+
+          <form id="authForm" novalidate>
+            <div class="field">
+              <div class="field-head"><label for="username">用户名</label><span id="usernameCount">0 / 16</span></div>
+              <div class="input-shell" id="usernameShell">
+                <span class="field-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"></circle><path d="M4.5 20c.9-4 3.4-6 7.5-6s6.6 2 7.5 6"></path></svg></span>
+                <input id="username" name="username" type="text" maxlength="16" autocomplete="username" placeholder="输入用户名" />
+              </div>
+            </div>
+
+            <div class="field">
+              <div class="field-head"><label for="password">密码</label><span id="passwordCount">0 位</span></div>
+              <div class="input-shell" id="passwordShell">
+                <span class="field-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="10" rx="3"></rect><path d="M8 10V7.5a4 4 0 0 1 8 0V10"></path></svg></span>
+                <input id="password" name="password" type="password" maxlength="32" autocomplete="current-password" placeholder="输入密码" />
+                <button class="visibility" type="button" data-target="password" aria-label="显示密码"></button>
+              </div>
+              <div class="rules" id="rules" hidden>
+                <span class="rule" data-rule="length">8–32 位</span>
+                <span class="rule" data-rule="letter">包含字母</span>
+                <span class="rule" data-rule="number">包含数字</span>
+                <span class="rule" data-rule="match">两次一致</span>
+              </div>
+            </div>
+
+            <div class="field" id="confirmField" hidden>
+              <div class="field-head"><label for="confirmPassword">确认密码</label><span>再次输入</span></div>
+              <div class="input-shell" id="confirmShell">
+                <span class="field-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m7 12 3 3 7-7"></path><circle cx="12" cy="12" r="9"></circle></svg></span>
+                <input id="confirmPassword" name="confirmPassword" type="password" maxlength="32" autocomplete="new-password" placeholder="再次输入密码" />
+                <button class="visibility" type="button" data-target="confirmPassword" aria-label="显示密码"></button>
+              </div>
+            </div>
+
+            <div class="error-line" id="errorLine" role="status" aria-live="polite"></div>
+            <button class="primary" id="submitButton" type="submit">登录 Kin</button>
+            <p class="privacy" id="privacy">测试阶段暂不提供密码找回，请使用开发测试账号。</p>
+          </form>
+
+          <div class="test-accounts" id="testAccounts">
+            <span>快速填入开发测试账号</span>
+            <div class="account-list">
+              <button class="account-chip" type="button" data-account="01">kin_test_01</button>
+              <button class="account-chip" type="button" data-account="02">kin_test_02</button>
+              <button class="account-chip" type="button" data-account="03">kin_test_03</button>
+            </div>
+          </div>
+        </div>
+
+        <section class="success-view" id="successView" aria-live="polite">
+          <div class="success-orbit"><span class="success-mark">✓</span></div>
+          <h3 id="successTitle">欢迎回来</h3>
+          <p id="successCopy">身份已确认，正在进入只属于真实关系的会话空间。</p>
+          <div class="success-preview">
+            <div class="preview-row"><span class="avatar">林</span><span class="preview-copy"><strong>林屿</strong><span>刚刚上线</span></span><i class="online-dot"></i></div>
+            <div class="preview-row"><span class="avatar">周</span><span class="preview-copy"><strong>周末</strong><span>上次会话 · 昨天 22:18</span></span></div>
+          </div>
+          <button class="back-demo" type="button" id="backDemo">返回继续体验</button>
+        </section>
+      </div>
+    </section>
+
+    <aside class="brief right">
+      <div class="kicker">本页可操作</div>
+      <div class="feature-list">
+        <div class="feature"><strong>登录 / 注册实时切换</strong><p>URL 会同步为 screen=login 或 screen=register，可直接分享当前状态。</p></div>
+        <div class="feature"><strong>密码显隐与选区颜色</strong><p>眼睛按钮不会清空输入，字符、光标和选中颜色均按高级黑主题明确设置。</p></div>
+        <div class="feature"><strong>注册规则即时反馈</strong><p>长度、字母、数字及两次密码一致状态会随输入更新。</p></div>
+        <div class="feature"><strong>模拟登录成功过渡</strong><p>提交后可观察 Graphite Flow 从身份验证进入会话空间的情绪节奏。</p></div>
+      </div>
+      <div class="demo-note">这是视觉和交互原型，不会连接真实后端，也不会保存你输入的内容。</div>
+    </aside>
+  </main>
+
+  <div class="demo-switcher" aria-label="Demo 页面切换">
+    <button type="button" data-switch="login" class="active">登录体验</button>
+    <button type="button" data-switch="register">注册体验</button>
+    <button type="button" class="open-full" id="openFullTheme">完整主题样本 ↗</button>
+  </div>
+
+  <script>
+    const eyeOpen = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z"></path><circle cx="12" cy="12" r="2.5"></circle></svg>';
+    const eyeClosed = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3 21 21"></path><path d="M10.6 6.2A10.3 10.3 0 0 1 12 6c6 0 9.5 6 9.5 6a16 16 0 0 1-2.3 3.1"></path><path d="M6.1 6.1C3.8 7.7 2.5 12 2.5 12s3.5 6 9.5 6a9.8 9.8 0 0 0 4-.8"></path></svg>';
+    const state = { mode: 'login', loading: false };
+    const screen = document.querySelector('#screen');
+    const heading = document.querySelector('#heading');
+    const subheading = document.querySelector('#subheading');
+    const form = document.querySelector('#authForm');
+    const username = document.querySelector('#username');
+    const password = document.querySelector('#password');
+    const confirmPassword = document.querySelector('#confirmPassword');
+    const confirmField = document.querySelector('#confirmField');
+    const rules = document.querySelector('#rules');
+    const submitButton = document.querySelector('#submitButton');
+    const errorLine = document.querySelector('#errorLine');
+    const testAccounts = document.querySelector('#testAccounts');
+    const privacy = document.querySelector('#privacy');
+    const successView = document.querySelector('#successView');
+
+    function updateUrl(mode) {
+      const url = new URL(location.href);
+      url.searchParams.set('screen', mode);
+      history.replaceState({}, '', url);
+    }
+
+    function setMode(mode, updateAddress = true) {
+      state.mode = mode === 'register' ? 'register' : 'login';
+      const registering = state.mode === 'register';
+      screen.classList.toggle('registering', registering);
+      heading.textContent = registering ? '加入 Kin' : '回到 Kin';
+      subheading.textContent = registering ? '创建身份，只与你真正见过的人建立联系。' : '登录后，只与你在现实中见过的人继续聊天。';
+      confirmField.hidden = !registering;
+      rules.hidden = !registering;
+      testAccounts.hidden = registering;
+      password.autocomplete = registering ? 'new-password' : 'current-password';
+      submitButton.textContent = registering ? '创建 Kin 账号' : '登录 Kin';
+      privacy.textContent = registering ? '创建账号即表示你理解：测试阶段暂不提供密码找回。' : '测试阶段暂不提供密码找回，请使用开发测试账号。';
+      document.querySelectorAll('[data-mode], [data-switch]').forEach((button) => button.classList.toggle('active', (button.dataset.mode || button.dataset.switch) === state.mode));
+      errorLine.textContent = '';
+      if (updateAddress) updateUrl(state.mode);
+      updateRules();
+    }
+
+    function updateCounts() {
+      document.querySelector('#usernameCount').textContent = `${username.value.length} / 16`;
+      document.querySelector('#passwordCount').textContent = `${password.value.length} 位`;
+    }
+
+    function updateRules() {
+      const values = {
+        length: password.value.length >= 8 && password.value.length <= 32,
+        letter: /[A-Za-z]/.test(password.value),
+        number: /\d/.test(password.value),
+        match: password.value.length > 0 && password.value === confirmPassword.value,
+      };
+      Object.entries(values).forEach(([name, ok]) => document.querySelector(`[data-rule="${name}"]`)?.classList.toggle('ok', ok));
+      return Object.values(values).every(Boolean);
+    }
+
+    function togglePassword(button) {
+      const input = document.querySelector(`#${button.dataset.target}`);
+      const start = input.selectionStart;
+      const end = input.selectionEnd;
+      const show = input.type === 'password';
+      input.type = show ? 'text' : 'password';
+      button.innerHTML = show ? eyeOpen : eyeClosed;
+      button.setAttribute('aria-label', show ? '隐藏密码' : '显示密码');
+      input.focus({ preventScroll: true });
+      input.setSelectionRange(start, end);
+    }
+
+    function validate() {
+      const validUsername = /^[A-Za-z][A-Za-z0-9_]{3,15}$/.test(username.value);
+      document.querySelector('#usernameShell').classList.toggle('invalid', username.value.length > 0 && !validUsername);
+      document.querySelector('#passwordShell').classList.remove('invalid');
+      document.querySelector('#confirmShell').classList.remove('invalid');
+      if (!validUsername) return '用户名需以字母开头，使用 4–16 位字母、数字或下划线。';
+      if (state.mode === 'register' && !updateRules()) {
+        document.querySelector('#passwordShell').classList.add('invalid');
+        if (password.value !== confirmPassword.value) document.querySelector('#confirmShell').classList.add('invalid');
+        return '请完成全部密码规则，并确认两次输入一致。';
+      }
+      if (state.mode === 'login' && password.value.length < 1) return '请输入密码后再登录。';
+      return '';
+    }
+
+    document.querySelectorAll('.visibility').forEach((button) => { button.innerHTML = eyeClosed; button.addEventListener('click', () => togglePassword(button)); });
+    document.querySelectorAll('[data-mode]').forEach((button) => button.addEventListener('click', () => setMode(button.dataset.mode)));
+    document.querySelectorAll('[data-switch]').forEach((button) => button.addEventListener('click', () => setMode(button.dataset.switch)));
+    [username, password, confirmPassword].forEach((input) => input.addEventListener('input', () => { updateCounts(); updateRules(); errorLine.textContent = ''; }));
+    document.querySelectorAll('[data-account]').forEach((button) => button.addEventListener('click', () => {
+      username.value = `kin_test_${button.dataset.account}`;
+      password.value = `KinTest${button.dataset.account}!`;
+      updateCounts();
+      errorLine.textContent = '测试账号已填入，可直接体验登录过渡。';
+    }));
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const error = validate();
+      errorLine.textContent = error;
+      if (error || state.loading) return;
+      state.loading = true;
+      submitButton.disabled = true;
+      submitButton.textContent = state.mode === 'register' ? '正在创建身份…' : '正在确认身份…';
+      window.setTimeout(() => {
+        state.loading = false;
+        submitButton.disabled = false;
+        document.querySelector('#successTitle').textContent = state.mode === 'register' ? '身份已建立' : '欢迎回来';
+        document.querySelector('#successCopy').textContent = state.mode === 'register' ? '你的 Kin 身份已经准备好，接下来只与现实中真正见过的人建立关系。' : '身份已确认，正在进入只属于真实关系的会话空间。';
+        successView.classList.add('show');
+      }, 720);
+    });
+    document.querySelector('#backDemo').addEventListener('click', () => { successView.classList.remove('show'); submitButton.textContent = state.mode === 'register' ? '创建 Kin 账号' : '登录 Kin'; });
+    document.querySelector('#openFullTheme').addEventListener('click', () => { location.href = './kin-dark-theme-prototype.html?variant=A'; });
+    window.addEventListener('keydown', (event) => {
+      if (event.altKey && event.key === 'ArrowLeft') setMode('login');
+      if (event.altKey && event.key === 'ArrowRight') setMode('register');
+    });
+
+    setMode(new URL(location.href).searchParams.get('screen') || 'login', false);
+    updateCounts();
+  </script>
+</body>
+</html>
