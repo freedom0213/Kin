@@ -8,6 +8,7 @@ import {
 import { register } from "../api/client";
 import { useAuth } from "../stores/AuthContext";
 import { createAccountKeyPair, storeAccountKeyPair } from "../services/keys";
+import { INPUT_COLORS, PasswordInput } from "../components/PasswordInput";
 
 export default function RegisterScreen({ navigation }: any) {
   const { loginAction } = useAuth();
@@ -60,18 +61,19 @@ export default function RegisterScreen({ navigation }: any) {
         <TextInput
           style={styles.input}
           placeholder="用户名"
+          placeholderTextColor={INPUT_COLORS.placeholder}
+          cursorColor={INPUT_COLORS.cursor}
+          selectionColor={INPUT_COLORS.selection}
           autoCapitalize="none"
           value={username}
           onChangeText={setUsername}
         />
 
         <Text style={styles.hint}>密码：8-32位，必须含字母和数字</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="密码"
-          secureTextEntry
+        <PasswordInput
           value={password}
           onChangeText={setPassword}
+          autoComplete="new-password"
         />
 
         <TouchableOpacity
@@ -99,7 +101,7 @@ const styles = StyleSheet.create({
   input: {
     borderWidth: 1, borderColor: "#ddd", borderRadius: 10,
     paddingHorizontal: 16, paddingVertical: 14, fontSize: 16,
-    marginBottom: 14, backgroundColor: "#fafafa",
+    marginBottom: 14, backgroundColor: "#fafafa", color: INPUT_COLORS.text,
   },
   button: {
     backgroundColor: "#1a1a2e", borderRadius: 10,

@@ -7,6 +7,7 @@ import {
 } from "react-native";
 import { login } from "../api/client";
 import { useAuth } from "../stores/AuthContext";
+import { INPUT_COLORS, PasswordInput } from "../components/PasswordInput";
 
 export default function LoginScreen({ navigation }: any) {
   const { loginAction } = useAuth();
@@ -52,16 +53,17 @@ export default function LoginScreen({ navigation }: any) {
         <TextInput
           style={styles.input}
           placeholder="用户名"
+          placeholderTextColor={INPUT_COLORS.placeholder}
+          cursorColor={INPUT_COLORS.cursor}
+          selectionColor={INPUT_COLORS.selection}
           autoCapitalize="none"
           value={username}
           onChangeText={setUsername}
         />
-        <TextInput
-          style={styles.input}
-          placeholder="密码"
-          secureTextEntry
+        <PasswordInput
           value={password}
           onChangeText={setPassword}
+          autoComplete="current-password"
         />
 
         <TouchableOpacity
@@ -88,7 +90,7 @@ const styles = StyleSheet.create({
   input: {
     borderWidth: 1, borderColor: "#ddd", borderRadius: 10,
     paddingHorizontal: 16, paddingVertical: 14, fontSize: 16,
-    marginBottom: 14, backgroundColor: "#fafafa",
+    marginBottom: 14, backgroundColor: "#fafafa", color: INPUT_COLORS.text,
   },
   button: {
     backgroundColor: "#1a1a2e", borderRadius: 10,
