@@ -5,6 +5,7 @@ import {
   View, Text, TextInput, TouchableOpacity, Pressable, Alert,
   FlatList, StyleSheet, KeyboardAvoidingView, Platform, Keyboard,
   Animated, AccessibilityInfo, Clipboard, Easing,
+  type NativeScrollEvent, type NativeSyntheticEvent,
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -20,6 +21,10 @@ import {
 } from "../services/db";
 import { mergeFriendProfile, parseFriendProfileEvent } from "../services/friendProfile";
 import { webrtcService } from "../services/webrtc";
+import {
+  isMessageListNearBottom,
+  shouldAutoScrollAfterContentChange,
+} from "../services/chatScrollPolicy";
 
 type DeliveryStatus = "sending" | "queued" | "delivered" | "read" | "failed";
 type EncryptionState = "loading" | "ready" | "missing_peer_key" | "missing_local_key" | "error";
@@ -302,11 +307,15 @@ export default function ChatScreen({ route }: any) {
   const [showEmojiPanel, setShowEmojiPanel] = useState(false);
   const [showEncryptionNotice, setShowEncryptionNotice] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
+  const [hasNewMessages, setHasNewMessages] = useState(false);
   const [backgroundPulse, setBackgroundPulse] = useState<{
     key: number;
     side: RippleSide;
   }>({ key: 0, side: "other" });
   const flatListRef = useRef<FlatList>(null);
+  const userNearBottomRef = useRef(true);
+  const initialScrollPendingRef = useRef(true);
+  const explicitScrollPendingRef = useRef(false);
   const lastTypingSentRef = useRef(0);
   const typingHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryingMessageIdsRef = useRef(new Set<string>());
@@ -323,6 +332,41 @@ export default function ChatScreen({ route }: any) {
         ? "missing_local_key"
         : localKeyState;
   const isEncryptionReady = encryptionState === "ready";
+
+  const handleMessageListScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentSize, layoutMeasurement, contentOffset } = event.nativeEvent;
+    const isNearBottom = isMessageListNearBottom({
+      contentHeight: contentSize.height,
+      viewportHeight: layoutMeasurement.height,
+      offsetY: contentOffset.y,
+    });
+    userNearBottomRef.current = isNearBottom;
+    if (isNearBottom) setHasNewMessages(false);
+  };
+
+  const handleMessageListContentChange = () => {
+    if (loadingHistory) return;
+
+    const shouldScroll = shouldAutoScrollAfterContentChange({
+      initialScrollPending: initialScrollPendingRef.current,
+      explicitScrollPending: explicitScrollPendingRef.current,
+      userNearBottom: userNearBottomRef.current,
+    });
+
+    initialScrollPendingRef.current = false;
+    explicitScrollPendingRef.current = false;
+    if (!shouldScroll) return;
+
+    flatListRef.current?.scrollToEnd({ animated: !userNearBottomRef.current });
+    userNearBottomRef.current = true;
+    setHasNewMessages(false);
+  };
+
+  const scrollToLatestMessage = () => {
+    flatListRef.current?.scrollToEnd({ animated: true });
+    userNearBottomRef.current = true;
+    setHasNewMessages(false);
+  };
 
   useEffect(() => {
     if (!isEncryptionReady) {
@@ -383,6 +427,7 @@ export default function ChatScreen({ route }: any) {
     const onMessage = (data: any) => {
       if (data.type === "inbox_message") {
         if (data.from !== friend.user_id) return;
+        const shouldFollowMessage = userNearBottomRef.current;
         setIsTyping(false);
         if (typingHideTimerRef.current) clearTimeout(typingHideTimerRef.current);
 
@@ -396,6 +441,7 @@ export default function ChatScreen({ route }: any) {
           created_at: data.created_at || new Date().toISOString(),
         };
         setMessages((prev) => prev.some((item) => item.id === msg.id) ? prev : [...prev, msg]);
+        if (!shouldFollowMessage) setHasNewMessages(true);
         setBackgroundPulse((current) => ({ key: current.key + 1, side: "other" }));
         kinWS.sendReadReceipt(friend.user_id, msg.id);
         markAsRead(myId, msg.id).catch(() => {});
@@ -522,6 +568,7 @@ export default function ChatScreen({ route }: any) {
       encrypted: true,
       wire_content: contentToSend,
     };
+    explicitScrollPendingRef.current = userNearBottomRef.current;
     setMessages((prev) => [...prev, msg]);
     setBackgroundPulse((current) => ({ key: current.key + 1, side: "mine" }));
     setInputText("");
@@ -563,6 +610,7 @@ export default function ChatScreen({ route }: any) {
       encrypted: true,
       wire_content: contentToSend,
     };
+    explicitScrollPendingRef.current = userNearBottomRef.current;
     setMessages((prev) => [...prev, msg]);
     setBackgroundPulse((current) => ({ key: current.key + 1, side: "mine" }));
     try {
@@ -602,7 +650,10 @@ export default function ChatScreen({ route }: any) {
   };
 
   useEffect(() => {
-    if (route.params?.historyClearedAt) setMessages([]);
+    if (route.params?.historyClearedAt) {
+      setMessages([]);
+      setHasNewMessages(false);
+    }
   }, [route.params?.historyClearedAt]);
 
   const showEncryptionDetails = () => {
@@ -899,9 +950,22 @@ export default function ChatScreen({ route }: any) {
         renderItem={renderMessage}
         style={styles.messageList}
         contentContainerStyle={styles.msgList}
-        onContentSizeChange={() => flatListRef.current?.scrollToEnd()}
+        onScroll={handleMessageListScroll}
+        onContentSizeChange={handleMessageListContentChange}
+        scrollEventThrottle={16}
         keyboardShouldPersistTaps="handled"
       />
+
+      {hasNewMessages ? (
+        <TouchableOpacity
+          style={styles.newMessageButton}
+          onPress={scrollToLatestMessage}
+          accessibilityRole="button"
+          accessibilityLabel="查看新消息"
+        >
+          <Text style={styles.newMessageButtonText}>有新消息 ↓</Text>
+        </TouchableOpacity>
+      ) : null}
 
       <View style={styles.typingSlot} pointerEvents="none">
         {isTyping ? <TypingIndicator /> : null}
@@ -1110,6 +1174,16 @@ const styles = StyleSheet.create({
   offlineNoticeText: { color: "#565B61", fontSize: 13 },
   messageList: { zIndex: 1 },
   msgList: { paddingHorizontal: 14, paddingTop: 18, paddingBottom: 20 },
+  newMessageButton: {
+    position: "absolute", right: 18, bottom: 112, zIndex: 4,
+    minHeight: 38, paddingHorizontal: 14, borderRadius: 19,
+    alignItems: "center", justifyContent: "center",
+    backgroundColor: "#273A34",
+    borderWidth: StyleSheet.hairlineWidth, borderColor: "#4F786A",
+    shadowColor: "#000000", shadowOpacity: 0.2, shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 }, elevation: 4,
+  },
+  newMessageButtonText: { color: "#DDF4E9", fontSize: 13, fontWeight: "600" },
   msgBubble: {
     maxWidth: "82%", minWidth: 76,
     paddingHorizontal: 14, paddingTop: 10, paddingBottom: 7,
