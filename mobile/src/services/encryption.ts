@@ -1,6 +1,13 @@
 /** E2E 加密/解密 — NaCl crypto_box (Curve25519 + XSalsa20-Poly1305) */
 
 import nacl from "tweetnacl";
+import { getRandomValues } from "expo-crypto";
+
+// React Native 不保证提供浏览器的 crypto.getRandomValues。
+// 显式使用 Expo 原生安全随机源，避免 TweetNaCl 在生成密钥或 nonce 时抛出 no PRNG。
+nacl.setPRNG((target, length) => {
+  getRandomValues(target.subarray(0, length));
+});
 
 // -- 内联编码工具，避免 tweetnacl-util 的类型兼容问题 --
 
