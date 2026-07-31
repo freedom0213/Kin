@@ -9,10 +9,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   AccessibilityInfo, ActivityIndicator, Animated, Image, Keyboard,
-  Modal, Pressable, StyleSheet, Text, TextInput, TouchableOpacity, View,
+  ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from "react-native";
 import type { ImageStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import KinBottomSheet from "../components/KinBottomSheet";
 import {
   cancelPairing, confirmPairing, createPairing, getFriendList, getPairing,
   joinPairing, PairingSession, resolveMediaUrl,
@@ -33,7 +34,6 @@ const COLORS = {
   accentDark: "#176B52",
   accentSoft: "#E2F2EC",
   danger: "#B43A33",
-  scrim: "rgba(19,25,22,0.34)",
 };
 
 type BusyAction = "create" | "receive" | "join" | "confirm" | "cancel" | "open-chat" | null;
@@ -443,22 +443,20 @@ export default function AddFriendScreen({ navigation }: any) {
         ) : null}
       </View>
 
-      <Modal
+      <KinBottomSheet
         visible={sheetVisible}
-        transparent
-        animationType={reduceMotion ? "none" : "slide"}
         onRequestClose={() => void closePairing(false)}
+        reduceMotion={reduceMotion}
+        dragDismissEnabled={!pairing || !ACTIVE_STATUSES.has(pairing.status)}
+        accessibilityLabel="碰一碰确认弹窗"
       >
-        <View style={styles.modalRoot}>
-          <Pressable
-            style={styles.scrim}
-            onPress={() => void closePairing(false)}
-            accessibilityRole="button"
-            accessibilityLabel="取消并关闭配对"
-          />
-          <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 18) + 12 }]}>
-            <View style={styles.sheetHandle} />
-            <View accessibilityLiveRegion="polite" style={styles.sheetContent}>
+        <ScrollView
+          style={styles.sheetScroll}
+          contentContainerStyle={styles.sheetContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View accessibilityLiveRegion="polite" style={styles.sheetInnerContent}>
               {pairing?.peer ? (
                 <View style={styles.peerIdentityVisual}>
                   {showPeerBanner && peerBannerUrl ? (
@@ -529,9 +527,10 @@ export default function AddFriendScreen({ navigation }: any) {
                   <Text style={styles.pairingCode} selectable>{pairing.token}</Text>
                 </View>
               ) : null}
-            </View>
+          </View>
+        </ScrollView>
 
-            <View style={styles.sheetActions}>
+        <View style={styles.sheetActions}>
               {pairing?.status === "awaiting_confirmation" ? (
                 <>
                   <TouchableOpacity
@@ -597,10 +596,8 @@ export default function AddFriendScreen({ navigation }: any) {
                   <Text style={styles.cancelButtonText}>取消</Text>
                 </TouchableOpacity>
               )}
-            </View>
-          </View>
         </View>
-      </Modal>
+      </KinBottomSheet>
     </View>
   );
 }
@@ -666,17 +663,9 @@ const styles = StyleSheet.create({
   },
   manualButtonText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
   buttonDisabled: { opacity: 0.42 },
-  modalRoot: { flex: 1, justifyContent: "flex-end" },
-  scrim: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, backgroundColor: COLORS.scrim },
-  sheet: {
-    maxHeight: "88%", paddingHorizontal: 22, paddingTop: 10,
-    borderTopLeftRadius: 28, borderTopRightRadius: 28,
-    backgroundColor: COLORS.surface,
-    shadowColor: "#101713", shadowOffset: { width: 0, height: -8 },
-    shadowOpacity: 0.12, shadowRadius: 24, elevation: 20,
-  },
-  sheetHandle: { alignSelf: "center", width: 42, height: 4, borderRadius: 2, backgroundColor: "#D5D9D5" },
-  sheetContent: { alignItems: "center", paddingTop: 22 },
+  sheetScroll: { flex: 1, paddingHorizontal: 22 },
+  sheetContent: { flexGrow: 1, paddingBottom: 8 },
+  sheetInnerContent: { alignItems: "center", paddingTop: 6 },
   peerIdentityVisual: { width: "100%", alignItems: "center" },
   pairingBannerFrame: {
     width: "100%", height: 116, borderRadius: 16, overflow: "hidden",
@@ -709,7 +698,7 @@ const styles = StyleSheet.create({
   },
   pairingCodeLabel: { color: COLORS.muted, fontSize: 11, textAlign: "center" },
   pairingCode: { marginTop: 8, color: COLORS.ink, fontSize: 12, lineHeight: 18, textAlign: "center" },
-  sheetActions: { marginTop: 24, flexDirection: "row", gap: 12 },
+  sheetActions: { paddingHorizontal: 22, paddingTop: 16, flexDirection: "row", gap: 12 },
   cancelButton: {
     flex: 1, minHeight: 52, borderRadius: 16, borderWidth: 1, borderColor: COLORS.line,
     backgroundColor: COLORS.surface, alignItems: "center", justifyContent: "center",
