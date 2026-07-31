@@ -246,9 +246,16 @@ class PairingService:
                     self._users.c.username,
                     self._users.c.nickname,
                     self._users.c.avatar,
+                    self._users.c.profile_banner,
                 ).where(self._users.c.id == user_id)
             ).mappings().first()
-        return dict(row) if row else {"id": user_id, "username": "", "nickname": None, "avatar": None}
+        return dict(row) if row else {
+            "id": user_id,
+            "username": "",
+            "nickname": None,
+            "avatar": None,
+            "profile_banner": None,
+        }
 
 
 pairing_service = PairingService(engine)

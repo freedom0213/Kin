@@ -15,7 +15,7 @@ import type { ImageStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   cancelPairing, confirmPairing, createPairing, getFriendList, getPairing,
-  joinPairing, PairingSession,
+  joinPairing, PairingSession, resolveMediaUrl,
 } from "../api/client";
 import { kinWS } from "../api/ws";
 import {
@@ -120,6 +120,7 @@ export default function AddFriendScreen({ navigation }: any) {
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
   const [reduceMotion, setReduceMotion] = useState(false);
+  const [failedPairingBannerKey, setFailedPairingBannerKey] = useState<string | null>(null);
   const nfcCancelRef = useRef<(() => void) | null>(null);
   const pairingRef = useRef<PairingSession | null>(null);
 
@@ -332,6 +333,11 @@ export default function AddFriendScreen({ navigation }: any) {
 
   const peerDisplayName = pairing ? peerName(pairing) : "";
   const pairingSucceeded = pairing?.status === "completed";
+  const peerBannerUrl = pairing?.peer
+    ? resolveMediaUrl(pairing.peer.profile_banner)
+    : null;
+  const peerBannerKey = pairing && peerBannerUrl ? `${pairing.id}:${peerBannerUrl}` : null;
+  const showPeerBanner = !!peerBannerKey && failedPairingBannerKey !== peerBannerKey;
 
   return (
     <View style={[styles.container, { paddingTop: Math.max(insets.top, 12) }]}>
@@ -454,16 +460,29 @@ export default function AddFriendScreen({ navigation }: any) {
             <View style={styles.sheetHandle} />
             <View accessibilityLiveRegion="polite" style={styles.sheetContent}>
               {pairing?.peer ? (
-                <View style={styles.peerAvatar}>
-                  {pairing.peer.avatar ? (
-                    <Image
-                      source={{ uri: pairing.peer.avatar }}
-                      style={styles.peerAvatarImage as ImageStyle}
-                      accessibilityLabel={`${peerDisplayName}的头像`}
-                    />
-                  ) : (
-                    <Text style={styles.peerInitials}>{initials(peerDisplayName)}</Text>
-                  )}
+                <View style={styles.peerIdentityVisual}>
+                  {showPeerBanner && peerBannerUrl ? (
+                    <View style={styles.pairingBannerFrame}>
+                      <Image
+                        source={{ uri: peerBannerUrl }}
+                        style={styles.pairingBannerImage as ImageStyle}
+                        resizeMode="contain"
+                        onError={() => setFailedPairingBannerKey(peerBannerKey)}
+                        accessibilityLabel={`${peerDisplayName}的背景名片`}
+                      />
+                    </View>
+                  ) : null}
+                  <View style={[styles.peerAvatar, showPeerBanner && styles.peerAvatarOverBanner]}>
+                    {pairing.peer.avatar ? (
+                      <Image
+                        source={{ uri: pairing.peer.avatar }}
+                        style={styles.peerAvatarImage as ImageStyle}
+                        accessibilityLabel={`${peerDisplayName}的头像`}
+                      />
+                    ) : (
+                      <Text style={styles.peerInitials}>{initials(peerDisplayName)}</Text>
+                    )}
+                  </View>
                 </View>
               ) : (
                 <DevicePairVisual
@@ -658,11 +677,19 @@ const styles = StyleSheet.create({
   },
   sheetHandle: { alignSelf: "center", width: 42, height: 4, borderRadius: 2, backgroundColor: "#D5D9D5" },
   sheetContent: { alignItems: "center", paddingTop: 22 },
+  peerIdentityVisual: { width: "100%", alignItems: "center" },
+  pairingBannerFrame: {
+    width: "100%", height: 116, borderRadius: 16, overflow: "hidden",
+    borderWidth: StyleSheet.hairlineWidth, borderColor: COLORS.line,
+    backgroundColor: "#F0F2EF",
+  },
+  pairingBannerImage: { width: "100%", height: "100%" },
   peerAvatar: {
     width: 82, height: 82, borderRadius: 41, overflow: "hidden",
     alignItems: "center", justifyContent: "center", backgroundColor: "#28313A",
   },
-  peerAvatarImage: { width: 82, height: 82 },
+  peerAvatarOverBanner: { marginTop: -30, borderWidth: 3, borderColor: COLORS.surface },
+  peerAvatarImage: { width: "100%", height: "100%" },
   peerInitials: { color: "#FFFFFF", fontSize: 25, fontWeight: "700" },
   sheetTitle: { marginTop: 6, color: COLORS.ink, fontSize: 22, fontWeight: "700", textAlign: "center" },
   peerName: { marginTop: 13, color: COLORS.ink, fontSize: 18, fontWeight: "700" },

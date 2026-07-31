@@ -69,6 +69,23 @@ class PairingServiceTests(unittest.TestCase):
         self.assertEqual("completed", completed["status"])
         self.assertEqual({frozenset(("alice", "bob"))}, self.friendships)
 
+    def test_pairing_peer_includes_temporary_profile_banner(self):
+        with self.engine.begin() as conn:
+            conn.execute(
+                users.update()
+                .where(users.c.id == "bob")
+                .values(profile_banner="/media/profile-banners/bob-card.jpg")
+            )
+
+        created = self.service.create("alice", now=100)
+        self.service.join("bob", created["token"], now=101)
+        alice_snapshot = self.service.get(created["id"], "alice", now=102)
+
+        self.assertEqual(
+            "/media/profile-banners/bob-card.jpg",
+            alice_snapshot["peer"]["profile_banner"],
+        )
+
     def test_third_user_cannot_take_joined_session(self):
         created = self.service.create("alice", now=100)
         self.service.join("bob", created["token"], now=101)

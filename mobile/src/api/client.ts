@@ -193,6 +193,7 @@ export interface PairingPeer {
   username: string;
   nickname: string | null;
   avatar: string | null;
+  profile_banner: string | null;
 }
 
 export interface PairingSession {
