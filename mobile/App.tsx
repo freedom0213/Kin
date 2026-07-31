@@ -6,7 +6,10 @@ import {
   StatusBar, StyleSheet, Text, TouchableOpacity, View,
 } from "react-native";
 import { BlurView } from "expo-blur";
-import { createNavigationContainerRef, NavigationContainer } from "@react-navigation/native";
+import { StatusBar as ExpoStatusBar } from "expo-status-bar";
+import {
+  createNavigationContainerRef, DefaultTheme, NavigationContainer,
+} from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
 import type { Friend } from "./src/api/client";
@@ -30,6 +33,7 @@ import VoiceCallScreen from "./src/screens/VoiceCallScreen";
 import ConversationDetailsScreen from "./src/screens/ConversationDetailsScreen";
 import SettingsScreen from "./src/screens/SettingsScreen";
 import ProfileEditScreen from "./src/screens/ProfileEditScreen";
+import { GRAPHITE_COLORS, GRAPHITE_NAVIGATION_THEME } from "./src/theme/graphite";
 
 type RootStackParamList = {
   FriendList: undefined;
@@ -751,14 +755,21 @@ function AppNavigator() {
 
   if (state.isLoading) {
     return (
-      <View style={{ flex: 1, justifyContent: "center", alignItems: "center" }}>
-        <ActivityIndicator size="large" color="#1a1a2e" />
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: GRAPHITE_COLORS.canvas }}>
+        <ExpoStatusBar style="light" />
+        <ActivityIndicator size="large" color={GRAPHITE_COLORS.primary} />
       </View>
     );
   }
 
   return (
-    <NavigationContainer ref={navigationRef} onReady={() => setNavigationReady(true)}>
+    <>
+      <ExpoStatusBar style={state.isLoggedIn ? "dark" : "light"} />
+      <NavigationContainer
+        ref={navigationRef}
+        theme={state.isLoggedIn ? DefaultTheme : GRAPHITE_NAVIGATION_THEME}
+        onReady={() => setNavigationReady(true)}
+      >
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {state.isLoggedIn ? (
           <>
@@ -797,7 +808,8 @@ function AppNavigator() {
           />
         </>
       ) : null}
-    </NavigationContainer>
+      </NavigationContainer>
+    </>
   );
 }
 

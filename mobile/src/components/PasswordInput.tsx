@@ -7,23 +7,32 @@ import {
   type NativeSyntheticEvent,
   type TextInputSelectionChangeEventData,
 } from "react-native";
+import {
+  GRAPHITE_COLORS,
+  GRAPHITE_INPUT_COLORS,
+  GRAPHITE_RADII,
+} from "../theme/graphite";
 
-export const INPUT_COLORS = {
-  text: "#171A1F",
-  placeholder: "#858B92",
-  cursor: "#176B52",
-  selection: "#A9DEC9",
-};
+export const INPUT_COLORS = GRAPHITE_INPUT_COLORS;
 
 interface PasswordInputProps {
   value: string;
   onChangeText: (value: string) => void;
   autoComplete: "current-password" | "new-password";
+  placeholder?: string;
+  accessibilityLabel?: string;
 }
 
-export function PasswordInput({ value, onChangeText, autoComplete }: PasswordInputProps) {
+export function PasswordInput({
+  value,
+  onChangeText,
+  autoComplete,
+  placeholder = "输入密码",
+  accessibilityLabel = "密码",
+}: PasswordInputProps) {
   const inputRef = useRef<TextInput>(null);
   const [visible, setVisible] = useState(false);
+  const [focused, setFocused] = useState(false);
   const [selection, setSelection] = useState({ start: 0, end: 0 });
 
   const handleSelectionChange = (
@@ -38,11 +47,11 @@ export function PasswordInput({ value, onChangeText, autoComplete }: PasswordInp
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, focused && styles.containerFocused]}>
       <TextInput
         ref={inputRef}
         style={styles.input}
-        placeholder="密码"
+        placeholder={placeholder}
         placeholderTextColor={INPUT_COLORS.placeholder}
         cursorColor={INPUT_COLORS.cursor}
         selectionColor={INPUT_COLORS.selection}
@@ -51,11 +60,14 @@ export function PasswordInput({ value, onChangeText, autoComplete }: PasswordInp
         onChangeText={onChangeText}
         selection={selection}
         onSelectionChange={handleSelectionChange}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+        maxLength={32}
         autoCapitalize="none"
         autoCorrect={false}
         autoComplete={autoComplete}
         textContentType={autoComplete === "new-password" ? "newPassword" : "password"}
-        accessibilityLabel="密码"
+        accessibilityLabel={accessibilityLabel}
       />
       <TouchableOpacity
         style={styles.visibilityButton}
@@ -76,25 +88,28 @@ export function PasswordInput({ value, onChangeText, autoComplete }: PasswordInp
 
 const styles = StyleSheet.create({
   container: {
-    minHeight: 50,
-    marginBottom: 14,
+    minHeight: 54,
     flexDirection: "row",
     alignItems: "center",
     borderWidth: 1,
-    borderColor: "#DDDDDD",
-    borderRadius: 10,
-    backgroundColor: "#FAFAFA",
+    borderColor: GRAPHITE_COLORS.line,
+    borderRadius: GRAPHITE_RADII.control,
+    backgroundColor: GRAPHITE_COLORS.surface,
+  },
+  containerFocused: {
+    borderColor: "rgba(105,200,164,0.62)",
+    backgroundColor: GRAPHITE_COLORS.surfaceStrong,
   },
   input: {
     flex: 1,
     minWidth: 0,
-    paddingLeft: 16,
+    paddingLeft: 15,
     paddingVertical: 14,
     color: INPUT_COLORS.text,
     fontSize: 16,
   },
   visibilityButton: {
-    minWidth: 44, height: 44,
+    minWidth: 48, height: 48,
     marginRight: 3,
     alignItems: "center",
     justifyContent: "center",
@@ -102,15 +117,15 @@ const styles = StyleSheet.create({
   eyeIcon: {
     width: 22, height: 14,
     alignItems: "center", justifyContent: "center",
-    borderWidth: 1.5, borderColor: "#666D75", borderRadius: 11,
+    borderWidth: 1.5, borderColor: GRAPHITE_COLORS.textMuted, borderRadius: 11,
   },
   eyePupil: {
-    width: 5, height: 5, borderRadius: 3, backgroundColor: "#4E555D",
+    width: 5, height: 5, borderRadius: 3, backgroundColor: GRAPHITE_COLORS.textMuted,
   },
   eyeSlash: {
     position: "absolute",
     width: 25, height: 1.5,
-    backgroundColor: "#666D75",
+    backgroundColor: GRAPHITE_COLORS.textMuted,
     transform: [{ rotate: "-35deg" }],
   },
 });
