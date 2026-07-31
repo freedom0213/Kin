@@ -298,10 +298,13 @@ export default function FriendListScreen({ navigation }: any) {
         });
       }
       kinFeedback.seedFriendStatuses(nextFriends);
-      const nextSummaries = await getConversationSummaries(
-        nextFriends.map((friend) => friend.user_id),
-        state.user?.id || ""
-      );
+      const ownerId = state.user?.id;
+      const nextSummaries = ownerId
+        ? await getConversationSummaries(
+          ownerId,
+          nextFriends.map((friend) => friend.user_id)
+        )
+        : {};
       setSummaries(nextSummaries);
   }, [reduceMotion, state.user?.id]);
 

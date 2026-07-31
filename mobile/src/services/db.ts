@@ -6,27 +6,38 @@ import type { Friend } from "../api/client";
 let _db: SQLite.SQLiteDatabase | null = null;
 let _dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
 
+const MESSAGE_SCHEMA_VERSION = 1;
+const MESSAGE_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS messages (
+    owner_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    chat_id TEXT NOT NULL,
+    sender_id TEXT NOT NULL,
+    type TEXT NOT NULL DEFAULT 'text',
+    content TEXT,
+    duration REAL,
+    is_read INTEGER DEFAULT 0,
+    encrypted INTEGER DEFAULT 0,
+    wire_content TEXT,
+    delivery_status TEXT,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (owner_id, id)
+  );
+`;
+const MESSAGE_INDEX_SQL = `
+  CREATE INDEX IF NOT EXISTS idx_msg_chat
+  ON messages(owner_id, chat_id, created_at);
+`;
+
 /** 获取数据库实例（懒初始化） */
 async function getDb(): Promise<SQLite.SQLiteDatabase> {
   if (_db) return _db;
   if (!_dbPromise) {
     _dbPromise = (async () => {
       const db = await SQLite.openDatabaseAsync("kin_messages.db");
+      await db.execAsync("PRAGMA journal_mode = WAL");
       await db.execAsync(`
-        CREATE TABLE IF NOT EXISTS messages (
-          id TEXT PRIMARY KEY,
-          chat_id TEXT NOT NULL,
-          sender_id TEXT NOT NULL,
-          type TEXT NOT NULL DEFAULT 'text',
-          content TEXT,
-          duration REAL,
-          is_read INTEGER DEFAULT 0,
-          encrypted INTEGER DEFAULT 0,
-          wire_content TEXT,
-          delivery_status TEXT,
-          created_at TEXT NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS idx_msg_chat ON messages(chat_id, created_at);
+        ${MESSAGE_TABLE_SQL}
         CREATE TABLE IF NOT EXISTS contacts (
           owner_id TEXT NOT NULL,
           user_id TEXT NOT NULL,
@@ -47,6 +58,7 @@ async function getDb(): Promise<SQLite.SQLiteDatabase> {
           updated_at TEXT NOT NULL
         );
       `);
+      await migrateMessagesToOwnerScope(db);
       await ensureMessageColumns(db);
       await ensureContactColumns(db);
       _db = db;
@@ -58,6 +70,38 @@ async function getDb(): Promise<SQLite.SQLiteDatabase> {
   } finally {
     _dbPromise = null;
   }
+}
+
+/**
+ * 测试阶段迁移：旧消息无法可靠推断属于哪个登录账号，因此检测到旧结构时
+ * 直接清空并重建为 owner_id + id 复合主键。
+ */
+async function migrateMessagesToOwnerScope(db: SQLite.SQLiteDatabase): Promise<void> {
+  const columns = await db.getAllAsync<{ name: string; pk: number }>(
+    "PRAGMA table_info(messages)"
+  );
+  const ownerColumn = columns.find((column) => column.name === "owner_id");
+  const idColumn = columns.find((column) => column.name === "id");
+  const hasOwnerScopedPrimaryKey = ownerColumn?.pk === 1 && idColumn?.pk === 2;
+
+  if (!hasOwnerScopedPrimaryKey) {
+    await db.withExclusiveTransactionAsync(async (txn) => {
+      await txn.execAsync(`
+        DROP TABLE IF EXISTS messages;
+        ${MESSAGE_TABLE_SQL}
+        ${MESSAGE_INDEX_SQL}
+        PRAGMA user_version = ${MESSAGE_SCHEMA_VERSION};
+      `);
+    });
+    return;
+  }
+
+  // 确保旧的同名索引不会继续只按 chat_id 工作。
+  await db.execAsync(`
+    DROP INDEX IF EXISTS idx_msg_chat;
+    ${MESSAGE_INDEX_SQL}
+    PRAGMA user_version = ${MESSAGE_SCHEMA_VERSION};
+  `);
 }
 
 async function ensureMessageColumns(db: SQLite.SQLiteDatabase): Promise<void> {
@@ -205,13 +249,14 @@ export async function updateCachedFriendProfile(
   );
 }
 
-/** 保存消息到本地 */
-export async function saveMessage(msg: LocalMessage): Promise<void> {
+/** 保存当前账号的一条消息到本地。 */
+export async function saveMessage(ownerId: string, msg: LocalMessage): Promise<void> {
   const db = await getDb();
   await db.runAsync(
     `INSERT OR REPLACE INTO messages
-     (id, chat_id, sender_id, type, content, duration, is_read, encrypted, wire_content, delivery_status, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     (owner_id, id, chat_id, sender_id, type, content, duration, is_read, encrypted, wire_content, delivery_status, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ownerId,
     msg.id,
     msg.chat_id,
     msg.sender_id,
@@ -226,15 +271,16 @@ export async function saveMessage(msg: LocalMessage): Promise<void> {
   );
 }
 
-/** 批量保存消息（事务包裹） */
-export async function saveMessages(msgs: LocalMessage[]): Promise<void> {
+/** 批量保存当前账号的消息（事务包裹）。 */
+export async function saveMessages(ownerId: string, msgs: LocalMessage[]): Promise<void> {
   const db = await getDb();
   await db.withTransactionAsync(async () => {
     for (const msg of msgs) {
       await db.runAsync(
         `INSERT OR REPLACE INTO messages
-         (id, chat_id, sender_id, type, content, duration, is_read, encrypted, wire_content, delivery_status, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (owner_id, id, chat_id, sender_id, type, content, duration, is_read, encrypted, wire_content, delivery_status, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ownerId,
         msg.id,
         msg.chat_id,
         msg.sender_id,
@@ -253,13 +299,14 @@ export async function saveMessages(msgs: LocalMessage[]): Promise<void> {
 
 /** 读取与某人的历史消息（分页） */
 export async function getMessages(
+  ownerId: string,
   chatId: string,
   limit = 50,
   beforeId?: string
 ): Promise<LocalMessage[]> {
   const db = await getDb();
-  let sql = "SELECT * FROM messages WHERE chat_id = ?";
-  const params: any[] = [chatId];
+  let sql = "SELECT * FROM messages WHERE owner_id = ? AND chat_id = ?";
+  const params: any[] = [ownerId, chatId];
 
   if (beforeId) {
     sql += " AND id < ?";
@@ -285,11 +332,12 @@ export async function getMessages(
   })).reverse(); // 反转时间序 → 正序
 }
 
-/** 获取与某人的消息总数 */
-export async function getMessageCount(chatId: string): Promise<number> {
+/** 获取当前账号与某人的消息总数。 */
+export async function getMessageCount(ownerId: string, chatId: string): Promise<number> {
   const db = await getDb();
   const row: any = await db.getFirstAsync(
-    "SELECT COUNT(*) as cnt FROM messages WHERE chat_id = ?",
+    "SELECT COUNT(*) as cnt FROM messages WHERE owner_id = ? AND chat_id = ?",
+    ownerId,
     chatId
   );
   return row?.cnt || 0;
@@ -297,8 +345,8 @@ export async function getMessageCount(chatId: string): Promise<number> {
 
 /** 批量读取会话列表所需的最后消息和本地未读数 */
 export async function getConversationSummaries(
-  chatIds: string[],
-  currentUserId: string
+  ownerId: string,
+  chatIds: string[]
 ): Promise<Record<string, ConversationSummary>> {
   if (chatIds.length === 0) return {};
 
@@ -308,26 +356,29 @@ export async function getConversationSummaries(
     `WITH ranked AS (
        SELECT messages.*,
               ROW_NUMBER() OVER (
-                PARTITION BY chat_id
+                PARTITION BY owner_id, chat_id
                 ORDER BY created_at DESC, id DESC
               ) AS row_number
        FROM messages
-       WHERE chat_id IN (${placeholders})
+       WHERE owner_id = ? AND chat_id IN (${placeholders})
      ), unread AS (
-       SELECT chat_id, COUNT(*) AS unread_count
+       SELECT owner_id, chat_id, COUNT(*) AS unread_count
        FROM messages
-       WHERE chat_id IN (${placeholders})
+       WHERE owner_id = ? AND chat_id IN (${placeholders})
          AND sender_id != ?
          AND is_read = 0
-       GROUP BY chat_id
+       GROUP BY owner_id, chat_id
      )
      SELECT ranked.*, COALESCE(unread.unread_count, 0) AS unread_count
      FROM ranked
-     LEFT JOIN unread ON unread.chat_id = ranked.chat_id
+     LEFT JOIN unread
+       ON unread.owner_id = ranked.owner_id AND unread.chat_id = ranked.chat_id
      WHERE ranked.row_number = 1`,
+    ownerId,
     ...chatIds,
+    ownerId,
     ...chatIds,
-    currentUserId
+    ownerId
   );
 
   const summaries: Record<string, ConversationSummary> = {};
@@ -353,20 +404,24 @@ export async function getConversationSummaries(
   return summaries;
 }
 
-/** 删除与某人的所有消息 */
-export async function clearMessages(chatId: string): Promise<void> {
+/** 删除当前账号与某人的所有消息。 */
+export async function clearMessages(ownerId: string, chatId: string): Promise<void> {
   const db = await getDb();
-  await db.runAsync("DELETE FROM messages WHERE chat_id = ?", chatId);
+  await db.runAsync(
+    "DELETE FROM messages WHERE owner_id = ? AND chat_id = ?",
+    ownerId,
+    chatId
+  );
 }
 
 /** 只从当前设备删除一条消息，不影响对方设备或服务端已投递内容。 */
-export async function deleteMessage(msgId: string): Promise<void> {
+export async function deleteMessage(ownerId: string, msgId: string): Promise<void> {
   const db = await getDb();
-  await db.runAsync("DELETE FROM messages WHERE id = ?", msgId);
+  await db.runAsync("DELETE FROM messages WHERE owner_id = ? AND id = ?", ownerId, msgId);
 }
 
 /** 获取设置页展示所需的本地消息统计。 */
-export async function getLocalMessageStats(): Promise<LocalMessageStats> {
+export async function getLocalMessageStats(ownerId: string): Promise<LocalMessageStats> {
   const db = await getDb();
   const row = await db.getFirstAsync<{
     message_count: number;
@@ -374,7 +429,9 @@ export async function getLocalMessageStats(): Promise<LocalMessageStats> {
   }>(
     `SELECT COUNT(*) AS message_count,
             COUNT(DISTINCT chat_id) AS conversation_count
-     FROM messages`
+     FROM messages
+     WHERE owner_id = ?`,
+    ownerId
   );
   return {
     messageCount: Number(row?.message_count) || 0,
@@ -382,14 +439,19 @@ export async function getLocalMessageStats(): Promise<LocalMessageStats> {
   };
 }
 
-/** 标记消息已读 */
-export async function markAsRead(msgId: string): Promise<void> {
+/** 标记当前账号的一条消息已读。 */
+export async function markAsRead(ownerId: string, msgId: string): Promise<void> {
   const db = await getDb();
-  await db.runAsync("UPDATE messages SET is_read = 1 WHERE id = ?", msgId);
+  await db.runAsync(
+    "UPDATE messages SET is_read = 1 WHERE owner_id = ? AND id = ?",
+    ownerId,
+    msgId
+  );
 }
 
 /** 更新自己发送消息的服务器投递状态。 */
 export async function updateMessageDeliveryStatus(
+  ownerId: string,
   msgId: string,
   status: StoredDeliveryStatus
 ): Promise<void> {
@@ -397,33 +459,37 @@ export async function updateMessageDeliveryStatus(
   await db.runAsync(
     `UPDATE messages
      SET delivery_status = ?, is_read = CASE WHEN ? = 'read' THEN 1 ELSE is_read END
-     WHERE id = ?`,
+     WHERE owner_id = ? AND id = ?`,
     status,
     status,
+    ownerId,
     msgId
   );
 }
 
 /** 判断消息是否已被全局收件箱保存，用于重连补发去重。 */
-export async function messageExists(msgId: string): Promise<boolean> {
+export async function messageExists(ownerId: string, msgId: string): Promise<boolean> {
   const db = await getDb();
   const row = await db.getFirstAsync<{ id: string }>(
-    "SELECT id FROM messages WHERE id = ? LIMIT 1",
+    "SELECT id FROM messages WHERE owner_id = ? AND id = ? LIMIT 1",
+    ownerId,
     msgId
   );
   return !!row;
 }
 
 /** 获取需要在 WebSocket 重连后重新提交的本地 Outbox。 */
-export async function getPendingOutgoingMessages(senderId: string): Promise<LocalMessage[]> {
+export async function getPendingOutgoingMessages(ownerId: string): Promise<LocalMessage[]> {
   const db = await getDb();
   const rows = await db.getAllAsync(
     `SELECT * FROM messages
-     WHERE sender_id = ?
+     WHERE owner_id = ?
+       AND sender_id = ?
        AND delivery_status IN ('sending', 'queued')
        AND wire_content IS NOT NULL
      ORDER BY created_at, id`,
-    senderId
+    ownerId,
+    ownerId
   );
   return (rows as any[]).map((row) => ({
     id: row.id,
@@ -442,23 +508,27 @@ export async function getPendingOutgoingMessages(senderId: string): Promise<Loca
 
 /** 进入会话后，将对方发送给我的本地消息统一标记为已读 */
 export async function markChatAsRead(
-  chatId: string,
-  currentUserId: string
+  ownerId: string,
+  chatId: string
 ): Promise<void> {
   const db = await getDb();
   await db.runAsync(
     `UPDATE messages
      SET is_read = 1
-     WHERE chat_id = ? AND sender_id != ? AND is_read = 0`,
+     WHERE owner_id = ? AND chat_id = ? AND sender_id != ? AND is_read = 0`,
+    ownerId,
     chatId,
-    currentUserId
+    ownerId
   );
 }
 
 /** 导出所有消息（用于备份） */
-export async function exportAllMessages(): Promise<LocalMessage[]> {
+export async function exportAllMessages(ownerId: string): Promise<LocalMessage[]> {
   const db = await getDb();
-  const rows = await db.getAllAsync("SELECT * FROM messages ORDER BY created_at");
+  const rows = await db.getAllAsync(
+    "SELECT * FROM messages WHERE owner_id = ? ORDER BY created_at",
+    ownerId
+  );
   return (rows as any[]).map((row) => ({
     id: row.id,
     chat_id: row.chat_id,
@@ -474,10 +544,14 @@ export async function exportAllMessages(): Promise<LocalMessage[]> {
 }
 
 /** 导出单个会话的全部本地消息 */
-export async function exportConversationMessages(chatId: string): Promise<LocalMessage[]> {
+export async function exportConversationMessages(
+  ownerId: string,
+  chatId: string
+): Promise<LocalMessage[]> {
   const db = await getDb();
   const rows = await db.getAllAsync(
-    "SELECT * FROM messages WHERE chat_id = ? ORDER BY created_at, id",
+    "SELECT * FROM messages WHERE owner_id = ? AND chat_id = ? ORDER BY created_at, id",
+    ownerId,
     chatId
   );
   return (rows as any[]).map((row) => ({
@@ -493,8 +567,8 @@ export async function exportConversationMessages(chatId: string): Promise<LocalM
 }
 
 /** 导入消息（增量合并） */
-export async function importMessages(msgs: LocalMessage[]): Promise<number> {
-  await saveMessages(msgs);
+export async function importMessages(ownerId: string, msgs: LocalMessage[]): Promise<number> {
+  await saveMessages(ownerId, msgs);
   return msgs.length;
 }
 

@@ -7,12 +7,13 @@ import {
 } from "./db";
 
 /** 导出所有消息为 JSON 文件并通过系统分享 */
-export async function exportMessagesToFile(): Promise<void> {
-  const messages = await exportAllMessages();
+export async function exportMessagesToFile(ownerId: string): Promise<void> {
+  const messages = await exportAllMessages(ownerId);
 
   const exportData = {
     app: "Kin",
-    version: 1,
+    version: 2,
+    owner_id: ownerId,
     exported_at: new Date().toISOString(),
     message_count: messages.length,
     messages,
@@ -21,7 +22,7 @@ export async function exportMessagesToFile(): Promise<void> {
   const jsonStr = JSON.stringify(exportData, null, 2);
 
   // 新 API: 使用 File 类写入文档目录
-  const file = new File(Paths.document, "kin_backup.json");
+  const file = new File(Paths.document, `kin_backup_${ownerId}.json`);
   await file.write(jsonStr);
 
   // 通过系统分享面板导出
@@ -36,15 +37,17 @@ export async function exportMessagesToFile(): Promise<void> {
 
 /** 导出指定会话为 JSON 文件并通过系统分享 */
 export async function exportConversationToFile(
+  ownerId: string,
   chatId: string,
   displayName: string
 ): Promise<number> {
-  const messages = await exportConversationMessages(chatId);
+  const messages = await exportConversationMessages(ownerId, chatId);
   if (messages.length === 0) return 0;
 
   const exportData = {
     app: "Kin",
-    version: 1,
+    version: 2,
+    owner_id: ownerId,
     scope: "conversation",
     conversation_with: {
       user_id: chatId,
@@ -55,7 +58,7 @@ export async function exportConversationToFile(
     messages,
   };
 
-  const file = new File(Paths.document, `kin_conversation_${chatId}.json`);
+  const file = new File(Paths.document, `kin_conversation_${ownerId}_${chatId}.json`);
   await file.write(JSON.stringify(exportData, null, 2));
 
   const canShare = await Sharing.isAvailableAsync();
@@ -70,7 +73,8 @@ export async function exportConversationToFile(
 
 /** 从 JSON 文件导入消息 */
 export async function importMessagesFromFile(
-  fileUri: string
+  fileUri: string,
+  ownerId: string
 ): Promise<{ success: boolean; count: number; message: string }> {
   try {
     const file = new File(fileUri);
@@ -80,6 +84,20 @@ export async function importMessagesFromFile(
 
     if (!data.app || data.app !== "Kin" || !Array.isArray(data.messages)) {
       return { success: false, count: 0, message: "无效的 Kin 备份文件" };
+    }
+    if (data.version !== 2 || typeof data.owner_id !== "string") {
+      return {
+        success: false,
+        count: 0,
+        message: "旧版测试备份没有账号归属，无法安全导入",
+      };
+    }
+    if (data.owner_id !== ownerId) {
+      return {
+        success: false,
+        count: 0,
+        message: "该备份属于其他 Kin 账号，不能导入当前账号",
+      };
     }
 
     const msgs: LocalMessage[] = data.messages.map((m: any) => ({
@@ -95,7 +113,7 @@ export async function importMessagesFromFile(
       created_at: m.created_at || new Date().toISOString(),
     }));
 
-    const count = await importMessages(msgs);
+    const count = await importMessages(ownerId, msgs);
     return { success: true, count, message: `成功导入 ${count} 条消息` };
   } catch (e: any) {
     return { success: false, count: 0, message: e.message || "导入失败" };

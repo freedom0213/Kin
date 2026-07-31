@@ -13,6 +13,7 @@ import { clearMessages } from "../services/db";
 import { exportConversationToFile } from "../services/export";
 import { getSecretKey } from "../services/keys";
 import { mergeFriendProfile, parseFriendProfileEvent } from "../services/friendProfile";
+import { useAuth } from "../stores/AuthContext";
 
 const COLORS = {
   background: "#F4F5F2",
@@ -99,6 +100,7 @@ function ActionRow({
 }
 
 export default function ConversationDetailsScreen({ route, navigation }: any) {
+  const { state } = useAuth();
   const [friend, setFriend] = useState<Friend>((route.params as { friend: Friend }).friend);
   const insets = useSafeAreaInsets();
   const [busyAction, setBusyAction] = useState<"export" | "clear" | "delete" | null>(null);
@@ -154,9 +156,14 @@ export default function ConversationDetailsScreen({ route, navigation }: any) {
 
   const handleExport = async () => {
     if (busyAction) return;
+    const ownerId = state.user?.id;
+    if (!ownerId) {
+      Alert.alert("导出失败", "当前账号状态不可用，请重新登录后再试。");
+      return;
+    }
     setBusyAction("export");
     try {
-      const count = await exportConversationToFile(friend.user_id, name);
+      const count = await exportConversationToFile(ownerId, friend.user_id, name);
       if (count === 0) Alert.alert("暂无聊天记录", "当前会话还没有可导出的本地消息。");
     } catch (error: any) {
       Alert.alert("导出失败", error.message || "请稍后重试");
@@ -176,9 +183,14 @@ export default function ConversationDetailsScreen({ route, navigation }: any) {
           text: "清空",
           style: "destructive",
           onPress: async () => {
+            const ownerId = state.user?.id;
+            if (!ownerId) {
+              Alert.alert("清空失败", "当前账号状态不可用，请重新登录后再试。");
+              return;
+            }
             setBusyAction("clear");
             try {
-              await clearMessages(friend.user_id);
+              await clearMessages(ownerId, friend.user_id);
               navigation.popTo("Chat", {
                 friend,
                 historyClearedAt: Date.now(),

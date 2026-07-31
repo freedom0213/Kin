@@ -155,9 +155,13 @@ export default function SettingsScreen({ navigation }: any) {
   const displayName = user?.nickname || user?.username || "Kin 用户";
 
   useEffect(() => {
+    if (!user?.id) {
+      setLoading(false);
+      return;
+    }
     let active = true;
     Promise.allSettled([
-      getLocalMessageStats(),
+      getLocalMessageStats(user.id),
       getStoredKeyPair(),
       getPreferences(),
       getPushNotificationStatus(),
@@ -178,7 +182,7 @@ export default function SettingsScreen({ navigation }: any) {
       if (active) setLoading(false);
     });
     return () => { active = false; };
-  }, []);
+  }, [user?.id]);
 
   const handlePreferenceChange = async (key: PreferenceKey, value: boolean) => {
     if (busyPreference) return;
@@ -260,9 +264,13 @@ export default function SettingsScreen({ navigation }: any) {
 
   const handleExport = async () => {
     if (busyAction) return;
+    if (!user?.id) {
+      Alert.alert("导出失败", "当前账号状态不可用，请重新登录后再试。");
+      return;
+    }
     setBusyAction("export");
     try {
-      await exportMessagesToFile();
+      await exportMessagesToFile(user.id);
     } catch (error: any) {
       Alert.alert("导出失败", error.message || "请稍后重试");
     } finally {
@@ -274,7 +282,7 @@ export default function SettingsScreen({ navigation }: any) {
     if (busyAction) return;
     Alert.alert(
       "退出 Kin",
-      "本机聊天记录不会被删除。下次登录仍可读取这台设备上的历史消息。",
+      "本机聊天记录不会被删除。下次使用同一账号登录时，仍可读取该账号在这台设备上的历史消息。",
       [
         { text: "取消", style: "cancel" },
         {

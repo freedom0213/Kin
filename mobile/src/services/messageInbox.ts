@@ -104,7 +104,7 @@ class MessageInbox {
       return null;
     }
 
-    if (await messageExists(msgId)) {
+    if (await messageExists(this.userId, msgId)) {
       kinWS.sendMessageReceived(msgId);
       return null;
     }
@@ -119,7 +119,7 @@ class MessageInbox {
     }
 
     const createdAt = normalizeCreatedAt(data.created_at);
-    await saveMessage({
+    await saveMessage(this.userId, {
       id: msgId,
       chat_id: senderId,
       sender_id: senderId,
@@ -186,8 +186,8 @@ class MessageInbox {
   }
 
   private setStatus(msgId: unknown, status: StoredDeliveryStatus): void {
-    if (typeof msgId === "string") {
-      void updateMessageDeliveryStatus(msgId, status);
+    if (typeof msgId === "string" && this.userId) {
+      void updateMessageDeliveryStatus(this.userId, msgId, status);
     }
   }
 

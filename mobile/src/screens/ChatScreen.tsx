@@ -354,7 +354,7 @@ export default function ChatScreen({ route }: any) {
   useEffect(() => {
     (async () => {
       try {
-        const history = await getMessages(friend.user_id, 50);
+        const history = await getMessages(myId, friend.user_id, 50);
         if (history.length > 0) {
           setMessages(history.map((m) => ({
             id: m.id, from: m.sender_id, content: m.content,
@@ -372,11 +372,11 @@ export default function ChatScreen({ route }: any) {
             kinWS.sendReadReceipt(friend.user_id, message.id);
           }
         }
-        await markChatAsRead(friend.user_id, myId);
+        await markChatAsRead(myId, friend.user_id);
       } catch { /* 本地加载失败不阻塞 */ }
       setLoadingHistory(false);
     })();
-  }, []);
+  }, [friend.user_id, myId]);
 
   // WebSocket 消息监听
   useEffect(() => {
@@ -398,7 +398,7 @@ export default function ChatScreen({ route }: any) {
         setMessages((prev) => prev.some((item) => item.id === msg.id) ? prev : [...prev, msg]);
         setBackgroundPulse((current) => ({ key: current.key + 1, side: "other" }));
         kinWS.sendReadReceipt(friend.user_id, msg.id);
-        markAsRead(msg.id).catch(() => {});
+        markAsRead(myId, msg.id).catch(() => {});
       } else if (data.type === "queued" && data.to === friend.user_id) {
         setMessages((prev) => prev.map((message) => (
           message.id === data.msg_id
@@ -417,7 +417,7 @@ export default function ChatScreen({ route }: any) {
             ? { ...m, is_read: true, delivery_status: "read" }
             : m))
         );
-        markAsRead(data.msg_id).catch(() => {});
+        markAsRead(myId, data.msg_id).catch(() => {});
       } else if (data.type === "message_status" && data.to === friend.user_id) {
         if (!["queued", "delivered", "read"].includes(data.status)) return;
         setMessages((prev) => prev.map((message) => (
@@ -494,7 +494,7 @@ export default function ChatScreen({ route }: any) {
         typingHideTimerRef.current = null;
       }
     };
-  }, [friend.user_id]);
+  }, [friend.user_id, myId]);
 
   // 发送文字消息
   const sendTextMessage = async () => {
@@ -526,7 +526,7 @@ export default function ChatScreen({ route }: any) {
     setBackgroundPulse((current) => ({ key: current.key + 1, side: "mine" }));
     setInputText("");
     try {
-      await saveMessage({
+      await saveMessage(myId, {
         id: msg.id, chat_id: friend.user_id, sender_id: myId,
         type: "text", content: text, is_read: false,
         encrypted: true, wire_content: contentToSend,
@@ -566,7 +566,7 @@ export default function ChatScreen({ route }: any) {
     setMessages((prev) => [...prev, msg]);
     setBackgroundPulse((current) => ({ key: current.key + 1, side: "mine" }));
     try {
-      await saveMessage({
+      await saveMessage(myId, {
         id: msg.id, chat_id: friend.user_id, sender_id: myId,
         type: "voice", content: base64Audio, duration,
         is_read: false, encrypted: true, wire_content: contentToSend,
@@ -675,7 +675,7 @@ export default function ChatScreen({ route }: any) {
     )));
 
     try {
-      await saveMessage({
+      await saveMessage(myId, {
         id: message.id,
         chat_id: friend.user_id,
         sender_id: myId,
@@ -703,7 +703,7 @@ export default function ChatScreen({ route }: any) {
       setMessages((current) => current.map((item) => (
         item.id === message.id ? { ...item, delivery_status: "failed" } : item
       )));
-      void updateMessageDeliveryStatus(message.id, "failed").catch(() => undefined);
+      void updateMessageDeliveryStatus(myId, message.id, "failed").catch(() => undefined);
       Alert.alert("重试失败", "无法保存待发送消息，请检查设备存储后再试。");
     } finally {
       retryingMessageIdsRef.current.delete(message.id);
@@ -722,7 +722,7 @@ export default function ChatScreen({ route }: any) {
           onPress: () => {
             void (async () => {
               try {
-                await deleteMessage(message.id);
+                await deleteMessage(myId, message.id);
                 retryingMessageIdsRef.current.delete(message.id);
                 setMessages((current) => current.filter((item) => item.id !== message.id));
               } catch {
