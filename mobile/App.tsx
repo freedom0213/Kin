@@ -26,7 +26,7 @@ import {
 import { AuthProvider, useAuth } from "./src/stores/AuthContext";
 import LoginScreen from "./src/screens/LoginScreen";
 import RegisterScreen from "./src/screens/RegisterScreen";
-import FriendListScreen from "./src/screens/FriendListScreen";
+import MainShellScreen, { type MainTab } from "./src/screens/MainShellScreen";
 import ChatScreen from "./src/screens/ChatScreen";
 import AddFriendScreen from "./src/screens/AddFriendScreen";
 import VoiceCallScreen from "./src/screens/VoiceCallScreen";
@@ -36,7 +36,7 @@ import ProfileEditScreen from "./src/screens/ProfileEditScreen";
 import { GRAPHITE_COLORS, GRAPHITE_NAVIGATION_THEME } from "./src/theme/graphite";
 
 type RootStackParamList = {
-  FriendList: undefined;
+  FriendList: { tab?: MainTab } | undefined;
   Chat: { friend: Friend; historyClearedAt?: number };
   ConversationDetails: { friend: Friend };
   AddFriend: undefined;
@@ -732,11 +732,13 @@ function NotificationResponseCoordinator({
           if (friend && navigationRef.isReady()) {
             navigationRef.navigate("Chat", { friend });
           } else if (navigationRef.isReady()) {
-            navigationRef.navigate("FriendList");
+            navigationRef.navigate("FriendList", { tab: "conversations" });
           }
         })
         .catch(() => {
-          if (navigationRef.isReady()) navigationRef.navigate("FriendList");
+          if (navigationRef.isReady()) {
+            navigationRef.navigate("FriendList", { tab: "conversations" });
+          }
         })
         .finally(finish);
       return;
@@ -773,7 +775,7 @@ function AppNavigator() {
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {state.isLoggedIn ? (
           <>
-            <Stack.Screen name="FriendList" component={FriendListScreen} />
+            <Stack.Screen name="FriendList" component={MainShellScreen} />
             <Stack.Screen name="Chat" component={ChatScreen} />
             <Stack.Screen name="ConversationDetails" component={ConversationDetailsScreen} />
             <Stack.Screen name="AddFriend" component={AddFriendScreen} />
