@@ -24,6 +24,7 @@ import { File, Paths } from "expo-file-system";
 interface VoiceRecorderProps {
   onRecordComplete: (base64Audio: string, duration: number) => void;
   disabled?: boolean;
+  display?: "compact" | "hold";
 }
 
 const CANCEL_DISTANCE = -56;
@@ -37,7 +38,11 @@ function formatRecordingDuration(seconds: number): string {
   return `${Math.floor(safeSeconds / 60)}:${String(safeSeconds % 60).padStart(2, "0")}`;
 }
 
-export function VoiceRecorder({ onRecordComplete, disabled = false }: VoiceRecorderProps) {
+export function VoiceRecorder({
+  onRecordComplete,
+  disabled = false,
+  display = "compact",
+}: VoiceRecorderProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
@@ -241,9 +246,17 @@ export function VoiceRecorder({ onRecordComplete, disabled = false }: VoiceRecor
       : notice === "max-duration"
         ? "已达到 60 秒并发送"
         : null;
+  const holdDisplay = display === "hold";
+  const holdButtonText = isCancelling
+    ? `松开取消 · ${formatRecordingDuration(recordingSeconds)}`
+    : isRecording
+      ? `松开发送 · ${formatRecordingDuration(recordingSeconds)}`
+      : disabled
+        ? "语音发送暂不可用"
+        : "按住说话";
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, holdDisplay && styles.containerHold]}>
       {isRecording ? (
         <View style={[styles.recordingIndicator, isCancelling && styles.recordingIndicatorCancel]}>
           {isCancelling ? <View style={styles.cancelChevron} /> : <View style={styles.recordingDot} />}
@@ -263,6 +276,7 @@ export function VoiceRecorder({ onRecordComplete, disabled = false }: VoiceRecor
         {...panResponder.panHandlers}
         style={[
           styles.micBtn,
+          holdDisplay && styles.micBtnHold,
           disabled && styles.micBtnDisabled,
           isRecording && styles.micBtnActive,
           isCancelling && styles.micBtnCancel,
@@ -281,12 +295,22 @@ export function VoiceRecorder({ onRecordComplete, disabled = false }: VoiceRecor
           : "按住录音，松开发送，上滑后松开取消"}
         accessibilityState={{ disabled }}
       >
-        <View style={styles.micIcon}>
-          <View style={styles.micCapsule} />
-          <View style={styles.micArc} />
-          <View style={styles.micStem} />
-          <View style={styles.micBase} />
-        </View>
+        {holdDisplay ? (
+          <Text style={[
+            styles.holdButtonText,
+            isRecording && styles.holdButtonTextActive,
+            isCancelling && styles.holdButtonTextCancel,
+          ]}>
+            {holdButtonText}
+          </Text>
+        ) : (
+          <View style={styles.micIcon}>
+            <View style={styles.micCapsule} />
+            <View style={styles.micArc} />
+            <View style={styles.micStem} />
+            <View style={styles.micBase} />
+          </View>
+        )}
       </View>
     </View>
   );
@@ -356,10 +380,15 @@ export function VoiceMessageBubble({
 }
 
 const styles = StyleSheet.create({
-  container: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  container: { width: 48, height: 48, alignItems: "center", justifyContent: "center" },
+  containerHold: { flex: 1, width: "auto" },
   micBtn: {
-    width: 44, height: 44, borderRadius: 22,
+    width: 48, height: 48, borderRadius: 24,
     backgroundColor: "#F0F2EF", alignItems: "center", justifyContent: "center",
+  },
+  micBtnHold: {
+    width: "100%", borderRadius: 14,
+    borderWidth: 1, borderColor: "#D7DBD6", backgroundColor: "#F7F8F6",
   },
   micBtnActive: { backgroundColor: "#F9DCD9" },
   micBtnCancel: { backgroundColor: "#E3E6E2" },
@@ -376,8 +405,11 @@ const styles = StyleSheet.create({
   },
   micStem: { width: 1.7, height: 5, backgroundColor: "#4E555B" },
   micBase: { width: 10, height: 1.7, borderRadius: 1, backgroundColor: "#4E555B" },
+  holdButtonText: { color: "#343A37", fontSize: 14, fontWeight: "700" },
+  holdButtonTextActive: { color: "#9D3731" },
+  holdButtonTextCancel: { color: "#555B58" },
   recordingIndicator: {
-    position: "absolute", left: 0, bottom: 52, width: 204,
+    position: "absolute", left: 0, bottom: 56, width: 204,
     flexDirection: "row", alignItems: "center",
     paddingHorizontal: 10, paddingVertical: 8,
     backgroundColor: "#FFFFFF", borderRadius: 12,
@@ -387,7 +419,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#F1F2EF", borderColor: "#C7CBC6",
   },
   noticeIndicator: {
-    position: "absolute", left: 0, bottom: 52, minWidth: 132,
+    position: "absolute", left: 0, bottom: 56, minWidth: 132,
     paddingHorizontal: 10, paddingVertical: 8,
     backgroundColor: "#FFFFFF", borderRadius: 12,
     borderWidth: StyleSheet.hairlineWidth, borderColor: "#D7DCD7",

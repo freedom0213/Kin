@@ -1,6 +1,6 @@
 /** 聊天页面 — E2E 加密/文字/语音消息 + 在线状态 + 语音通话入口 + 本地存储 */
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, Pressable, Alert,
   FlatList, StyleSheet, KeyboardAvoidingView, Platform, Keyboard,
@@ -41,6 +41,8 @@ interface Message {
   encrypted?: boolean;
   wire_content?: string;
 }
+
+type InputMode = "text" | "voice";
 
 const EMOJIS = ["😀", "😂", "🥹", "😊", "😍", "🤔", "👍", "👏", "❤️", "🎉", "🌙", "✨"];
 
@@ -87,6 +89,32 @@ function SmileMark() {
       <View style={[styles.smileEye, styles.smileEyeLeft]} />
       <View style={[styles.smileEye, styles.smileEyeRight]} />
       <View style={styles.smileMouth} />
+    </View>
+  );
+}
+
+function VoiceModeMark() {
+  return (
+    <View style={styles.voiceModeIcon}>
+      <View style={styles.voiceModeCapsule} />
+      <View style={styles.voiceModeArc} />
+      <View style={styles.voiceModeStem} />
+      <View style={styles.voiceModeBase} />
+    </View>
+  );
+}
+
+function KeyboardModeMark() {
+  return (
+    <View style={styles.keyboardModeIcon}>
+      {[0, 1, 2].map((row) => (
+        <View key={row} style={styles.keyboardModeRow}>
+          {[0, 1, 2, 3].map((column) => (
+            <View key={column} style={styles.keyboardModeKey} />
+          ))}
+        </View>
+      ))}
+      <View style={styles.keyboardModeSpace} />
     </View>
   );
 }
@@ -160,6 +188,75 @@ function TypingIndicator() {
 }
 
 type RippleSide = "mine" | "other";
+
+function MessageEntry({
+  isMine,
+  animate,
+  reduceMotion,
+  onAnimationClaimed,
+  children,
+}: {
+  isMine: boolean;
+  animate: boolean;
+  reduceMotion: boolean;
+  onAnimationClaimed: () => void;
+  children: ReactNode;
+}) {
+  const progress = useRef(new Animated.Value(animate && !reduceMotion ? 0 : 1)).current;
+
+  useEffect(() => {
+    if (!animate) {
+      progress.setValue(1);
+      return;
+    }
+    onAnimationClaimed();
+    if (reduceMotion) {
+      progress.setValue(1);
+      return;
+    }
+    const animation = Animated.timing(progress, {
+      toValue: 1,
+      duration: 210,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    });
+    animation.start();
+    return () => animation.stop();
+  }, [animate, onAnimationClaimed, progress, reduceMotion]);
+
+  return (
+    <Animated.View
+      style={[
+        styles.messageEntry,
+        {
+          opacity: progress,
+          transform: [
+            {
+              translateX: progress.interpolate({
+                inputRange: [0, 1],
+                outputRange: [isMine ? 6 : -6, 0],
+              }),
+            },
+            {
+              translateY: progress.interpolate({
+                inputRange: [0, 1],
+                outputRange: [8, 0],
+              }),
+            },
+            {
+              scale: progress.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0.96, 1],
+              }),
+            },
+          ],
+        },
+      ]}
+    >
+      {children}
+    </Animated.View>
+  );
+}
 
 function ChatAmbientBackground({
   isOnline,
@@ -302,6 +399,8 @@ export default function ChatScreen({ route }: any) {
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
+  const [inputMode, setInputMode] = useState<InputMode>("text");
+  const [reduceMotion, setReduceMotion] = useState(false);
   const [isOnline, setIsOnline] = useState(friend.is_online);
   const [showMore, setShowMore] = useState(false);
   const [showEmojiPanel, setShowEmojiPanel] = useState(false);
@@ -313,6 +412,10 @@ export default function ChatScreen({ route }: any) {
     side: RippleSide;
   }>({ key: 0, side: "other" });
   const flatListRef = useRef<FlatList>(null);
+  const inputRef = useRef<TextInput>(null);
+  const sendButtonScale = useRef(new Animated.Value(1)).current;
+  const animatedMessageIdsRef = useRef(new Map<string, number>());
+  const lastBackgroundPulseAtRef = useRef(0);
   const userNearBottomRef = useRef(true);
   const initialScrollPendingRef = useRef(true);
   const explicitScrollPendingRef = useRef(false);
@@ -332,6 +435,22 @@ export default function ChatScreen({ route }: any) {
         ? "missing_local_key"
         : localKeyState;
   const isEncryptionReady = encryptionState === "ready";
+
+  const triggerBackgroundPulse = (side: RippleSide) => {
+    const now = Date.now();
+    if (now - lastBackgroundPulseAtRef.current < 280) return;
+    lastBackgroundPulseAtRef.current = now;
+    setBackgroundPulse((current) => ({ key: current.key + 1, side }));
+  };
+
+  useEffect(() => {
+    AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
+    const subscription = AccessibilityInfo.addEventListener(
+      "reduceMotionChanged",
+      setReduceMotion,
+    );
+    return () => subscription.remove();
+  }, []);
 
   const handleMessageListScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentSize, layoutMeasurement, contentOffset } = event.nativeEvent;
@@ -440,9 +559,13 @@ export default function ChatScreen({ route }: any) {
           is_read: true,
           created_at: data.created_at || new Date().toISOString(),
         };
-        setMessages((prev) => prev.some((item) => item.id === msg.id) ? prev : [...prev, msg]);
+        setMessages((prev) => {
+          if (prev.some((item) => item.id === msg.id)) return prev;
+          animatedMessageIdsRef.current.set(msg.id, Date.now());
+          return [...prev, msg];
+        });
         if (!shouldFollowMessage) setHasNewMessages(true);
-        setBackgroundPulse((current) => ({ key: current.key + 1, side: "other" }));
+        triggerBackgroundPulse("other");
         kinWS.sendReadReceipt(friend.user_id, msg.id);
         markAsRead(myId, msg.id).catch(() => {});
       } else if (data.type === "queued" && data.to === friend.user_id) {
@@ -569,8 +692,9 @@ export default function ChatScreen({ route }: any) {
       wire_content: contentToSend,
     };
     explicitScrollPendingRef.current = userNearBottomRef.current;
+    animatedMessageIdsRef.current.set(msg.id, Date.now());
     setMessages((prev) => [...prev, msg]);
-    setBackgroundPulse((current) => ({ key: current.key + 1, side: "mine" }));
+    triggerBackgroundPulse("mine");
     setInputText("");
     try {
       await saveMessage(myId, {
@@ -611,8 +735,9 @@ export default function ChatScreen({ route }: any) {
       wire_content: contentToSend,
     };
     explicitScrollPendingRef.current = userNearBottomRef.current;
+    animatedMessageIdsRef.current.set(msg.id, Date.now());
     setMessages((prev) => [...prev, msg]);
-    setBackgroundPulse((current) => ({ key: current.key + 1, side: "mine" }));
+    triggerBackgroundPulse("mine");
     try {
       await saveMessage(myId, {
         id: msg.id, chat_id: friend.user_id, sender_id: myId,
@@ -679,9 +804,30 @@ export default function ChatScreen({ route }: any) {
     if (text.trim()) notifyTyping();
   };
 
+  const selectInputMode = (mode: InputMode) => {
+    setInputMode(mode);
+    setShowEmojiPanel(false);
+    if (mode === "voice") {
+      Keyboard.dismiss();
+      return;
+    }
+    requestAnimationFrame(() => inputRef.current?.focus());
+  };
+
   const appendEmoji = (emoji: string) => {
+    setInputMode("text");
     setInputText((current) => `${current}${emoji}`);
     notifyTyping();
+  };
+
+  const animateSendButton = (pressed: boolean) => {
+    if (reduceMotion) return;
+    Animated.timing(sendButtonScale, {
+      toValue: pressed ? 0.94 : 1,
+      duration: pressed ? 80 : 110,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
   };
 
   const getStatusMark = (message: Message): string => {
@@ -814,6 +960,9 @@ export default function ChatScreen({ route }: any) {
   // 渲染消息气泡
   const renderMessage = ({ item }: { item: Message }) => {
     const isMine = item.from === myId;
+    const animationQueuedAt = animatedMessageIdsRef.current.get(item.id) || 0;
+    const shouldAnimate = Date.now() - animationQueuedAt < 2_000;
+    if (animationQueuedAt && !shouldAnimate) animatedMessageIdsRef.current.delete(item.id);
     const bubbleStyle = isMine ? styles.msgMine : styles.msgOther;
     const textStyle = isMine ? styles.msgTextMine : styles.msgTextOther;
     const statusMark = isMine ? getStatusMark(item) : "";
@@ -821,50 +970,57 @@ export default function ChatScreen({ route }: any) {
     const isFailed = statusMark === "!";
 
     return (
-      <Pressable
-        style={[styles.msgBubble, bubbleStyle]}
-        onLongPress={() => showMessageActions(item)}
-        delayLongPress={360}
-        accessibilityHint={item.type === "text" ? "长按可以复制或从本机删除" : "长按可以从本机删除"}
+      <MessageEntry
+        isMine={isMine}
+        animate={shouldAnimate}
+        reduceMotion={reduceMotion}
+        onAnimationClaimed={() => animatedMessageIdsRef.current.delete(item.id)}
       >
-        {item.type === "voice" ? (
-          <VoiceMessageBubble
-            duration={item.duration || 0}
-            audioBase64={item.content}
-            isMine={isMine}
-          />
-        ) : (
-          <Text style={textStyle}>{item.content}</Text>
-        )}
-        <View style={styles.messageMeta}>
-          <Text style={[styles.messageTime, isMine && styles.messageTimeMine]}>
-            {formatMessageTime(item.created_at)}
-          </Text>
-          {isMine ? (
-            isFailed ? (
-              <TouchableOpacity
-                style={styles.retryStatusButton}
-                onPress={() => { void retryMessage(item); }}
-                hitSlop={{ top: 11, right: 11, bottom: 11, left: 11 }}
-                accessibilityRole="button"
-                accessibilityLabel="消息发送失败"
-                accessibilityHint="轻点重新发送"
-              >
-                <Text style={[styles.deliveryStatus, styles.deliveryStatusFailed]}>!</Text>
-              </TouchableOpacity>
-            ) : (
-              <Text
-                style={[
-                  styles.deliveryStatus,
-                  isRead && styles.deliveryStatusRead,
-                ]}
-              >
-                {statusMark}
-              </Text>
-            )
-          ) : null}
-        </View>
-      </Pressable>
+        <Pressable
+          style={[styles.msgBubble, bubbleStyle]}
+          onLongPress={() => showMessageActions(item)}
+          delayLongPress={360}
+          accessibilityHint={item.type === "text" ? "长按可以复制或从本机删除" : "长按可以从本机删除"}
+        >
+          {item.type === "voice" ? (
+            <VoiceMessageBubble
+              duration={item.duration || 0}
+              audioBase64={item.content}
+              isMine={isMine}
+            />
+          ) : (
+            <Text style={textStyle}>{item.content}</Text>
+          )}
+          <View style={styles.messageMeta}>
+            <Text style={[styles.messageTime, isMine && styles.messageTimeMine]}>
+              {formatMessageTime(item.created_at)}
+            </Text>
+            {isMine ? (
+              isFailed ? (
+                <TouchableOpacity
+                  style={styles.retryStatusButton}
+                  onPress={() => { void retryMessage(item); }}
+                  hitSlop={{ top: 11, right: 11, bottom: 11, left: 11 }}
+                  accessibilityRole="button"
+                  accessibilityLabel="消息发送失败"
+                  accessibilityHint="轻点重新发送"
+                >
+                  <Text style={[styles.deliveryStatus, styles.deliveryStatusFailed]}>!</Text>
+                </TouchableOpacity>
+              ) : (
+                <Text
+                  style={[
+                    styles.deliveryStatus,
+                    isRead && styles.deliveryStatusRead,
+                  ]}
+                >
+                  {statusMark}
+                </Text>
+              )
+            ) : null}
+          </View>
+        </Pressable>
+      </MessageEntry>
     );
   };
 
@@ -987,17 +1143,34 @@ export default function ChatScreen({ route }: any) {
       ) : null}
 
       <View style={[styles.inputBar, { paddingBottom: Math.max(insets.bottom, 8) }]}>
-        <VoiceRecorder onRecordComplete={handleVoiceRecord} disabled={!isEncryptionReady} />
-        <TextInput
-          style={styles.input}
-          placeholder={isEncryptionReady ? "说点什么..." : "加密保护不可用"}
-          value={inputText}
-          onChangeText={handleInputChange}
-          multiline
-          maxLength={2000}
-          accessibilityLabel="消息输入框"
-          onFocus={() => setShowEmojiPanel(false)}
-        />
+        <TouchableOpacity
+          style={styles.inputIconButton}
+          onPress={() => selectInputMode(inputMode === "text" ? "voice" : "text")}
+          accessibilityRole="button"
+          accessibilityLabel={inputMode === "text" ? "切换到语音模式" : "切换到文字模式"}
+          accessibilityHint={inputMode === "text" ? "显示按住说话按钮" : "恢复消息输入框并打开键盘"}
+        >
+          {inputMode === "text" ? <VoiceModeMark /> : <KeyboardModeMark />}
+        </TouchableOpacity>
+        {inputMode === "text" ? (
+          <TextInput
+            ref={inputRef}
+            style={styles.input}
+            placeholder={isEncryptionReady ? "说点什么..." : "加密保护不可用"}
+            value={inputText}
+            onChangeText={handleInputChange}
+            multiline
+            maxLength={2000}
+            accessibilityLabel="消息输入框"
+            onFocus={() => setShowEmojiPanel(false)}
+          />
+        ) : (
+          <VoiceRecorder
+            display="hold"
+            onRecordComplete={handleVoiceRecord}
+            disabled={!isEncryptionReady}
+          />
+        )}
         <TouchableOpacity
           style={[styles.inputIconButton, showEmojiPanel && styles.inputIconButtonActive]}
           onPress={() => {
@@ -1009,19 +1182,28 @@ export default function ChatScreen({ route }: any) {
         >
           <SmileMark />
         </TouchableOpacity>
-        <TouchableOpacity
-          style={[
-            styles.sendBtn,
-            (!inputText.trim() || !isEncryptionReady) && styles.sendBtnDisabled,
-          ]}
-          onPress={sendTextMessage}
-          disabled={!inputText.trim() || !isEncryptionReady}
-          accessibilityRole="button"
-          accessibilityLabel="发送消息"
-          accessibilityState={{ disabled: !inputText.trim() || !isEncryptionReady }}
+        <Animated.View
+          style={[styles.sendButtonShell, { transform: [{ scale: sendButtonScale }] }]}
         >
-          <Text style={styles.sendBtnText}>发送</Text>
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.sendBtn,
+              (inputMode === "voice" || !inputText.trim() || !isEncryptionReady)
+                && styles.sendBtnDisabled,
+            ]}
+            onPress={() => { void sendTextMessage(); }}
+            onPressIn={() => animateSendButton(true)}
+            onPressOut={() => animateSendButton(false)}
+            disabled={inputMode === "voice" || !inputText.trim() || !isEncryptionReady}
+            accessibilityRole="button"
+            accessibilityLabel="发送消息"
+            accessibilityState={{
+              disabled: inputMode === "voice" || !inputText.trim() || !isEncryptionReady,
+            }}
+          >
+            <Text style={styles.sendBtnText}>发送</Text>
+          </TouchableOpacity>
+        </Animated.View>
       </View>
 
       {showMore ? (
@@ -1173,6 +1355,7 @@ const styles = StyleSheet.create({
   offlineNoticeText: { color: "#565B61", fontSize: 13 },
   messageList: { zIndex: 1 },
   msgList: { paddingHorizontal: 14, paddingTop: 18, paddingBottom: 20 },
+  messageEntry: { width: "100%" },
   newMessageButton: {
     position: "absolute", right: 18, bottom: 112, zIndex: 4,
     minHeight: 38, paddingHorizontal: 14, borderRadius: 19,
@@ -1234,15 +1417,37 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF", gap: 6,
   },
   input: {
-    flex: 1, minHeight: 44, borderWidth: 1, borderColor: "#DDE0DC", borderRadius: 22,
+    flex: 1, minHeight: 48, borderWidth: 1, borderColor: "#DDE0DC", borderRadius: 24,
     paddingHorizontal: 15, paddingVertical: 10, fontSize: 16, lineHeight: 22,
     maxHeight: 112, backgroundColor: "#F7F8F6", color: "#171A1F",
   },
   inputIconButton: {
-    width: 44, height: 44, borderRadius: 22,
+    width: 48, height: 48, borderRadius: 24,
     alignItems: "center", justifyContent: "center", backgroundColor: "#F0F2EF",
   },
   inputIconButtonActive: { backgroundColor: "#DDF3EB" },
+  voiceModeIcon: { width: 22, height: 24, alignItems: "center" },
+  voiceModeCapsule: {
+    width: 8, height: 13, borderRadius: 4,
+    borderWidth: 1.7, borderColor: "#4E555B",
+  },
+  voiceModeArc: {
+    position: "absolute", top: 5, width: 15, height: 11,
+    borderWidth: 1.7, borderTopWidth: 0, borderColor: "#4E555B",
+    borderBottomLeftRadius: 8, borderBottomRightRadius: 8,
+  },
+  voiceModeStem: { width: 1.7, height: 5, backgroundColor: "#4E555B" },
+  voiceModeBase: { width: 10, height: 1.7, borderRadius: 1, backgroundColor: "#4E555B" },
+  keyboardModeIcon: {
+    width: 23, height: 18, paddingHorizontal: 3, paddingTop: 3,
+    borderWidth: 1.5, borderColor: "#4E555B", borderRadius: 4,
+  },
+  keyboardModeRow: { height: 3, flexDirection: "row", justifyContent: "space-between" },
+  keyboardModeKey: { width: 2.5, height: 2, borderRadius: 1, backgroundColor: "#4E555B" },
+  keyboardModeSpace: {
+    position: "absolute", left: 6, right: 6, bottom: 3,
+    height: 1.7, borderRadius: 1, backgroundColor: "#4E555B",
+  },
   smileIcon: {
     width: 22, height: 22, borderRadius: 11,
     borderWidth: 1.7, borderColor: "#4E555B",
@@ -1259,9 +1464,10 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 8, borderBottomRightRadius: 8,
   },
   sendBtn: {
-    minWidth: 58, height: 44, backgroundColor: "#273A34", borderRadius: 22,
+    minWidth: 62, height: 48, backgroundColor: "#273A34", borderRadius: 24,
     paddingHorizontal: 14, alignItems: "center", justifyContent: "center",
   },
+  sendButtonShell: { borderRadius: 24 },
   sendBtnDisabled: { backgroundColor: "#D9DCD8" },
   sendBtnText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
   emojiPanel: {
