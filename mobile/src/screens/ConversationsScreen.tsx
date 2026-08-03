@@ -1,7 +1,6 @@
-import React, { useMemo, useRef } from "react";
+import React, { useMemo } from "react";
 import {
   Alert,
-  Animated,
   FlatList,
   RefreshControl,
   ScrollView,
@@ -13,6 +12,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Friend } from "../api/client";
 import FriendAvatar from "../components/FriendAvatar";
+import PresenceWakeHighlight from "../components/PresenceWakeHighlight";
 import {
   formatConversationTime,
   getFriendDisplayName,
@@ -23,29 +23,6 @@ import {
 import { useAuth } from "../stores/AuthContext";
 import { useFriendsHome } from "../stores/FriendsHomeContext";
 import { GRAPHITE_COLORS, GRAPHITE_RADII } from "../theme/graphite";
-
-function PresenceHighlight({ eventKey, children }: { eventKey: number; children: React.ReactNode }) {
-  const highlight = useRef(new Animated.Value(0)).current;
-  React.useEffect(() => {
-    if (!eventKey || Date.now() - eventKey > 1_500) return;
-    highlight.setValue(1);
-    Animated.timing(highlight, {
-      toValue: 0,
-      duration: 420,
-      useNativeDriver: false,
-    }).start();
-  }, [eventKey, highlight]);
-  return (
-    <Animated.View style={{
-      backgroundColor: highlight.interpolate({
-        inputRange: [0, 1],
-        outputRange: ["transparent", GRAPHITE_COLORS.primarySoft],
-      }),
-    }}>
-      {children}
-    </Animated.View>
-  );
-}
 
 export default function ConversationsScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
@@ -93,28 +70,37 @@ export default function ConversationsScreen({ navigation }: any) {
   };
 
   const renderPresencePerson = (friend: Friend) => (
-    <TouchableOpacity
+    <PresenceWakeHighlight
       key={friend.user_id}
-      style={styles.presencePerson}
-      onPress={() => navigation.navigate("Chat", { friend })}
-      accessibilityRole="button"
-      accessibilityLabel={`${getFriendDisplayName(friend)}，${friend.is_online ? "在线" : "离线"}`}
+      style={styles.presenceWake}
+      eventKey={onlineEventKeys[friend.user_id] || 0}
+      reduceMotion={reduceMotion}
     >
-      <FriendAvatar
-        friend={friend}
-        reduceMotion={reduceMotion}
-        onlineEventKey={onlineEventKeys[friend.user_id] || 0}
-        size={50}
-      />
-      <Text style={styles.presenceName} numberOfLines={1}>{getFriendDisplayName(friend)}</Text>
-    </TouchableOpacity>
+      <TouchableOpacity
+        style={styles.presencePerson}
+        onPress={() => navigation.navigate("Chat", { friend })}
+        accessibilityRole="button"
+        accessibilityLabel={`${getFriendDisplayName(friend)}，${friend.is_online ? "在线" : "离线"}`}
+      >
+        <FriendAvatar
+          friend={friend}
+          reduceMotion={reduceMotion}
+          onlineEventKey={onlineEventKeys[friend.user_id] || 0}
+          size={50}
+        />
+        <Text style={styles.presenceName} numberOfLines={1}>{getFriendDisplayName(friend)}</Text>
+      </TouchableOpacity>
+    </PresenceWakeHighlight>
   );
 
   const renderConversation = ({ item }: { item: Friend }) => {
     const summary = summaries[item.user_id];
     const statusMark = getSummaryStatus(summary, state.user?.id || "");
     return (
-      <PresenceHighlight eventKey={onlineEventKeys[item.user_id] || 0}>
+      <PresenceWakeHighlight
+        eventKey={onlineEventKeys[item.user_id] || 0}
+        reduceMotion={reduceMotion}
+      >
         <TouchableOpacity
           style={styles.conversationRow}
           onPress={() => navigation.navigate("Chat", { friend: item })}
@@ -149,7 +135,7 @@ export default function ConversationsScreen({ navigation }: any) {
             ) : null}
           </View>
         </TouchableOpacity>
-      </PresenceHighlight>
+      </PresenceWakeHighlight>
     );
   };
 
@@ -307,6 +293,7 @@ const styles = StyleSheet.create({
   sectionTitle: { color: GRAPHITE_COLORS.text, fontSize: 14, fontWeight: "800" },
   sectionCount: { marginLeft: 7, color: GRAPHITE_COLORS.textFaint, fontSize: 12 },
   presenceRail: { paddingHorizontal: 16, paddingVertical: 9, gap: 4 },
+  presenceWake: { width: 76, borderRadius: GRAPHITE_RADII.control },
   presencePerson: { width: 76, minHeight: 88, alignItems: "center", justifyContent: "flex-start" },
   presenceName: { width: 72, marginTop: 5, color: GRAPHITE_COLORS.textMuted, fontSize: 11, textAlign: "center" },
   compactEmpty: { paddingHorizontal: 20, paddingVertical: 16, color: GRAPHITE_COLORS.textFaint, fontSize: 12 },

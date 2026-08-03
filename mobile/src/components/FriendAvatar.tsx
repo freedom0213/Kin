@@ -10,6 +10,12 @@ import {
 import type { ImageStyle } from "react-native";
 import { resolveMediaUrl, type Friend } from "../api/client";
 import { getFriendDisplayName, getFriendInitials } from "../services/friendPresentation";
+import {
+  getPresenceDelay,
+  isRecentPresenceEvent,
+  PRESENCE_LANDING_START_MS,
+  PRESENCE_TOTAL_MS,
+} from "../services/presenceMotion";
 import { GRAPHITE_COLORS } from "../theme/graphite";
 
 function getPulseDelay(userId: string): number {
@@ -33,6 +39,8 @@ export default function FriendAvatar({
 }) {
   const pulse = useRef(new Animated.Value(0)).current;
   const burst = useRef(new Animated.Value(0)).current;
+  const settle = useRef(new Animated.Value(0)).current;
+  const statusWake = useRef(new Animated.Value(0)).current;
   const lastBurstKey = useRef(0);
   const imageUrl = resolveMediaUrl(friend.avatar);
   const frameSize = size + 10;
@@ -47,29 +55,84 @@ export default function FriendAvatar({
       Animated.timing(pulse, { toValue: 1, duration: 1800, useNativeDriver: true }),
       Animated.timing(pulse, { toValue: 0, duration: 1800, useNativeDriver: true }),
     ]));
-    const animation = Animated.sequence([Animated.delay(getPulseDelay(friend.user_id)), loop]);
+    const landingDelay = isRecentPresenceEvent(onlineEventKey)
+      ? getPresenceDelay(onlineEventKey, PRESENCE_TOTAL_MS)
+      : 0;
+    const animation = Animated.sequence([
+      Animated.delay(landingDelay + getPulseDelay(friend.user_id)),
+      loop,
+    ]);
     animation.start();
     return () => {
       animation.stop();
       loop.stop();
     };
-  }, [friend.is_online, friend.user_id, pulse, reduceMotion]);
+  }, [friend.is_online, friend.user_id, onlineEventKey, pulse, reduceMotion]);
 
   useEffect(() => {
-    if (onlineEventKey <= lastBurstKey.current) return;
-    lastBurstKey.current = onlineEventKey;
-    if (!friend.is_online || reduceMotion || Date.now() - onlineEventKey > 1_500) return;
-    burst.stopAnimation();
-    burst.setValue(0);
-    const animation = Animated.timing(burst, {
-      toValue: 1,
-      duration: 520,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    });
+    statusWake.stopAnimation();
+    if (!onlineEventKey || reduceMotion || !isRecentPresenceEvent(onlineEventKey)) {
+      statusWake.setValue(0);
+      return;
+    }
+    statusWake.setValue(0);
+    const animation = Animated.sequence([
+      Animated.delay(getPresenceDelay(onlineEventKey, 0)),
+      Animated.timing(statusWake, {
+        toValue: 1,
+        duration: 150,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]);
     animation.start();
     return () => animation.stop();
-  }, [burst, friend.is_online, onlineEventKey, reduceMotion]);
+  }, [onlineEventKey, reduceMotion, statusWake]);
+
+  useEffect(() => {
+    if (!friend.is_online || reduceMotion || !isRecentPresenceEvent(onlineEventKey)) {
+      burst.stopAnimation();
+      settle.stopAnimation();
+      burst.setValue(0);
+      settle.setValue(0);
+      return;
+    }
+    if (onlineEventKey <= lastBurstKey.current) return;
+    lastBurstKey.current = onlineEventKey;
+    burst.stopAnimation();
+    settle.stopAnimation();
+    burst.setValue(0);
+    settle.setValue(0);
+    const delay = getPresenceDelay(onlineEventKey, PRESENCE_LANDING_START_MS);
+    const animation = Animated.parallel([
+      Animated.sequence([
+        Animated.delay(delay),
+        Animated.timing(burst, {
+          toValue: 1,
+          duration: 340,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.sequence([
+        Animated.delay(delay),
+        Animated.timing(settle, {
+          toValue: 1,
+          duration: 170,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: true,
+        }),
+        Animated.timing(settle, {
+          toValue: 0,
+          duration: 150,
+          easing: Easing.inOut(Easing.quad),
+          useNativeDriver: true,
+        }),
+      ]),
+    ]);
+    animation.start();
+    return () => animation.stop();
+  }, [burst, friend.is_online, onlineEventKey, reduceMotion, settle]);
 
   const ringStyle = {
     opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.44, 0.08] }),
@@ -78,6 +141,11 @@ export default function FriendAvatar({
   const burstStyle = {
     opacity: burst.interpolate({ inputRange: [0, 0.18, 1], outputRange: [0, 0.5, 0] }),
     transform: [{ scale: burst.interpolate({ inputRange: [0, 1], outputRange: [0.92, 1.46] }) }],
+  };
+  const avatarSettleStyle = {
+    transform: [{
+      scale: settle.interpolate({ inputRange: [0, 1], outputRange: [1, 1.045] }),
+    }],
   };
 
   return (
@@ -100,11 +168,12 @@ export default function FriendAvatar({
           ]}
         />
       ) : null}
-      <View
+      <Animated.View
         style={[
           styles.avatar,
           { width: size, height: size, borderRadius: size / 2 },
           !friend.is_online && styles.avatarOffline,
+          avatarSettleStyle,
         ]}
       >
         {imageUrl ? (
@@ -118,13 +187,15 @@ export default function FriendAvatar({
             {getFriendInitials(friend)}
           </Text>
         )}
+      </Animated.View>
+      <View style={[styles.presenceDot, styles.offline]}>
+        <Animated.View
+          style={[
+            styles.onlineDotFill,
+            { opacity: friend.is_online ? 1 : statusWake },
+          ]}
+        />
       </View>
-      <View
-        style={[
-          styles.presenceDot,
-          friend.is_online ? styles.online : styles.offline,
-        ]}
-      />
     </View>
   );
 }
@@ -155,7 +226,8 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     borderWidth: 2,
     borderColor: GRAPHITE_COLORS.canvas,
+    overflow: "hidden",
   },
-  online: { backgroundColor: GRAPHITE_COLORS.primary },
+  onlineDotFill: { flex: 1, backgroundColor: GRAPHITE_COLORS.primary },
   offline: { backgroundColor: GRAPHITE_COLORS.textFaint },
 });

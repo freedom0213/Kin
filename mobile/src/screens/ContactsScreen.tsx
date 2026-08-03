@@ -12,6 +12,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Friend } from "../api/client";
 import FriendAvatar from "../components/FriendAvatar";
+import PresenceWakeHighlight from "../components/PresenceWakeHighlight";
 import { getFriendDisplayName, sortFriendsByName } from "../services/friendPresentation";
 import { useFriendsHome } from "../stores/FriendsHomeContext";
 import {
@@ -60,41 +61,47 @@ export default function ContactsScreen({ navigation }: any) {
   };
 
   const renderContact = ({ item }: { item: Friend }) => (
-    <View style={styles.contactRow}>
-      <TouchableOpacity
-        style={styles.avatarAction}
-        onPress={() => navigation.navigate("ConversationDetails", { friend: item })}
-        accessibilityRole="button"
-        accessibilityLabel={`查看${getFriendDisplayName(item)}的好友资料`}
-      >
-        <FriendAvatar
-          friend={item}
-          reduceMotion={reduceMotion}
-          onlineEventKey={onlineEventKeys[item.user_id] || 0}
-        />
-      </TouchableOpacity>
-      <TouchableOpacity
-        style={styles.contactMain}
-        onPress={() => navigation.navigate("Chat", { friend: item })}
-        onLongPress={() => confirmDelete(item)}
-        accessibilityRole="button"
-        accessibilityLabel={`与${getFriendDisplayName(item)}聊天`}
-        accessibilityHint="长按可以删除好友"
-      >
-        <View style={styles.contactCopy}>
-          <Text style={styles.contactName} numberOfLines={1}>{getFriendDisplayName(item)}</Text>
-          <Text style={styles.contactStatus} numberOfLines={1}>
-            {item.status_msg || (item.is_online ? "当前在线" : "当前离线")}
-          </Text>
-        </View>
-        <View style={styles.statusWrap}>
-          <View style={[styles.statusDot, item.is_online ? styles.onlineDot : styles.offlineDot]} />
-          <Text style={[styles.statusText, item.is_online && styles.onlineText]}>
-            {item.is_online ? "Online" : "Offline"}
-          </Text>
-        </View>
-      </TouchableOpacity>
-    </View>
+    <PresenceWakeHighlight
+      style={styles.contactWake}
+      eventKey={onlineEventKeys[item.user_id] || 0}
+      reduceMotion={reduceMotion}
+    >
+      <View style={styles.contactRow}>
+        <TouchableOpacity
+          style={styles.avatarAction}
+          onPress={() => navigation.navigate("ConversationDetails", { friend: item })}
+          accessibilityRole="button"
+          accessibilityLabel={`查看${getFriendDisplayName(item)}的好友资料`}
+        >
+          <FriendAvatar
+            friend={item}
+            reduceMotion={reduceMotion}
+            onlineEventKey={onlineEventKeys[item.user_id] || 0}
+          />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.contactMain}
+          onPress={() => navigation.navigate("Chat", { friend: item })}
+          onLongPress={() => confirmDelete(item)}
+          accessibilityRole="button"
+          accessibilityLabel={`与${getFriendDisplayName(item)}聊天`}
+          accessibilityHint="长按可以删除好友"
+        >
+          <View style={styles.contactCopy}>
+            <Text style={styles.contactName} numberOfLines={1}>{getFriendDisplayName(item)}</Text>
+            <Text style={styles.contactStatus} numberOfLines={1}>
+              {item.status_msg || (item.is_online ? "当前在线" : "当前离线")}
+            </Text>
+          </View>
+          <View style={styles.statusWrap}>
+            <View style={[styles.statusDot, item.is_online ? styles.onlineDot : styles.offlineDot]} />
+            <Text style={[styles.statusText, item.is_online && styles.onlineText]}>
+              {item.is_online ? "Online" : "Offline"}
+            </Text>
+          </View>
+        </TouchableOpacity>
+      </View>
+    </PresenceWakeHighlight>
   );
 
   return (
@@ -226,12 +233,12 @@ const styles = StyleSheet.create({
   listContent: { flexGrow: 1, paddingBottom: 118 },
   contactRow: {
     minHeight: 76,
-    marginHorizontal: 14,
     flexDirection: "row",
     alignItems: "center",
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: GRAPHITE_COLORS.line,
   },
+  contactWake: { marginHorizontal: 14, borderRadius: GRAPHITE_RADII.control },
   avatarAction: { width: 66, minHeight: 76, alignItems: "center", justifyContent: "center" },
   contactMain: { flex: 1, minWidth: 0, minHeight: 76, flexDirection: "row", alignItems: "center" },
   contactCopy: { flex: 1, minWidth: 0 },

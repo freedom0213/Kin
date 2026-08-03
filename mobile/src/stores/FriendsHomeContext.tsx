@@ -30,6 +30,12 @@ import {
 } from "../services/db";
 import { kinFeedback } from "../services/feedback";
 import { mergeFriendProfile, parseFriendProfileEvent } from "../services/friendProfile";
+import {
+  getPresenceDelay,
+  PRESENCE_MAX_STAGGER_MS,
+  PRESENCE_STAGGER_MS,
+  PRESENCE_STATUS_WAKE_MS,
+} from "../services/presenceMotion";
 import { useAuth } from "./AuthContext";
 
 export type FriendsHomeSource =
@@ -86,10 +92,57 @@ export function FriendsHomeProvider({ children }: { children: ReactNode }) {
   const cachedOwnerRef = useRef<string | null>(null);
   const hasCachedSnapshotRef = useRef(false);
   const hasLiveSnapshotRef = useRef(false);
+  const presenceTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const presenceBurstRef = useRef({ startedAt: 0, count: 0 });
+
+  const clearPresenceTimer = useCallback((userId: string) => {
+    const timer = presenceTimersRef.current.get(userId);
+    if (timer) clearTimeout(timer);
+    presenceTimersRef.current.delete(userId);
+  }, []);
+
+  const allocatePresenceEventTime = useCallback((): number => {
+    const now = Date.now();
+    const burst = presenceBurstRef.current;
+    if (now - burst.startedAt > PRESENCE_MAX_STAGGER_MS) {
+      burst.startedAt = now;
+      burst.count = 0;
+    }
+    const stagger = Math.min(
+      burst.count * PRESENCE_STAGGER_MS,
+      PRESENCE_MAX_STAGGER_MS,
+    );
+    burst.count += 1;
+    return now + stagger;
+  }, []);
+
+  const scheduleOnlineCommit = useCallback((
+    userId: string,
+    eventTime: number,
+    expectedOwnerId: string,
+  ) => {
+    clearPresenceTimer(userId);
+    setOnlineEventKeys((current) => ({ ...current, [userId]: eventTime }));
+    const timer = setTimeout(() => {
+      presenceTimersRef.current.delete(userId);
+      if (ownerIdRef.current !== expectedOwnerId) return;
+      const existing = friendsRef.current.find((friend) => friend.user_id === userId);
+      if (!existing || existing.is_online) return;
+      configurePresenceLayout(false);
+      const nextFriends = friendsRef.current.map((friend) => (
+        friend.user_id === userId ? { ...friend, is_online: true } : friend
+      ));
+      friendsRef.current = nextFriends;
+      setFriends(nextFriends);
+    }, getPresenceDelay(eventTime, PRESENCE_STATUS_WAKE_MS));
+    presenceTimersRef.current.set(userId, timer);
+  }, [clearPresenceTimer]);
 
   useEffect(() => {
     ownerIdRef.current = ownerId;
     if (cachedOwnerRef.current === ownerId) return;
+    presenceTimersRef.current.forEach((timer) => clearTimeout(timer));
+    presenceTimersRef.current.clear();
     cachedOwnerRef.current = null;
     hasCachedSnapshotRef.current = false;
     hasLiveSnapshotRef.current = false;
@@ -100,6 +153,11 @@ export function FriendsHomeProvider({ children }: { children: ReactNode }) {
     setSource(ownerId ? "loading" : "unavailable");
   }, [ownerId]);
 
+  useEffect(() => () => {
+    presenceTimersRef.current.forEach((timer) => clearTimeout(timer));
+    presenceTimersRef.current.clear();
+  }, []);
+
   useEffect(() => {
     AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
     const subscription = AccessibilityInfo.addEventListener(
@@ -108,6 +166,19 @@ export function FriendsHomeProvider({ children }: { children: ReactNode }) {
     );
     return () => subscription.remove();
   }, []);
+
+  useEffect(() => {
+    if (!reduceMotion || presenceTimersRef.current.size === 0) return;
+    const pendingIds = new Set(presenceTimersRef.current.keys());
+    presenceTimersRef.current.forEach((timer) => clearTimeout(timer));
+    presenceTimersRef.current.clear();
+    const nextFriends = friendsRef.current.map((friend) => (
+      pendingIds.has(friend.user_id) ? { ...friend, is_online: true } : friend
+    ));
+    friendsRef.current = nextFriends;
+    setFriends(nextFriends);
+    setOnlineEventKeys({});
+  }, [reduceMotion]);
 
   const applyFriends = useCallback(async (
     nextFriends: Friend[],
@@ -123,19 +194,30 @@ export function FriendsHomeProvider({ children }: { children: ReactNode }) {
     ));
     const becameOnline = detectPresence ? nextFriends.filter((friend) => (
       friend.is_online && previousById.get(friend.user_id)?.is_online === false
+      && !presenceTimersRef.current.has(friend.user_id)
     )) : [];
+    const pendingOnlineIds = new Set(nextFriends
+      .filter((friend) => friend.is_online && presenceTimersRef.current.has(friend.user_id))
+      .map((friend) => friend.user_id));
+    const stagedOnlineIds = new Set([
+      ...becameOnline.map((friend) => friend.user_id),
+      ...pendingOnlineIds,
+    ]);
+    const shouldStageOnline = stagedOnlineIds.size > 0 && !reduceMotion;
+    const presentedFriends = shouldStageOnline
+      ? nextFriends.map((friend) => (
+        stagedOnlineIds.has(friend.user_id)
+          ? { ...friend, is_online: false }
+          : friend
+      ))
+      : nextFriends;
 
-    if (presenceChanged) configurePresenceLayout(reduceMotion);
-    friendsRef.current = nextFriends;
-    setFriends(nextFriends);
-    if (becameOnline.length > 0 && !reduceMotion) {
-      setOnlineEventKeys((current) => {
-        const next = { ...current };
-        const eventTime = Date.now();
-        becameOnline.forEach((friend) => {
-          next[friend.user_id] = eventTime;
-        });
-        return next;
+    if (presenceChanged && !shouldStageOnline) configurePresenceLayout(reduceMotion);
+    friendsRef.current = presentedFriends;
+    setFriends(presentedFriends);
+    if (shouldStageOnline) {
+      becameOnline.forEach((friend) => {
+        scheduleOnlineCommit(friend.user_id, allocatePresenceEventTime(), expectedOwnerId);
       });
     }
     kinFeedback.seedFriendStatuses(nextFriends);
@@ -144,7 +226,7 @@ export function FriendsHomeProvider({ children }: { children: ReactNode }) {
       nextFriends.map((friend) => friend.user_id),
     );
     if (ownerIdRef.current === expectedOwnerId) setSummaries(nextSummaries);
-  }, [reduceMotion]);
+  }, [allocatePresenceEventTime, reduceMotion, scheduleOnlineCommit]);
 
   const loadFriends = useCallback(async (): Promise<boolean> => {
     const expectedOwnerId = ownerIdRef.current;
@@ -216,21 +298,35 @@ export function FriendsHomeProvider({ children }: { children: ReactNode }) {
       const online = !!data.is_online;
       kinFeedback.handleFriendStatus(data.user_id, online);
       const existing = friendsRef.current.find((friend) => friend.user_id === data.user_id);
-      if (!existing || existing.is_online === online) return;
+      const pendingOnline = presenceTimersRef.current.has(data.user_id);
+      if (!existing || (existing.is_online === online && !(pendingOnline && !online))) return;
 
+      if (online && !reduceMotion) {
+        if (!pendingOnline) {
+          scheduleOnlineCommit(data.user_id, allocatePresenceEventTime(), ownerIdRef.current || "");
+        }
+        return;
+      }
+
+      clearPresenceTimer(data.user_id);
       configurePresenceLayout(reduceMotion);
       const nextFriends = friendsRef.current.map((friend) => (
         friend.user_id === data.user_id ? { ...friend, is_online: online } : friend
       ));
       friendsRef.current = nextFriends;
       setFriends(nextFriends);
-      if (online && !reduceMotion) {
-        setOnlineEventKeys((current) => ({ ...current, [data.user_id]: Date.now() }));
+      if (!online) {
+        setOnlineEventKeys((current) => {
+          if (!current[data.user_id]) return current;
+          const next = { ...current };
+          delete next[data.user_id];
+          return next;
+        });
       }
     };
     kinWS.on("friend_status", onFriendStatus);
     return () => kinWS.off("friend_status", onFriendStatus);
-  }, [reduceMotion]);
+  }, [allocatePresenceEventTime, clearPresenceTimer, reduceMotion, scheduleOnlineCommit]);
 
   useEffect(() => {
     const reload = () => { void loadFriends(); };
