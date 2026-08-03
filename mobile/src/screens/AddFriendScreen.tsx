@@ -1,6 +1,6 @@
 /**
  * THESIS: NFC 只负责让两名现实中相遇的人进入同一确认时刻，拒绝把 Token 技术细节当作主界面。
- * OWN-WORLD: 雾灰底、石墨文字、单一 Kin 绿；大面积留白配合两台设备靠近的线性图形。
+ * OWN-WORLD: Graphite Flow 石墨层级、克制 Kin 绿；大面积留白配合两台设备靠近的线性图形。
  * STORY: 用户选择发起或接收，发现对方后在半弹窗核对身份，双方确认才建立好友关系。
  * FIRST VIEWPORT: 简短说明位于上方，设备靠近图形居中，两项稳定操作位于下方。
  * FORM: 既有 Kin Operate 界面的 NFC 专用流程；半弹窗承载受保护的双方确认任务。
@@ -12,6 +12,8 @@ import {
   ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from "react-native";
 import type { ImageStyle } from "react-native";
+import { useIsFocused } from "@react-navigation/native";
+import { StatusBar as ExpoStatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import KinBottomSheet from "../components/KinBottomSheet";
 import {
@@ -22,18 +24,22 @@ import { kinWS } from "../api/ws";
 import {
   cancelNfc, initNfc, startNfcReceive, startNfcSend,
 } from "../services/nfc";
+import {
+  GRAPHITE_COLORS,
+  GRAPHITE_INPUT_COLORS,
+} from "../theme/graphite";
 
 const COLORS = {
-  background: "#F4F5F2",
-  surface: "#FFFFFF",
-  ink: "#171A1F",
-  muted: "#70757D",
-  faint: "#9CA19F",
-  line: "#E2E5E1",
-  accent: "#2DAD82",
-  accentDark: "#176B52",
-  accentSoft: "#E2F2EC",
-  danger: "#B43A33",
+  background: GRAPHITE_COLORS.canvas,
+  surface: GRAPHITE_COLORS.surface,
+  ink: GRAPHITE_COLORS.text,
+  muted: GRAPHITE_COLORS.textMuted,
+  faint: GRAPHITE_COLORS.textFaint,
+  line: GRAPHITE_COLORS.line,
+  accent: GRAPHITE_COLORS.primary,
+  accentDark: GRAPHITE_COLORS.primaryStrong,
+  accentSoft: GRAPHITE_COLORS.primarySoft,
+  danger: GRAPHITE_COLORS.danger,
 };
 
 type BusyAction = "create" | "receive" | "join" | "confirm" | "cancel" | "open-chat" | null;
@@ -49,20 +55,28 @@ function initials(value: string): string {
   return Array.from(value).slice(0, 2).join("").toUpperCase();
 }
 
-function DevicePairVisual({ active, success }: { active: boolean; success: boolean }) {
+function DevicePairVisual({
+  active,
+  success,
+  reduceMotion,
+}: {
+  active: boolean;
+  success: boolean;
+  reduceMotion: boolean;
+}) {
   const motion = useRef(new Animated.Value(success ? 1 : 0)).current;
   const pulse = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     Animated.timing(motion, {
       toValue: success ? 1 : 0,
-      duration: 420,
+      duration: reduceMotion ? 0 : 420,
       useNativeDriver: true,
     }).start();
-  }, [motion, success]);
+  }, [motion, reduceMotion, success]);
 
   useEffect(() => {
-    if (!active || success) {
+    if (!active || success || reduceMotion) {
       pulse.stopAnimation();
       pulse.setValue(0);
       return;
@@ -73,7 +87,7 @@ function DevicePairVisual({ active, success }: { active: boolean; success: boole
     ]));
     animation.start();
     return () => animation.stop();
-  }, [active, pulse, success]);
+  }, [active, pulse, reduceMotion, success]);
 
   const leftTransform = {
     transform: [{
@@ -110,6 +124,7 @@ function DevicePairVisual({ active, success }: { active: boolean; success: boole
 
 export default function AddFriendScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
+  const isFocused = useIsFocused();
   const [nfcAvailable, setNfcAvailable] = useState<boolean | null>(null);
   const [pairing, setPairing] = useState<PairingSession | null>(null);
   const [sheetVisible, setSheetVisible] = useState(false);
@@ -338,9 +353,14 @@ export default function AddFriendScreen({ navigation }: any) {
     : null;
   const peerBannerKey = pairing && peerBannerUrl ? `${pairing.id}:${peerBannerUrl}` : null;
   const showPeerBanner = !!peerBannerKey && failedPairingBannerKey !== peerBannerKey;
+  const sheetHasError = sheetMode === "error"
+    || pairing?.status === "expired"
+    || pairing?.status === "cancelled"
+    || pairing?.status === "failed";
 
   return (
     <View style={[styles.container, { paddingTop: Math.max(insets.top, 12) }]}>
+      {isFocused ? <ExpoStatusBar style="light" /> : null}
       <View style={styles.header}>
         <TouchableOpacity
           style={styles.headerAction}
@@ -362,28 +382,30 @@ export default function AddFriendScreen({ navigation }: any) {
           </Text>
         </View>
 
-        <DevicePairVisual active={false} success={false} />
+        <DevicePairVisual active={false} success={false} reduceMotion={reduceMotion} />
 
         <View style={styles.actions}>
           <TouchableOpacity
-            style={styles.primaryButton}
+            style={[styles.primaryButton, !!busyAction && styles.buttonDisabled]}
             onPress={startSharing}
             disabled={!!busyAction}
             accessibilityRole="button"
             accessibilityLabel="发起碰一碰"
+            accessibilityState={{ disabled: !!busyAction, busy: busyAction === "create" }}
           >
             {busyAction === "create" ? (
-              <ActivityIndicator color="#FFFFFF" />
+              <ActivityIndicator color={GRAPHITE_COLORS.onPrimary} />
             ) : (
               <Text style={styles.primaryButtonText}>发起碰一碰</Text>
             )}
           </TouchableOpacity>
           <TouchableOpacity
-            style={styles.secondaryButton}
+            style={[styles.secondaryButton, !!busyAction && styles.buttonDisabled]}
             onPress={startReceiving}
             disabled={!!busyAction}
             accessibilityRole="button"
             accessibilityLabel="接收附近设备的碰一碰"
+            accessibilityState={{ disabled: !!busyAction, busy: busyAction === "receive" }}
           >
             <Text style={styles.secondaryButtonText}>接收附近设备</Text>
           </TouchableOpacity>
@@ -421,20 +443,25 @@ export default function AddFriendScreen({ navigation }: any) {
               value={manualToken}
               onChangeText={setManualToken}
               placeholder="粘贴对方手机显示的配对码"
-              placeholderTextColor={COLORS.faint}
+              placeholderTextColor={GRAPHITE_INPUT_COLORS.placeholder}
+              cursorColor={GRAPHITE_INPUT_COLORS.cursor}
+              selectionColor={GRAPHITE_INPUT_COLORS.selection}
               autoCapitalize="none"
               autoCorrect={false}
               accessibilityLabel="配对码"
             />
             <TouchableOpacity
-              style={[styles.manualButton, !manualToken.trim() && styles.buttonDisabled]}
+              style={[
+                styles.manualButton,
+                (!manualToken.trim() || !!busyAction) && styles.buttonDisabled,
+              ]}
               onPress={joinManually}
               disabled={!manualToken.trim() || !!busyAction}
               accessibilityRole="button"
               accessibilityLabel="使用配对码加入"
             >
               {busyAction === "join" ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
+                <ActivityIndicator size="small" color={GRAPHITE_COLORS.onPrimary} />
               ) : (
                 <Text style={styles.manualButtonText}>加入</Text>
               )}
@@ -473,7 +500,7 @@ export default function AddFriendScreen({ navigation }: any) {
                   <View style={[styles.peerAvatar, showPeerBanner && styles.peerAvatarOverBanner]}>
                     {pairing.peer.avatar ? (
                       <Image
-                        source={{ uri: pairing.peer.avatar }}
+                        source={{ uri: resolveMediaUrl(pairing.peer.avatar) || pairing.peer.avatar }}
                         style={styles.peerAvatarImage as ImageStyle}
                         accessibilityLabel={`${peerDisplayName}的头像`}
                       />
@@ -486,10 +513,11 @@ export default function AddFriendScreen({ navigation }: any) {
                 <DevicePairVisual
                   active={!reduceMotion && sheetMode !== "error"}
                   success={!!pairingSucceeded}
+                  reduceMotion={reduceMotion}
                 />
               )}
 
-              <Text style={styles.sheetTitle}>{sheetTitle}</Text>
+              <Text style={[styles.sheetTitle, sheetHasError && styles.sheetTitleError]}>{sheetTitle}</Text>
               {pairing?.peer ? (
                 <>
                   <Text style={styles.peerName}>{peerDisplayName}</Text>
@@ -534,7 +562,7 @@ export default function AddFriendScreen({ navigation }: any) {
               {pairing?.status === "awaiting_confirmation" ? (
                 <>
                   <TouchableOpacity
-                    style={styles.cancelButton}
+                    style={[styles.cancelButton, !!busyAction && styles.buttonDisabled]}
                     onPress={() => void closePairing(false)}
                     disabled={!!busyAction}
                     accessibilityRole="button"
@@ -546,6 +574,7 @@ export default function AddFriendScreen({ navigation }: any) {
                     style={[
                       styles.confirmButton,
                       pairing.viewer_confirmed && styles.confirmedButton,
+                      !!busyAction && styles.buttonDisabled,
                     ]}
                     onPress={confirmCurrentPairing}
                     disabled={pairing.viewer_confirmed || !!busyAction}
@@ -554,9 +583,12 @@ export default function AddFriendScreen({ navigation }: any) {
                     accessibilityState={{ disabled: pairing.viewer_confirmed || !!busyAction }}
                   >
                     {busyAction === "confirm" ? (
-                      <ActivityIndicator size="small" color="#FFFFFF" />
+                      <ActivityIndicator size="small" color={GRAPHITE_COLORS.onPrimary} />
                     ) : (
-                      <Text style={styles.confirmButtonText}>
+                      <Text style={[
+                        styles.confirmButtonText,
+                        pairing.viewer_confirmed && styles.confirmedButtonText,
+                      ]}>
                         {pairing.viewer_confirmed ? "已确认" : "确认是本人"}
                       </Text>
                     )}
@@ -564,14 +596,14 @@ export default function AddFriendScreen({ navigation }: any) {
                 </>
               ) : pairing?.status === "completed" ? (
                 <TouchableOpacity
-                  style={styles.confirmButton}
+                  style={[styles.confirmButton, !!busyAction && styles.buttonDisabled]}
                   onPress={openCompletedChat}
                   disabled={!!busyAction}
                   accessibilityRole="button"
                   accessibilityLabel="开始聊天"
                 >
                   {busyAction === "open-chat" ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
+                    <ActivityIndicator size="small" color={GRAPHITE_COLORS.onPrimary} />
                   ) : (
                     <Text style={styles.confirmButtonText}>开始聊天</Text>
                   )}
@@ -587,7 +619,7 @@ export default function AddFriendScreen({ navigation }: any) {
                 </TouchableOpacity>
               ) : (
                 <TouchableOpacity
-                  style={styles.cancelButtonWide}
+                  style={[styles.cancelButtonWide, !!busyAction && styles.buttonDisabled]}
                   onPress={() => void closePairing(false)}
                   disabled={!!busyAction}
                   accessibilityRole="button"
@@ -608,7 +640,7 @@ const styles = StyleSheet.create({
     minHeight: 54, paddingHorizontal: 12,
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
   },
-  headerAction: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  headerAction: { width: 48, height: 48, alignItems: "center", justifyContent: "center" },
   backMark: { color: COLORS.ink, fontSize: 36, fontWeight: "300", lineHeight: 38 },
   headerTitle: { color: COLORS.ink, fontSize: 17, fontWeight: "700" },
   content: { flex: 1, paddingHorizontal: 24, paddingBottom: 24 },
@@ -620,10 +652,10 @@ const styles = StyleSheet.create({
   },
   device: {
     width: 74, height: 128, borderRadius: 20,
-    borderWidth: 1.5, borderColor: "#9DA6A1", backgroundColor: COLORS.surface,
+    borderWidth: 1.5, borderColor: GRAPHITE_COLORS.lineStrong, backgroundColor: GRAPHITE_COLORS.surfaceStrong,
     alignItems: "center",
   },
-  deviceSpeaker: { width: 24, height: 3, marginTop: 9, borderRadius: 2, backgroundColor: "#C5CAC6" },
+  deviceSpeaker: { width: 24, height: 3, marginTop: 9, borderRadius: 2, backgroundColor: GRAPHITE_COLORS.textFaint },
   deviceDot: { width: 5, height: 5, marginTop: "auto", marginBottom: 10, borderRadius: 3, backgroundColor: COLORS.accent },
   nearWave: {
     width: 58, height: 58, marginHorizontal: -10, borderRadius: 29,
@@ -638,10 +670,10 @@ const styles = StyleSheet.create({
     minHeight: 54, borderRadius: 16, backgroundColor: COLORS.accent,
     alignItems: "center", justifyContent: "center",
   },
-  primaryButtonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },
+  primaryButtonText: { color: GRAPHITE_COLORS.onPrimary, fontSize: 16, fontWeight: "800" },
   secondaryButton: {
     minHeight: 52, borderRadius: 16, borderWidth: 1, borderColor: COLORS.line,
-    backgroundColor: COLORS.surface, alignItems: "center", justifyContent: "center",
+    backgroundColor: GRAPHITE_COLORS.surfaceStrong, alignItems: "center", justifyContent: "center",
   },
   secondaryButtonText: { color: COLORS.ink, fontSize: 15, fontWeight: "700" },
   capabilityLine: { minHeight: 38, flexDirection: "row", alignItems: "center", justifyContent: "center" },
@@ -649,19 +681,19 @@ const styles = StyleSheet.create({
   capabilityAvailable: { backgroundColor: COLORS.accent },
   capabilityUnavailable: { backgroundColor: COLORS.faint },
   capabilityText: { color: COLORS.muted, fontSize: 12 },
-  fallbackToggle: { minHeight: 44, alignItems: "center", justifyContent: "center" },
+  fallbackToggle: { minHeight: 48, alignItems: "center", justifyContent: "center" },
   fallbackToggleText: { color: COLORS.accentDark, fontSize: 13, fontWeight: "600" },
   manualArea: { flexDirection: "row", alignItems: "center", gap: 10, paddingBottom: 4 },
   manualInput: {
     flex: 1, minHeight: 48, paddingHorizontal: 14, borderRadius: 13,
-    borderWidth: 1, borderColor: COLORS.line, backgroundColor: COLORS.surface,
+    borderWidth: 1, borderColor: GRAPHITE_COLORS.lineStrong, backgroundColor: GRAPHITE_COLORS.surfacePressed,
     color: COLORS.ink, fontSize: 13,
   },
   manualButton: {
     minWidth: 68, minHeight: 48, borderRadius: 13,
     backgroundColor: COLORS.accent, alignItems: "center", justifyContent: "center",
   },
-  manualButtonText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
+  manualButtonText: { color: GRAPHITE_COLORS.onPrimary, fontSize: 14, fontWeight: "800" },
   buttonDisabled: { opacity: 0.42 },
   sheetScroll: { flex: 1, paddingHorizontal: 22 },
   sheetContent: { flexGrow: 1, paddingBottom: 8 },
@@ -670,17 +702,18 @@ const styles = StyleSheet.create({
   pairingBannerFrame: {
     width: "100%", height: 116, borderRadius: 16, overflow: "hidden",
     borderWidth: StyleSheet.hairlineWidth, borderColor: COLORS.line,
-    backgroundColor: "#F0F2EF",
+    backgroundColor: GRAPHITE_COLORS.surfacePressed,
   },
   pairingBannerImage: { width: "100%", height: "100%" },
   peerAvatar: {
     width: 82, height: 82, borderRadius: 41, overflow: "hidden",
-    alignItems: "center", justifyContent: "center", backgroundColor: "#28313A",
+    alignItems: "center", justifyContent: "center", backgroundColor: GRAPHITE_COLORS.surfacePressed,
   },
   peerAvatarOverBanner: { marginTop: -30, borderWidth: 3, borderColor: COLORS.surface },
   peerAvatarImage: { width: "100%", height: "100%" },
-  peerInitials: { color: "#FFFFFF", fontSize: 25, fontWeight: "700" },
+  peerInitials: { color: GRAPHITE_COLORS.text, fontSize: 25, fontWeight: "700" },
   sheetTitle: { marginTop: 6, color: COLORS.ink, fontSize: 22, fontWeight: "700", textAlign: "center" },
+  sheetTitleError: { color: COLORS.danger },
   peerName: { marginTop: 13, color: COLORS.ink, fontSize: 18, fontWeight: "700" },
   peerUsername: { marginTop: 3, color: COLORS.muted, fontSize: 13 },
   sheetDescription: {
@@ -689,19 +722,19 @@ const styles = StyleSheet.create({
   },
   inlineNotice: {
     marginTop: 14, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 12,
-    backgroundColor: "#F0F2EF", color: COLORS.muted, fontSize: 12, lineHeight: 18,
+    backgroundColor: GRAPHITE_COLORS.surfacePressed, color: COLORS.muted, fontSize: 12, lineHeight: 18,
   },
   countdown: { marginTop: 12, color: COLORS.faint, fontSize: 12, fontVariant: ["tabular-nums"] },
   pairingCodeArea: {
     width: "100%", marginTop: 18, padding: 14, borderRadius: 14,
-    backgroundColor: "#F4F6F3", borderWidth: StyleSheet.hairlineWidth, borderColor: COLORS.line,
+    backgroundColor: GRAPHITE_COLORS.surfacePressed, borderWidth: StyleSheet.hairlineWidth, borderColor: GRAPHITE_COLORS.lineStrong,
   },
   pairingCodeLabel: { color: COLORS.muted, fontSize: 11, textAlign: "center" },
   pairingCode: { marginTop: 8, color: COLORS.ink, fontSize: 12, lineHeight: 18, textAlign: "center" },
   sheetActions: { paddingHorizontal: 22, paddingTop: 16, flexDirection: "row", gap: 12 },
   cancelButton: {
     flex: 1, minHeight: 52, borderRadius: 16, borderWidth: 1, borderColor: COLORS.line,
-    backgroundColor: COLORS.surface, alignItems: "center", justifyContent: "center",
+    backgroundColor: GRAPHITE_COLORS.surfaceStrong, alignItems: "center", justifyContent: "center",
   },
   cancelButtonWide: {
     flex: 1, minHeight: 52, borderRadius: 16, borderWidth: 1, borderColor: COLORS.line,
@@ -712,6 +745,7 @@ const styles = StyleSheet.create({
     flex: 1, minHeight: 52, borderRadius: 16,
     backgroundColor: COLORS.accent, alignItems: "center", justifyContent: "center",
   },
-  confirmedButton: { backgroundColor: "#9BCDBB" },
-  confirmButtonText: { color: "#FFFFFF", fontSize: 15, fontWeight: "700" },
+  confirmedButton: { backgroundColor: GRAPHITE_COLORS.primaryDeep },
+  confirmButtonText: { color: GRAPHITE_COLORS.onPrimary, fontSize: 15, fontWeight: "800" },
+  confirmedButtonText: { color: GRAPHITE_COLORS.primaryStrong },
 });

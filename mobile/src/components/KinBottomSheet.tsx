@@ -18,6 +18,7 @@ import {
   ViewStyle,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { GRAPHITE_COLORS } from "../theme/graphite";
 
 interface KinBottomSheetProps {
   visible: boolean;
@@ -234,15 +235,15 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     left: 0,
-    backgroundColor: "rgba(19,25,22,0.34)",
+    backgroundColor: "rgba(0,0,0,0.64)",
   },
   sheet: {
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    backgroundColor: "#FFFFFF",
-    shadowColor: "#101713",
+    backgroundColor: GRAPHITE_COLORS.surface,
+    shadowColor: GRAPHITE_COLORS.shadow,
     shadowOffset: { width: 0, height: -8 },
-    shadowOpacity: 0.12,
+    shadowOpacity: 0.38,
     shadowRadius: 24,
     elevation: 20,
   },
@@ -255,6 +256,6 @@ const styles = StyleSheet.create({
     width: 42,
     height: 4,
     borderRadius: 2,
-    backgroundColor: "#D5D9D5",
+    backgroundColor: GRAPHITE_COLORS.textFaint,
   },
 });
