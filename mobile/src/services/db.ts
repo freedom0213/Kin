@@ -418,6 +418,12 @@ export async function clearMessages(ownerId: string, chatId: string): Promise<vo
   );
 }
 
+/** 删除当前账号在这台设备上的全部消息，不影响其他登录账号。 */
+export async function clearAllMessages(ownerId: string): Promise<void> {
+  const db = await getDb();
+  await db.runAsync("DELETE FROM messages WHERE owner_id = ?", ownerId);
+}
+
 /** 只从当前设备删除一条消息，不影响对方设备或服务端已投递内容。 */
 export async function deleteMessage(ownerId: string, msgId: string): Promise<void> {
   const db = await getDb();

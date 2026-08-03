@@ -17,12 +17,12 @@ function initials(value: string): string {
 }
 
 const PROFILE_ACTIONS = [
-  { key: "card", title: "我的名片", hint: "查看和调整身份展示", target: "ProfileEdit" },
+  { key: "card", title: "我的名片", hint: "以好友视角查看身份展示", target: "MyProfileCard" },
   { key: "profile", title: "个人资料", hint: "昵称、状态和背景", target: "ProfileEdit" },
-  { key: "notifications", title: "通知与状态", hint: "消息提醒与在线感知", target: "Settings" },
-  { key: "security", title: "账户与安全", hint: "密钥和登录状态", target: "Settings" },
-  { key: "data", title: "聊天数据", hint: "本地记录与导出", target: "Settings" },
-  { key: "help", title: "帮助与法律", hint: "版本、帮助和隐私", target: "Settings" },
+  { key: "notifications", title: "通知与状态", hint: "消息提醒与在线感知", target: "NotificationSettings" },
+  { key: "security", title: "账户与安全", hint: "密钥和登录状态", target: "AccountSecurity" },
+  { key: "data", title: "聊天数据", hint: "本地记录与导出", target: "ChatDataSettings" },
+  { key: "help", title: "帮助与法律", hint: "版本、帮助和隐私", target: "HelpLegal" },
 ] as const;
 
 export default function ProfileScreen({ navigation }: any) {

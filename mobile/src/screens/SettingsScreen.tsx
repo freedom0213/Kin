@@ -11,7 +11,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { resolveMediaUrl } from "../api/client";
 import KinDialog, { type KinDialogAction } from "../components/KinDialog";
 import { useAuth } from "../stores/AuthContext";
-import { getLocalMessageStats } from "../services/db";
+import { clearAllMessages, getLocalMessageStats } from "../services/db";
 import { exportMessagesToFile } from "../services/export";
 import { getStoredKeyPair } from "../services/keys";
 import {
@@ -40,9 +40,18 @@ const COLORS = {
   danger: GRAPHITE_COLORS.danger,
 };
 
-type BusyAction = "export" | "logout" | null;
+type BusyAction = "export" | "clear-all" | "logout" | null;
 type PreferenceKey = keyof KinPreferences;
 type DialogState = { title: string; message: string; actions?: KinDialogAction[] } | null;
+type SettingsPageKind = "overview" | "notifications" | "security" | "data" | "help";
+
+const PAGE_BY_ROUTE: Record<string, { title: string; kind: SettingsPageKind }> = {
+  Settings: { title: "设置", kind: "overview" },
+  NotificationSettings: { title: "通知与状态", kind: "notifications" },
+  AccountSecurity: { title: "账户与安全", kind: "security" },
+  ChatDataSettings: { title: "聊天数据", kind: "data" },
+  HelpLegal: { title: "帮助与法律", kind: "help" },
+};
 
 function getInitials(name: string): string {
   return Array.from(name).slice(0, 2).join("").toUpperCase();
@@ -144,7 +153,7 @@ function ActionRow({
   );
 }
 
-export default function SettingsScreen({ navigation }: any) {
+export default function SettingsScreen({ navigation, route }: any) {
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
   const { state, logoutAction } = useAuth();
@@ -162,6 +171,7 @@ export default function SettingsScreen({ navigation }: any) {
   const user = state.user;
   const displayName = user?.nickname || user?.username || "Kin 用户";
   const avatarUrl = resolveMediaUrl(user?.avatar);
+  const currentPage = PAGE_BY_ROUTE[route?.name] || PAGE_BY_ROUTE.Settings;
   const showDialog = (title: string, message: string, actions?: KinDialogAction[]) => {
     setDialog({ title, message, actions });
   };
@@ -314,6 +324,34 @@ export default function SettingsScreen({ navigation }: any) {
     );
   };
 
+  const handleClearAllMessages = () => {
+    if (busyAction || !user?.id) return;
+    showDialog(
+      "清空当前账号的全部聊天记录？",
+      "这会从当前设备删除此账号的全部聊天消息。其他账号、好友关系和对方设备上的记录不会受到影响；该操作无法撤销。",
+      [
+        { text: "取消", tone: "cancel" },
+        {
+          text: "确认清空",
+          tone: "destructive",
+          onPress: async () => {
+            setBusyAction("clear-all");
+            try {
+              await clearAllMessages(user.id);
+              setMessageCount(0);
+              setConversationCount(0);
+              setBusyAction(null);
+              showDialog("本地聊天记录已清空", "当前账号在这台设备上的聊天消息已经删除。其他账号的数据没有变化。");
+            } catch {
+              setBusyAction(null);
+              showDialog("清空失败", "无法修改当前账号的本地聊天记录，请稍后重试。");
+            }
+          },
+        },
+      ]
+    );
+  };
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -332,47 +370,55 @@ export default function SettingsScreen({ navigation }: any) {
           onPress={() => navigation.goBack()}
           style={styles.headerAction}
           accessibilityRole="button"
-          accessibilityLabel="返回会话列表"
+          accessibilityLabel="返回上一页"
         >
           <Text style={styles.backMark}>‹</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>设置</Text>
+        <Text style={styles.headerTitle}>{currentPage.title}</Text>
         <View style={styles.headerAction} />
       </View>
 
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, 20) + 28 }]}
       >
-        <TouchableOpacity
-          style={styles.identity}
-          onPress={() => navigation.navigate("ProfileEdit")}
-          activeOpacity={0.72}
-          accessibilityRole="button"
-          accessibilityLabel="编辑个人资料"
-          accessibilityHint="修改昵称和个性签名"
-        >
-          <View style={styles.avatar}>
-            {avatarUrl ? (
-              <Image
-                source={{ uri: avatarUrl }}
-                style={styles.avatarImage}
-                accessibilityLabel={`${displayName}的头像`}
-              />
-            ) : (
-              <Text style={styles.avatarInitials}>{getInitials(displayName)}</Text>
-            )}
-          </View>
-          <View style={styles.identityCopy}>
-            <Text style={styles.identityName}>{displayName}</Text>
-            <Text style={styles.identityUsername}>@{user?.username}</Text>
-            <Text style={styles.identityStatus} numberOfLines={2}>
-              {user?.status_msg || "还没有留下个性签名"}
-            </Text>
-          </View>
-          <Text style={styles.identityEdit}>编辑</Text>
-        </TouchableOpacity>
+        {currentPage.kind === "overview" ? (
+          <>
+            <TouchableOpacity
+              style={styles.identity}
+              onPress={() => navigation.navigate("ProfileEdit")}
+              activeOpacity={0.72}
+              accessibilityRole="button"
+              accessibilityLabel="编辑个人资料"
+              accessibilityHint="修改头像、背景、昵称和个性签名"
+            >
+              <View style={styles.avatar}>
+                {avatarUrl ? (
+                  <Image source={{ uri: avatarUrl }} style={styles.avatarImage} accessibilityLabel={`${displayName}的头像`} />
+                ) : (
+                  <Text style={styles.avatarInitials}>{getInitials(displayName)}</Text>
+                )}
+              </View>
+              <View style={styles.identityCopy}>
+                <Text style={styles.identityName}>{displayName}</Text>
+                <Text style={styles.identityUsername}>@{user?.username}</Text>
+                <Text style={styles.identityStatus} numberOfLines={2}>{user?.status_msg || "还没有留下个性签名"}</Text>
+              </View>
+              <Text style={styles.identityEdit}>编辑</Text>
+            </TouchableOpacity>
+            <Section title="身份展示">
+              <ActionRow title="我的名片" hint="以好友视角查看自己的名片" onPress={() => navigation.navigate("MyProfileCard")} />
+              <ActionRow title="个人资料" hint="修改头像、背景、昵称和个性签名" onPress={() => navigation.navigate("ProfileEdit")} />
+            </Section>
+            <Section title="账户与应用">
+              <ActionRow title="通知与状态" hint="消息提醒、声音、触觉与在线状态" onPress={() => navigation.navigate("NotificationSettings")} />
+              <ActionRow title="账户与安全" hint="登录账号、密钥和本地数据保护" onPress={() => navigation.navigate("AccountSecurity")} />
+              <ActionRow title="聊天数据" hint="本机记录、统计、导入和导出" onPress={() => navigation.navigate("ChatDataSettings")} />
+              <ActionRow title="帮助与法律" hint="使用帮助、隐私、协议和版本" onPress={() => navigation.navigate("HelpLegal")} />
+            </Section>
+          </>
+        ) : null}
 
-        <Section title="通知与状态">
+        {currentPage.kind === "notifications" ? <Section title="提醒方式">
           <ActionRow
             title="系统通知"
             hint={pushStatusCopy[pushStatus].hint}
@@ -410,9 +456,25 @@ export default function SettingsScreen({ navigation }: any) {
             value={false}
             disabled
           />
-        </Section>
+        </Section> : null}
 
-        <Section title="安全">
+        {currentPage.kind === "security" ? <>
+          <Section title="账户">
+            <ActionRow
+              title="当前登录账号"
+              hint="测试阶段账号与设备登录状态"
+              value={`@${user?.username || "unknown"}`}
+              onPress={() => showDialog("当前登录账号", `你正在使用 @${user?.username || "unknown"} 登录 Kin。`)}
+            />
+            <ActionRow
+              title="密码与找回"
+              hint="测试阶段暂不提供修改密码和找回密码"
+              value="暂缓"
+              onPress={() => {}}
+              disabled
+            />
+          </Section>
+          <Section title="消息保护">
           <ActionRow
             title="端到端加密"
             hint="查看本机密钥与消息保护范围"
@@ -427,9 +489,19 @@ export default function SettingsScreen({ navigation }: any) {
               "Kin 的完整聊天记录主要保存在当前设备。请使用系统锁屏，并谨慎导出聊天备份。"
             )}
           />
-        </Section>
+          </Section>
+          <Section title="登录操作">
+            <ActionRow
+              title="退出账号"
+              hint="保留这台设备上属于当前账号的聊天记录"
+              onPress={handleLogout}
+              destructive
+              loading={busyAction === "logout"}
+            />
+          </Section>
+        </> : null}
 
-        <Section title="聊天数据">
+        {currentPage.kind === "data" ? <Section title="本机聊天记录">
           <ActionRow
             title="导出全部消息"
             hint="导出当前设备数据库中的全部 Kin 消息"
@@ -455,9 +527,29 @@ export default function SettingsScreen({ navigation }: any) {
               "当前版本按设备保存聊天记录。清理单个会话请进入对应的会话详情页。"
             )}
           />
-        </Section>
+          <ActionRow
+            title="清空全部本地聊天记录"
+            hint="只删除当前账号在这台设备上的消息"
+            onPress={handleClearAllMessages}
+            destructive
+            loading={busyAction === "clear-all"}
+          />
+        </Section> : null}
 
-        <Section title="Kin">
+        {currentPage.kind === "help" ? <>
+          <Section title="使用帮助">
+            <ActionRow
+              title="如何添加好友"
+              hint="了解碰一碰与备用配对码流程"
+              onPress={() => showDialog("如何添加好友", "双方主动开启碰一碰并发现彼此后，需要分别确认名片才会成为好友。NFC 不可用时，可以使用临时配对码完成相同流程。")}
+            />
+            <ActionRow
+              title="聊天记录保存在什么位置"
+              hint="了解本机记录和服务器临时消息"
+              onPress={() => showDialog("聊天记录保存位置", "完整聊天记录主要保存在当前设备，并按登录账号隔离。服务器只临时保存尚未送达的加密消息。")}
+            />
+          </Section>
+          <Section title="法律与版本">
           <ActionRow
             title="隐私说明"
             hint="了解服务器与本机分别保存什么"
@@ -467,19 +559,23 @@ export default function SettingsScreen({ navigation }: any) {
             )}
           />
           <ActionRow
+            title="用户协议"
+            hint="查看当前测试版本的使用边界"
+            onPress={() => showDialog("用户协议 · 测试版", "Kin 当前处于开发测试阶段，仅用于功能验证。请勿在测试账号中保存重要、敏感或不可恢复的信息。")}
+          />
+          <ActionRow
+            title="开源许可"
+            hint="查看 Kin 使用的开源软件说明"
+            onPress={() => showDialog("开源许可", "Kin 使用 React Native、Expo、FastAPI 等开源软件。正式发布前将在此提供完整依赖与许可清单。")}
+          />
+          <ActionRow
             title="关于 Kin"
             hint="只和现实中见过的人聊天"
             value="0.1.0"
             onPress={() => showDialog("Kin 0.1.0", "通过近距离碰一碰建立关系，以聊天为核心。")}
           />
-          <ActionRow
-            title="退出账号"
-            hint="保留这台设备上的聊天记录"
-            onPress={handleLogout}
-            destructive
-            loading={busyAction === "logout"}
-          />
-        </Section>
+          </Section>
+        </> : null}
       </ScrollView>
       <KinDialog
         visible={!!dialog}

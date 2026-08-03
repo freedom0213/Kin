@@ -33,6 +33,7 @@ import VoiceCallScreen from "./src/screens/VoiceCallScreen";
 import ConversationDetailsScreen from "./src/screens/ConversationDetailsScreen";
 import SettingsScreen from "./src/screens/SettingsScreen";
 import ProfileEditScreen from "./src/screens/ProfileEditScreen";
+import MyProfileCardScreen from "./src/screens/MyProfileCardScreen";
 import { GRAPHITE_COLORS, GRAPHITE_NAVIGATION_THEME } from "./src/theme/graphite";
 
 type RootStackParamList = {
@@ -41,7 +42,12 @@ type RootStackParamList = {
   ConversationDetails: { friend: Friend };
   AddFriend: undefined;
   Settings: undefined;
+  MyProfileCard: undefined;
   ProfileEdit: undefined;
+  NotificationSettings: undefined;
+  AccountSecurity: undefined;
+  ChatDataSettings: undefined;
+  HelpLegal: undefined;
   VoiceCall: {
     direction: "incoming" | "outgoing";
     targetId: string;
@@ -780,7 +786,12 @@ function AppNavigator() {
             <Stack.Screen name="ConversationDetails" component={ConversationDetailsScreen} />
             <Stack.Screen name="AddFriend" component={AddFriendScreen} />
             <Stack.Screen name="Settings" component={SettingsScreen} />
+            <Stack.Screen name="MyProfileCard" component={MyProfileCardScreen} />
             <Stack.Screen name="ProfileEdit" component={ProfileEditScreen} />
+            <Stack.Screen name="NotificationSettings" component={SettingsScreen} />
+            <Stack.Screen name="AccountSecurity" component={SettingsScreen} />
+            <Stack.Screen name="ChatDataSettings" component={SettingsScreen} />
+            <Stack.Screen name="HelpLegal" component={SettingsScreen} />
             <Stack.Screen
               name="VoiceCall"
               component={VoiceCallScreen}

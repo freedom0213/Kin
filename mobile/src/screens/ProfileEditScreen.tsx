@@ -178,7 +178,7 @@ export default function ProfileEditScreen({ navigation }: any) {
           onPress={() => navigation.goBack()}
           style={styles.headerAction}
           accessibilityRole="button"
-          accessibilityLabel="返回设置"
+          accessibilityLabel="返回上一页"
         >
           <Text style={styles.backMark}>‹</Text>
         </TouchableOpacity>
