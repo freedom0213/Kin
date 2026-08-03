@@ -3,7 +3,6 @@
 import React, { useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   StyleSheet,
   Text,
   TextInput,
@@ -56,7 +55,6 @@ export default function LoginScreen({ navigation }: any) {
     } catch (error: any) {
       const message = error.message || "暂时无法登录，请稍后重试。";
       setErrorMessage(message);
-      Alert.alert("登录失败", message);
     } finally {
       setLoading(false);
     }

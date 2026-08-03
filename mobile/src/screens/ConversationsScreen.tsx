@@ -1,6 +1,5 @@
 import React, { useMemo } from "react";
 import {
-  Alert,
   FlatList,
   RefreshControl,
   ScrollView,
@@ -12,6 +11,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Friend } from "../api/client";
 import FriendAvatar from "../components/FriendAvatar";
+import { useKinDialog } from "../components/KinDialog";
 import PresenceWakeHighlight from "../components/PresenceWakeHighlight";
 import {
   formatConversationTime,
@@ -27,6 +27,7 @@ import { GRAPHITE_COLORS, GRAPHITE_RADII } from "../theme/graphite";
 export default function ConversationsScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
   const { state } = useAuth();
+  const { showDialog, dialog } = useKinDialog();
   const {
     friends,
     summaries,
@@ -55,18 +56,18 @@ export default function ConversationsScreen({ navigation }: any) {
     }), [friends, summaries]);
 
   const confirmDelete = (friend: Friend) => {
-    Alert.alert("删除好友", `确定要删除 ${getFriendDisplayName(friend)} 吗？`, [
-      { text: "取消", style: "cancel" },
+    showDialog({ title: "删除好友", message: `确定要删除 ${getFriendDisplayName(friend)} 吗？`, actions: [
+      { text: "取消", tone: "cancel" },
       {
         text: "删除",
-        style: "destructive",
+        tone: "destructive",
         onPress: () => {
           void removeFriend(friend.user_id).catch((error: any) => {
-            Alert.alert("删除失败", error.message || "请稍后重试");
+            showDialog({ title: "删除失败", message: error.message || "请稍后重试" });
           });
         },
       },
-    ]);
+    ] });
   };
 
   const renderPresencePerson = (friend: Friend) => (
@@ -239,6 +240,7 @@ export default function ConversationsScreen({ navigation }: any) {
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
       />
+      {dialog}
     </View>
   );
 }

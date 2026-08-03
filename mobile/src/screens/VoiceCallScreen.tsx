@@ -5,9 +5,12 @@ import {
   AccessibilityInfo, ActivityIndicator, Animated, BackHandler, StyleSheet,
   Linking, Text, TouchableOpacity, View,
 } from "react-native";
+import { useIsFocused } from "@react-navigation/native";
+import { StatusBar as ExpoStatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { type CallFailureReason, webrtcService } from "../services/webrtc";
 import { useAuth } from "../stores/AuthContext";
+import { GRAPHITE_COLORS } from "../theme/graphite";
 
 type CallState = "calling" | "ringing" | "connecting" | "connected" | "recovering" | "ended" | "failed";
 type TerminalReason = CallFailureReason | "unanswered" | "connection-timeout" | "network-interrupted" | "offline" | "busy" | "local-busy" | "rejected" | null;
@@ -17,16 +20,16 @@ const CONNECTION_TIMEOUT_MS = 18_000;
 const CALL_RECOVERY_GRACE_MS = 8_000;
 
 const COLORS = {
-  background: "#1D2421",
-  surface: "#2A332F",
-  ink: "#F5F7F5",
-  muted: "rgba(245,247,245,0.62)",
-  faint: "rgba(245,247,245,0.38)",
-  accent: "#70DCB3",
-  accentSoft: "rgba(112,220,179,0.16)",
-  control: "rgba(255,255,255,0.10)",
-  controlActive: "#F5F7F5",
-  danger: "#D85149",
+  background: GRAPHITE_COLORS.canvas,
+  surface: GRAPHITE_COLORS.surfaceStrong,
+  ink: GRAPHITE_COLORS.text,
+  muted: GRAPHITE_COLORS.textMuted,
+  faint: GRAPHITE_COLORS.textFaint,
+  accent: GRAPHITE_COLORS.primary,
+  accentSoft: GRAPHITE_COLORS.primarySoft,
+  control: GRAPHITE_COLORS.surfacePressed,
+  controlActive: GRAPHITE_COLORS.text,
+  danger: GRAPHITE_COLORS.danger,
 };
 
 function formatSeconds(total: number): string {
@@ -88,6 +91,7 @@ function ControlButton({
 export default function VoiceCallScreen({ route, navigation }: any) {
   const { direction, targetId, targetName, callId, autoAccept = false } = route.params;
   const insets = useSafeAreaInsets();
+  const isFocused = useIsFocused();
   const { state } = useAuth();
   const [remoteSdp, setRemoteSdp] = useState<any>(null);
   const [callState, setCallState] = useState<CallState>(
@@ -456,6 +460,7 @@ export default function VoiceCallScreen({ route, navigation }: any) {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top, paddingBottom: Math.max(insets.bottom, 18) }]}>
+      {isFocused ? <ExpoStatusBar style="light" /> : null}
       <View style={styles.content}>
         <View style={styles.orbitArea}>
           {callState === "connected" ? (
@@ -609,19 +614,19 @@ const styles = StyleSheet.create({
     width: 126, height: 126, borderRadius: 63,
     alignItems: "center", justifyContent: "center",
     backgroundColor: COLORS.surface,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(255,255,255,0.12)",
+    borderWidth: StyleSheet.hairlineWidth, borderColor: GRAPHITE_COLORS.lineStrong,
   },
   avatarText: { color: COLORS.ink, fontSize: 32, fontWeight: "700" },
   callerName: { marginTop: 18, color: COLORS.ink, fontSize: 25, fontWeight: "700" },
   statusRow: { minHeight: 26, marginTop: 8, flexDirection: "row", alignItems: "center", gap: 8 },
   connectedDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: COLORS.accent },
   statusText: { color: COLORS.muted, fontSize: 14, fontVariant: ["tabular-nums"] },
-  failedText: { color: "#F0A39D" },
+  failedText: { color: GRAPHITE_COLORS.danger },
   voiceBars: { height: 34, marginTop: 30, flexDirection: "row", alignItems: "center", gap: 5 },
   voiceBar: { width: 3, borderRadius: 2, backgroundColor: COLORS.accent },
   actionArea: { width: "100%", minHeight: 144, justifyContent: "flex-end" },
   audioRouteError: {
-    marginBottom: 2, color: "#F0A39D", fontSize: 12, textAlign: "center",
+    marginBottom: 2, color: GRAPHITE_COLORS.danger, fontSize: 12, textAlign: "center",
   },
   actions: {
     width: "100%", minHeight: 126, paddingHorizontal: 22,
@@ -631,14 +636,14 @@ const styles = StyleSheet.create({
   controlButton: {
     width: 64, height: 64, borderRadius: 32,
     alignItems: "center", justifyContent: "center", backgroundColor: COLORS.control,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: "rgba(255,255,255,0.13)",
+    borderWidth: StyleSheet.hairlineWidth, borderColor: GRAPHITE_COLORS.lineStrong,
   },
   controlButtonActive: { backgroundColor: COLORS.controlActive },
   controlButtonDanger: { backgroundColor: COLORS.danger, borderColor: COLORS.danger },
   controlButtonDisabled: { opacity: 0.34 },
   controlMark: { color: COLORS.ink, fontSize: 17, fontWeight: "700" },
   controlMarkActive: { color: COLORS.background },
-  controlMarkDanger: { color: "#FFFFFF", fontSize: 30, fontWeight: "300", lineHeight: 32 },
+  controlMarkDanger: { color: GRAPHITE_COLORS.onPrimary, fontSize: 30, fontWeight: "300", lineHeight: 32 },
   controlLabel: { marginTop: 9, color: COLORS.muted, fontSize: 12 },
   controlLabelDisabled: { color: COLORS.faint },
 });

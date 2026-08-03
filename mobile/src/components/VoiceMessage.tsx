@@ -3,7 +3,6 @@
 import React, { useCallback, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Linking,
   PanResponder,
   StyleSheet,
@@ -20,6 +19,7 @@ import {
   useAudioRecorder,
 } from "expo-audio";
 import { File, Paths } from "expo-file-system";
+import { useKinDialog } from "./KinDialog";
 import { GRAPHITE_COLORS } from "../theme/graphite";
 
 interface VoiceRecorderProps {
@@ -48,6 +48,7 @@ export function VoiceRecorder({
   const [isCancelling, setIsCancelling] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [notice, setNotice] = useState<RecorderNotice>(null);
+  const { showDialog, dialog } = useKinDialog();
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recordingRef = useRef<typeof recorder | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -103,14 +104,14 @@ export function VoiceRecorder({
       const permission = await requestRecordingPermissionsAsync();
       if (!permission.granted) {
         gestureActiveRef.current = false;
-        Alert.alert(
-          "需要麦克风权限",
-          "开启麦克风权限后，才能在 Kin 中发送语音消息。",
-          [
-            { text: "暂不", style: "cancel" },
+        showDialog({
+          title: "需要麦克风权限",
+          message: "开启麦克风权限后，才能在 Kin 中发送语音消息。",
+          actions: [
+            { text: "暂不", tone: "cancel" },
             { text: "去设置", onPress: () => { void Linking.openSettings(); } },
-          ]
-        );
+          ],
+        });
         return;
       }
 
@@ -150,7 +151,7 @@ export function VoiceRecorder({
       showNotice("failed");
       console.log("录音启动失败", error);
     }
-  }, [clearTimer, recorder, restorePlaybackMode, showNotice]);
+  }, [clearTimer, recorder, restorePlaybackMode, showDialog, showNotice]);
 
   // 正常松手发送；进入取消区后松手丢弃；达到上限时自动发送。
   const finishRecording = useCallback(async (cancelled: boolean, reachedLimit = false) => {
@@ -313,6 +314,7 @@ export function VoiceRecorder({
           </View>
         )}
       </View>
+      {dialog}
     </View>
   );
 }

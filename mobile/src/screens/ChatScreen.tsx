@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, type ReactNode } from "react";
 import {
-  View, Text, TextInput, TouchableOpacity, Pressable, Alert,
+  View, Text, TextInput, TouchableOpacity, Pressable,
   FlatList, StyleSheet, KeyboardAvoidingView, Platform, Keyboard,
   Animated, AccessibilityInfo, Clipboard, Easing,
   type NativeScrollEvent, type NativeSyntheticEvent,
@@ -16,6 +16,7 @@ import { useAuth } from "../stores/AuthContext";
 import { encrypt } from "../services/encryption";
 import { getSecretKey } from "../services/keys";
 import { VoiceRecorder, VoiceMessageBubble } from "../components/VoiceMessage";
+import { useKinDialog } from "../components/KinDialog";
 import {
   saveMessage, getMessages, markAsRead, markChatAsRead,
   updateMessageDeliveryStatus, deleteMessage,
@@ -401,6 +402,7 @@ export default function ChatScreen({ route }: any) {
   const { state } = useAuth();
   const myId = state.user?.id || "";
   const navigation = useNavigation<any>();
+  const { showDialog, dialog } = useKinDialog();
   const isFocused = useIsFocused();
   const insets = useSafeAreaInsets();
 
@@ -677,7 +679,7 @@ export default function ChatScreen({ route }: any) {
     const text = inputText.trim();
     if (!text) return;
     if (!friendPublicKey || !mySecretKey) {
-      Alert.alert("暂时不能发送", getEncryptionIssueCopy(encryptionState));
+      showDialog({ title: "暂时不能发送", message: getEncryptionIssueCopy(encryptionState) });
       return;
     }
 
@@ -686,7 +688,7 @@ export default function ChatScreen({ route }: any) {
     try {
       contentToSend = encrypt(text, friendPublicKey, mySecretKey);
     } catch {
-      Alert.alert("发送失败", "消息加密失败，请稍后重试。");
+      showDialog({ title: "发送失败", message: "消息加密失败，请稍后重试。" });
       return;
     }
 
@@ -721,7 +723,7 @@ export default function ChatScreen({ route }: any) {
   // 语音录制完成回调
   const handleVoiceRecord = async (base64Audio: string, duration: number) => {
     if (!friendPublicKey || !mySecretKey) {
-      Alert.alert("暂时不能发送", getEncryptionIssueCopy(encryptionState));
+      showDialog({ title: "暂时不能发送", message: getEncryptionIssueCopy(encryptionState) });
       return;
     }
     const msgId = genMsgId();
@@ -729,7 +731,7 @@ export default function ChatScreen({ route }: any) {
     try {
       contentToSend = encrypt(base64Audio, friendPublicKey, mySecretKey);
     } catch {
-      Alert.alert("发送失败", "语音消息加密失败，请稍后重试。");
+      showDialog({ title: "发送失败", message: "语音消息加密失败，请稍后重试。" });
       return;
     }
 
@@ -765,7 +767,7 @@ export default function ChatScreen({ route }: any) {
     if (!isOnline) return;
     if (webrtcService.hasActiveCall()) {
       setShowMore(false);
-      Alert.alert("通话正在进行", "请先结束当前语音通话，再发起新的通话。");
+      showDialog({ title: "通话正在进行", message: "请先结束当前语音通话，再发起新的通话。" });
       return;
     }
     setShowMore(false);
@@ -790,13 +792,13 @@ export default function ChatScreen({ route }: any) {
 
   const showEncryptionDetails = () => {
     if (isEncryptionReady) {
-      Alert.alert(
-        "仅你和对方可读取",
-        "新消息会在发送设备上加密，并在对方设备上解密。Kin 服务器只负责转发加密后的内容。"
-      );
+      showDialog({
+        title: "仅你和对方可读取",
+        message: "新消息会在发送设备上加密，并在对方设备上解密。Kin 服务器只负责转发加密后的内容。",
+      });
       return;
     }
-    Alert.alert("加密保护不可用", getEncryptionIssueCopy(encryptionState));
+    showDialog({ title: "加密保护不可用", message: getEncryptionIssueCopy(encryptionState) });
   };
 
   const notifyTyping = () => {
@@ -858,11 +860,11 @@ export default function ChatScreen({ route }: any) {
       try {
         contentToSend = encrypt(message.content, friendPublicKey, mySecretKey);
       } catch {
-        Alert.alert("重试失败", "消息加密失败，请稍后再试。");
+        showDialog({ title: "重试失败", message: "消息加密失败，请稍后再试。" });
         return;
       }
     } else {
-      Alert.alert("暂时无法重试", getEncryptionIssueCopy(encryptionState));
+      showDialog({ title: "暂时无法重试", message: getEncryptionIssueCopy(encryptionState) });
       return;
     }
 
@@ -908,21 +910,21 @@ export default function ChatScreen({ route }: any) {
         item.id === message.id ? { ...item, delivery_status: "failed" } : item
       )));
       void updateMessageDeliveryStatus(myId, message.id, "failed").catch(() => undefined);
-      Alert.alert("重试失败", "无法保存待发送消息，请检查设备存储后再试。");
+      showDialog({ title: "重试失败", message: "无法保存待发送消息，请检查设备存储后再试。" });
     } finally {
       retryingMessageIdsRef.current.delete(message.id);
     }
   };
 
   const deleteLocalMessage = (message: Message) => {
-    Alert.alert(
-      "从本机删除这条消息？",
-      "这只会清除当前设备中的记录，不会撤回消息，也不会删除对方设备上的内容。",
-      [
-        { text: "取消", style: "cancel" },
+    showDialog({
+      title: "从本机删除这条消息？",
+      message: "这只会清除当前设备中的记录，不会撤回消息，也不会删除对方设备上的内容。",
+      actions: [
+        { text: "取消", tone: "cancel" },
         {
           text: "从本机删除",
-          style: "destructive",
+          tone: "destructive",
           onPress: () => {
             void (async () => {
               try {
@@ -930,13 +932,13 @@ export default function ChatScreen({ route }: any) {
                 retryingMessageIdsRef.current.delete(message.id);
                 setMessages((current) => current.filter((item) => item.id !== message.id));
               } catch {
-                Alert.alert("删除失败", "无法修改本机聊天记录，请稍后再试。");
+                showDialog({ title: "删除失败", message: "无法修改本机聊天记录，请稍后再试。" });
               }
             })();
           },
         },
-      ]
-    );
+      ],
+    });
   };
 
   const showMessageActions = (message: Message) => {
@@ -946,22 +948,22 @@ export default function ChatScreen({ route }: any) {
           text: "复制文字",
           onPress: () => {
             Clipboard.setString(message.content);
-            Alert.alert("已复制", "消息文字已复制到剪贴板。");
+            showDialog({ title: "已复制", message: "消息文字已复制到剪贴板。" });
           },
         }]
         : []),
       {
         text: "从本机删除",
-        style: "destructive" as const,
+        tone: "destructive" as const,
         onPress: () => deleteLocalMessage(message),
       },
-      { text: "取消", style: "cancel" as const },
+      { text: "取消", tone: "cancel" as const },
     ];
-    Alert.alert(
-      message.type === "text" ? "消息操作" : "语音消息操作",
-      "删除操作只影响当前设备。",
-      actions
-    );
+    showDialog({
+      title: message.type === "text" ? "消息操作" : "语音消息操作",
+      message: "删除操作只影响当前设备。",
+      actions,
+    });
   };
 
   // 渲染消息气泡
@@ -1252,6 +1254,7 @@ export default function ChatScreen({ route }: any) {
           </View>
         </>
       ) : null}
+      {dialog}
     </KeyboardAvoidingView>
   );
 }

@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from "react";
 import {
-  Alert,
   FlatList,
   RefreshControl,
   StyleSheet,
@@ -12,6 +11,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Friend } from "../api/client";
 import FriendAvatar from "../components/FriendAvatar";
+import { useKinDialog } from "../components/KinDialog";
 import PresenceWakeHighlight from "../components/PresenceWakeHighlight";
 import { getFriendDisplayName, sortFriendsByName } from "../services/friendPresentation";
 import { useFriendsHome } from "../stores/FriendsHomeContext";
@@ -25,6 +25,7 @@ export default function ContactsScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
   const [query, setQuery] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
+  const { showDialog, dialog } = useKinDialog();
   const {
     friends,
     source,
@@ -46,18 +47,18 @@ export default function ContactsScreen({ navigation }: any) {
   }, [friends, query]);
 
   const confirmDelete = (friend: Friend) => {
-    Alert.alert("删除好友", `确定要删除 ${getFriendDisplayName(friend)} 吗？`, [
-      { text: "取消", style: "cancel" },
+    showDialog({ title: "删除好友", message: `确定要删除 ${getFriendDisplayName(friend)} 吗？`, actions: [
+      { text: "取消", tone: "cancel" },
       {
         text: "删除",
-        style: "destructive",
+        tone: "destructive",
         onPress: () => {
           void removeFriend(friend.user_id).catch((error: any) => {
-            Alert.alert("删除失败", error.message || "请稍后重试");
+            showDialog({ title: "删除失败", message: error.message || "请稍后重试" });
           });
         },
       },
-    ]);
+    ] });
   };
 
   const renderContact = ({ item }: { item: Friend }) => (
@@ -183,6 +184,7 @@ export default function ContactsScreen({ navigation }: any) {
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
       />
+      {dialog}
     </View>
   );
 }

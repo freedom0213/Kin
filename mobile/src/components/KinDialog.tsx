@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useCallback, useState } from "react";
 import {
   Modal,
   StyleSheet,
@@ -12,6 +12,12 @@ export interface KinDialogAction {
   text: string;
   tone?: "default" | "cancel" | "destructive";
   onPress?: () => void | Promise<void>;
+}
+
+export interface KinDialogConfig {
+  title: string;
+  message: string;
+  actions?: KinDialogAction[];
 }
 
 interface KinDialogProps {
@@ -84,6 +90,26 @@ export default function KinDialog({
       </View>
     </Modal>
   );
+}
+
+export function useKinDialog() {
+  const [config, setConfig] = useState<KinDialogConfig | null>(null);
+  const showDialog = useCallback((next: KinDialogConfig) => setConfig(next), []);
+  const closeDialog = useCallback(() => setConfig(null), []);
+
+  return {
+    showDialog,
+    closeDialog,
+    dialog: (
+      <KinDialog
+        visible={!!config}
+        title={config?.title || ""}
+        message={config?.message || ""}
+        actions={config?.actions}
+        onClose={closeDialog}
+      />
+    ),
+  };
 }
 
 const styles = StyleSheet.create({

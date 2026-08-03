@@ -3,7 +3,6 @@
 import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   StyleSheet,
   Text,
   TextInput,
@@ -68,7 +67,6 @@ export default function RegisterScreen({ navigation }: any) {
     } catch (error: any) {
       const message = error.message || "暂时无法注册，请稍后重试。";
       setErrorMessage(message);
-      Alert.alert("注册失败", message);
     } finally {
       setLoading(false);
     }

@@ -3,15 +3,18 @@
 import React, { useState } from "react";
 import * as ImagePicker from "expo-image-picker";
 import {
-  ActivityIndicator, Alert, Image, Keyboard, KeyboardAvoidingView, Platform,
+  ActivityIndicator, Image, Keyboard, KeyboardAvoidingView, Platform,
   ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View,
 } from "react-native";
+import { useIsFocused } from "@react-navigation/native";
+import { StatusBar as ExpoStatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   removeAvatar, removeProfileBanner, resolveMediaUrl, updateProfile,
   uploadAvatar, uploadProfileBanner,
   type UserProfile,
 } from "../api/client";
+import { useKinDialog } from "../components/KinDialog";
 import { useAuth } from "../stores/AuthContext";
 import { GRAPHITE_COLORS } from "../theme/graphite";
 
@@ -47,7 +50,9 @@ function inferMimeType(asset: ImagePicker.ImagePickerAsset): string {
 
 export default function ProfileEditScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
+  const isFocused = useIsFocused();
   const { state, updateProfileAction } = useAuth();
+  const { showDialog, dialog } = useKinDialog();
   const user = state.user;
   const [nickname, setNickname] = useState(user?.nickname || "");
   const [statusMessage, setStatusMessage] = useState(user?.status_msg || "");
@@ -80,7 +85,10 @@ export default function ProfileEditScreen({ navigation }: any) {
     try {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
-        Alert.alert("需要相册权限", `请允许 Kin 访问相册，才能选择${kind === "avatar" ? "头像" : "背景名片"}。`);
+        showDialog({
+          title: "需要相册权限",
+          message: `请允许 Kin 访问相册，才能选择${kind === "avatar" ? "头像" : "背景名片"}。`,
+        });
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -93,7 +101,7 @@ export default function ProfileEditScreen({ navigation }: any) {
 
       const asset = result.assets[0];
       if (asset.fileSize && asset.fileSize > MAX_PROFILE_IMAGE_BYTES) {
-        Alert.alert("图片过大", "请选择小于 5 MB 的图片；裁剪后再试通常可以减小体积。");
+        showDialog({ title: "图片过大", message: "请选择小于 5 MB 的图片；裁剪后再试通常可以减小体积。" });
         return;
       }
       if (kind === "avatar") {
@@ -104,7 +112,7 @@ export default function ProfileEditScreen({ navigation }: any) {
         setRemoveBanner(false);
       }
     } catch (error: any) {
-      Alert.alert("无法选择图片", error?.message || "请稍后重试。");
+      showDialog({ title: "无法选择图片", message: error?.message || "请稍后重试。" });
     } finally {
       setSelectingMedia(null);
     }
@@ -150,10 +158,10 @@ export default function ProfileEditScreen({ navigation }: any) {
       }
       navigation.goBack();
     } catch (error: any) {
-      Alert.alert(
-        "资料未完全保存",
-        error?.message || "无法连接 Kin 服务器，请检查网络后重试。"
-      );
+      showDialog({
+        title: "资料未完全保存",
+        message: error?.message || "无法连接 Kin 服务器，请检查网络后重试。",
+      });
     } finally {
       setSaving(false);
     }
@@ -164,6 +172,7 @@ export default function ProfileEditScreen({ navigation }: any) {
       style={styles.container}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
+      {isFocused ? <ExpoStatusBar style="light" /> : null}
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
         <TouchableOpacity
           onPress={() => navigation.goBack()}
@@ -326,6 +335,7 @@ export default function ProfileEditScreen({ navigation }: any) {
           <Text style={styles.privacyText}>头像、背景名片、昵称和个性签名会展示给已经与你成为好友的人。</Text>
         </View>
       </ScrollView>
+      {dialog}
     </KeyboardAvoidingView>
   );
 }
@@ -338,24 +348,24 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.line,
     backgroundColor: COLORS.background,
   },
-  headerAction: { width: 52, height: 44, alignItems: "center", justifyContent: "center" },
+  headerAction: { width: 52, height: 48, alignItems: "center", justifyContent: "center" },
   backMark: { color: COLORS.ink, fontSize: 36, fontWeight: "300", lineHeight: 38 },
   headerTitle: { color: COLORS.ink, fontSize: 17, fontWeight: "700" },
-  saveAction: { width: 52, height: 44, alignItems: "center", justifyContent: "center" },
+  saveAction: { width: 52, height: 48, alignItems: "center", justifyContent: "center" },
   saveText: { color: COLORS.accentDark, fontSize: 15, fontWeight: "700" },
   saveTextDisabled: { color: COLORS.faint },
   content: { paddingBottom: 40 },
   cardPreview: { paddingBottom: 24, alignItems: "center", backgroundColor: COLORS.surface },
-  bannerFrame: { width: "100%", height: 172, overflow: "hidden", backgroundColor: "#263730" },
+  bannerFrame: { width: "100%", height: 172, overflow: "hidden", backgroundColor: GRAPHITE_COLORS.surfacePressed },
   bannerImage: { width: "100%", height: "100%" },
-  bannerFallback: { flex: 1, backgroundColor: "#345C50", overflow: "hidden" },
+  bannerFallback: { flex: 1, backgroundColor: GRAPHITE_COLORS.surfaceStrong, overflow: "hidden" },
   bannerOrbLarge: {
     position: "absolute", width: 230, height: 230, borderRadius: 115,
-    right: -42, top: -96, backgroundColor: "#5E8B7C",
+    right: -42, top: -96, backgroundColor: "rgba(105,200,164,0.12)",
   },
   bannerOrbSmall: {
     position: "absolute", width: 130, height: 130, borderRadius: 65,
-    left: -28, bottom: -69, backgroundColor: "#203C35",
+    left: -28, bottom: -69, backgroundColor: "rgba(52,92,76,0.26)",
   },
   bannerShade: { position: "absolute", right: 0, bottom: 0, left: 0, height: 42, backgroundColor: "rgba(20, 30, 27, 0.16)" },
   avatar: {
@@ -363,7 +373,7 @@ const styles = StyleSheet.create({
     borderColor: COLORS.surface, overflow: "hidden",
     alignItems: "center", justifyContent: "center", backgroundColor: GRAPHITE_COLORS.surfacePressed,
   },
-  avatarInitials: { color: "#FFFFFF", fontSize: 24, fontWeight: "700" },
+  avatarInitials: { color: GRAPHITE_COLORS.text, fontSize: 24, fontWeight: "800" },
   avatarImage: { width: "100%", height: "100%" },
   previewName: { marginTop: 10, color: COLORS.ink, fontSize: 19, fontWeight: "700" },
   username: { marginTop: 2, color: COLORS.muted, fontSize: 13, fontWeight: "500" },

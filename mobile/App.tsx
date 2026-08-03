@@ -8,7 +8,7 @@ import {
 import { BlurView } from "expo-blur";
 import { StatusBar as ExpoStatusBar } from "expo-status-bar";
 import {
-  createNavigationContainerRef, DefaultTheme, NavigationContainer,
+  createNavigationContainerRef, NavigationContainer,
 } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
@@ -195,7 +195,7 @@ function ConnectionStatusCoordinator() {
         <BlurView
           style={styles.connectionBlur}
           intensity={64}
-          tint="systemMaterialLight"
+          tint="systemMaterialDark"
           blurMethod="dimezisBlurView"
           blurReductionFactor={3}
         >
@@ -556,7 +556,7 @@ function IncomingCallCoordinator({
         <BlurView
           style={styles.incomingBlur}
           intensity={72}
-          tint="systemMaterialLight"
+          tint="systemMaterialDark"
           blurMethod="dimezisBlurView"
           blurReductionFactor={3}
         >
@@ -575,7 +575,7 @@ function IncomingCallCoordinator({
               <Text style={styles.incomingName} numberOfLines={1}>{incomingCall.callerName}</Text>
               <View style={styles.incomingStatusRow}>
                 {callPhase === "connected" ? <View style={styles.connectedDot} /> : null}
-                {["connecting", "recovering"].includes(callPhase) ? <ActivityIndicator size="small" color="#2D8769" /> : null}
+                {["connecting", "recovering"].includes(callPhase) ? <ActivityIndicator size="small" color={GRAPHITE_COLORS.primary} /> : null}
                 <Text style={[styles.incomingStatus, callPhase === "failed" && styles.failedStatus]}>
                   {statusText}
                 </Text>
@@ -766,10 +766,10 @@ function AppNavigator() {
 
   return (
     <>
-      <ExpoStatusBar style={state.isLoggedIn ? "dark" : "light"} />
+      <ExpoStatusBar style="light" />
       <NavigationContainer
         ref={navigationRef}
-        theme={state.isLoggedIn ? DefaultTheme : GRAPHITE_NAVIGATION_THEME}
+        theme={GRAPHITE_NAVIGATION_THEME}
         onReady={() => setNavigationReady(true)}
       >
       <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -825,24 +825,24 @@ const styles = StyleSheet.create({
   connectionNotice: {
     overflow: "hidden", maxWidth: "86%",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(255,255,255,0.72)", borderRadius: 16,
-    shadowColor: "#0C1712", shadowOpacity: 0.12,
+    borderColor: GRAPHITE_COLORS.lineStrong, borderRadius: 16,
+    shadowColor: GRAPHITE_COLORS.shadow, shadowOpacity: 0.36,
     shadowRadius: 13, shadowOffset: { width: 0, height: 6 },
   },
   connectionBlur: {
     minHeight: 32, paddingHorizontal: 11,
     flexDirection: "row", alignItems: "center", gap: 6,
-    backgroundColor: "rgba(247,250,248,0.22)",
+    backgroundColor: "rgba(23,27,24,0.92)",
   },
   connectionMark: {
     width: 16, height: 16, borderRadius: 8,
     textAlign: "center", lineHeight: 16,
-    color: "#65716C", fontSize: 10, fontWeight: "800",
-    borderWidth: StyleSheet.hairlineWidth, borderColor: "#8D9792",
+    color: GRAPHITE_COLORS.textMuted, fontSize: 10, fontWeight: "800",
+    borderWidth: StyleSheet.hairlineWidth, borderColor: GRAPHITE_COLORS.lineStrong,
   },
-  connectionMarkSynced: { color: "#1D7B5C", borderColor: "#54A889" },
-  connectionMarkOffline: { color: "#955D25", borderColor: "#B77A3C" },
-  connectionText: { flexShrink: 1, color: "#46514C", fontSize: 10, fontWeight: "600" },
+  connectionMarkSynced: { color: GRAPHITE_COLORS.primaryStrong, borderColor: GRAPHITE_COLORS.primaryLine },
+  connectionMarkOffline: { color: GRAPHITE_COLORS.warningStrong, borderColor: GRAPHITE_COLORS.warningLine },
+  connectionText: { flexShrink: 1, color: GRAPHITE_COLORS.textMuted, fontSize: 10, fontWeight: "600" },
   incomingOverlay: {
     position: "absolute", left: 0, right: 0,
     top: Platform.OS === "android" ? (StatusBar.currentHeight || 24) + 8 : 54,
@@ -853,14 +853,14 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     borderRadius: 21,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(255,255,255,0.78)",
-    shadowColor: "#0C1712", shadowOpacity: 0.18,
+    borderColor: GRAPHITE_COLORS.lineStrong,
+    shadowColor: GRAPHITE_COLORS.shadow, shadowOpacity: 0.46,
     shadowRadius: 18, shadowOffset: { width: 0, height: 8 },
   },
   incomingBlur: {
     minHeight: 64, paddingHorizontal: 10,
     flexDirection: "row", alignItems: "center",
-    backgroundColor: "rgba(247,250,248,0.24)",
+    backgroundColor: "rgba(23,27,24,0.94)",
   },
   incomingMain: {
     flex: 1, minWidth: 0, minHeight: 62,
@@ -869,29 +869,32 @@ const styles = StyleSheet.create({
   incomingAvatar: {
     width: 38, height: 38, borderRadius: 19,
     alignItems: "center", justifyContent: "center",
-    backgroundColor: "#26322D",
+    backgroundColor: GRAPHITE_COLORS.surfacePressed,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: "rgba(255,255,255,0.35)",
+    borderColor: GRAPHITE_COLORS.lineStrong,
   },
-  incomingAvatarText: { color: "#F7FAF8", fontSize: 12, fontWeight: "700" },
+  incomingAvatarText: { color: GRAPHITE_COLORS.text, fontSize: 12, fontWeight: "700" },
   incomingTextGroup: { flex: 1, minWidth: 0, marginLeft: 10 },
-  incomingName: { color: "#171D1A", fontSize: 15, fontWeight: "700" },
+  incomingName: { color: GRAPHITE_COLORS.text, fontSize: 15, fontWeight: "700" },
   incomingStatusRow: { minHeight: 18, marginTop: 2, flexDirection: "row", alignItems: "center", gap: 5 },
-  incomingStatus: { color: "#537067", fontSize: 10, fontVariant: ["tabular-nums"] },
-  failedStatus: { color: "#A63C36" },
-  connectedDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#2DAD82" },
+  incomingStatus: { color: GRAPHITE_COLORS.textMuted, fontSize: 10, fontVariant: ["tabular-nums"] },
+  failedStatus: { color: GRAPHITE_COLORS.danger },
+  connectedDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: GRAPHITE_COLORS.primary },
   incomingActions: {
     marginLeft: 8, flexDirection: "row", alignItems: "center", gap: 7,
   },
   incomingAction: {
-    width: 38, height: 38, borderRadius: 19,
+    width: 48, height: 48, borderRadius: 24,
     alignItems: "center", justifyContent: "center",
   },
-  rejectAction: { backgroundColor: "rgba(180, 58, 51, 0.12)" },
-  acceptAction: { backgroundColor: "#2DAD82" },
+  rejectAction: {
+    borderWidth: 1, borderColor: GRAPHITE_COLORS.dangerLine,
+    backgroundColor: GRAPHITE_COLORS.surfaceStrong,
+  },
+  acceptAction: { backgroundColor: GRAPHITE_COLORS.primary },
   incomingActionText: { fontSize: 13, fontWeight: "700" },
-  rejectActionText: { color: "#A63C36", fontSize: 24, fontWeight: "300", lineHeight: 25 },
-  acceptActionText: { color: "#FFFFFF" },
+  rejectActionText: { color: GRAPHITE_COLORS.danger, fontSize: 24, fontWeight: "300", lineHeight: 25 },
+  acceptActionText: { color: GRAPHITE_COLORS.onPrimary },
 });
 
 export default function App() {

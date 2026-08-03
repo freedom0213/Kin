@@ -214,7 +214,7 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: GRAPHITE_COLORS.lineStrong,
   },
-  avatarOffline: { backgroundColor: "#343A36" },
+  avatarOffline: { backgroundColor: GRAPHITE_COLORS.surfacePressed },
   image: { width: "100%", height: "100%" },
   initials: { color: GRAPHITE_COLORS.text, fontWeight: "800" },
   presenceDot: {
