@@ -32,6 +32,9 @@ export const GRAPHITE_RADII = {
   brand: 18,
 } as const;
 
+// Keep profile-banner selection and every rendered card on the same canvas.
+export const PROFILE_BANNER_ASPECT_RATIO = 16 / 7;
+
 export const GRAPHITE_INPUT_COLORS = {
   text: GRAPHITE_COLORS.text,
   placeholder: GRAPHITE_COLORS.textFaint,

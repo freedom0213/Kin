@@ -7,7 +7,9 @@ import { StatusBar as ExpoStatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { resolveMediaUrl } from "../api/client";
 import { useAuth } from "../stores/AuthContext";
-import { GRAPHITE_COLORS, GRAPHITE_RADII } from "../theme/graphite";
+import {
+  GRAPHITE_COLORS, GRAPHITE_RADII, PROFILE_BANNER_ASPECT_RATIO,
+} from "../theme/graphite";
 
 function initials(value: string): string {
   return Array.from(value).slice(0, 2).join("").toUpperCase();
@@ -108,7 +110,8 @@ const styles = StyleSheet.create({
     borderColor: GRAPHITE_COLORS.lineStrong, backgroundColor: GRAPHITE_COLORS.surface,
   },
   bannerFrame: {
-    width: "100%", height: 176, overflow: "hidden", backgroundColor: GRAPHITE_COLORS.surfacePressed,
+    width: "100%", aspectRatio: PROFILE_BANNER_ASPECT_RATIO, overflow: "hidden",
+    backgroundColor: GRAPHITE_COLORS.surfacePressed,
   },
   bannerImage: { width: "100%", height: "100%" },
   bannerFallback: { flex: 1, overflow: "hidden", backgroundColor: GRAPHITE_COLORS.surfaceStrong },

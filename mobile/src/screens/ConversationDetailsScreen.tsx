@@ -17,7 +17,7 @@ import { exportConversationToFile } from "../services/export";
 import { getSecretKey } from "../services/keys";
 import { mergeFriendProfile, parseFriendProfileEvent } from "../services/friendProfile";
 import { useAuth } from "../stores/AuthContext";
-import { GRAPHITE_COLORS } from "../theme/graphite";
+import { GRAPHITE_COLORS, PROFILE_BANNER_ASPECT_RATIO } from "../theme/graphite";
 
 const COLORS = {
   background: GRAPHITE_COLORS.canvas,
@@ -387,7 +387,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.surface,
   },
   profileBanner: {
-    width: "100%", height: 168, overflow: "hidden",
+    width: "100%", aspectRatio: PROFILE_BANNER_ASPECT_RATIO, overflow: "hidden",
     backgroundColor: GRAPHITE_COLORS.surfacePressed,
   },
   profileBannerImage: { width: "100%", height: "100%" },

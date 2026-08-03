@@ -16,7 +16,7 @@ import {
 } from "../api/client";
 import { useKinDialog } from "../components/KinDialog";
 import { useAuth } from "../stores/AuthContext";
-import { GRAPHITE_COLORS } from "../theme/graphite";
+import { GRAPHITE_COLORS, PROFILE_BANNER_ASPECT_RATIO } from "../theme/graphite";
 
 const COLORS = {
   background: GRAPHITE_COLORS.canvas,
@@ -355,7 +355,10 @@ const styles = StyleSheet.create({
   saveTextDisabled: { color: COLORS.faint },
   content: { paddingBottom: 40 },
   cardPreview: { paddingBottom: 24, alignItems: "center", backgroundColor: COLORS.surface },
-  bannerFrame: { width: "100%", height: 172, overflow: "hidden", backgroundColor: GRAPHITE_COLORS.surfacePressed },
+  bannerFrame: {
+    width: "100%", aspectRatio: PROFILE_BANNER_ASPECT_RATIO, overflow: "hidden",
+    backgroundColor: GRAPHITE_COLORS.surfacePressed,
+  },
   bannerImage: { width: "100%", height: "100%" },
   bannerFallback: { flex: 1, backgroundColor: GRAPHITE_COLORS.surfaceStrong, overflow: "hidden" },
   bannerOrbLarge: {
