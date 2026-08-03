@@ -2,31 +2,37 @@
 
 import React, { useEffect, useState } from "react";
 import {
-  ActivityIndicator, Alert, Image, ScrollView, StyleSheet,
+  ActivityIndicator, Image, ScrollView, StyleSheet,
   Text, TouchableOpacity, View,
 } from "react-native";
+import { useIsFocused } from "@react-navigation/native";
+import { StatusBar as ExpoStatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Friend } from "../api/client";
 import { deleteFriend, resolveMediaUrl } from "../api/client";
 import { kinWS } from "../api/ws";
+import KinDialog, { type KinDialogAction } from "../components/KinDialog";
 import { clearMessages } from "../services/db";
 import { exportConversationToFile } from "../services/export";
 import { getSecretKey } from "../services/keys";
 import { mergeFriendProfile, parseFriendProfileEvent } from "../services/friendProfile";
 import { useAuth } from "../stores/AuthContext";
+import { GRAPHITE_COLORS } from "../theme/graphite";
 
 const COLORS = {
-  background: "#F4F5F2",
-  surface: "#FFFFFF",
-  ink: "#171A1F",
-  muted: "#70757D",
-  faint: "#9CA19F",
-  line: "#E2E5E1",
-  accent: "#2DAD82",
-  accentDark: "#176B52",
-  accentSoft: "#E2F2EC",
-  danger: "#B43A33",
+  background: GRAPHITE_COLORS.canvas,
+  surface: GRAPHITE_COLORS.surface,
+  ink: GRAPHITE_COLORS.text,
+  muted: GRAPHITE_COLORS.textMuted,
+  faint: GRAPHITE_COLORS.textFaint,
+  line: GRAPHITE_COLORS.line,
+  accent: GRAPHITE_COLORS.primary,
+  accentDark: GRAPHITE_COLORS.primaryStrong,
+  accentSoft: GRAPHITE_COLORS.primarySoft,
+  danger: GRAPHITE_COLORS.danger,
 };
+
+type DialogState = { title: string; message: string; actions?: KinDialogAction[] } | null;
 
 function displayName(friend: Friend): string {
   return friend.nickname || friend.username;
@@ -78,7 +84,7 @@ function ActionRow({
 }) {
   return (
     <TouchableOpacity
-      style={styles.actionRow}
+      style={[styles.actionRow, loading && styles.rowDisabled]}
       onPress={onPress}
       disabled={loading}
       accessibilityRole="button"
@@ -103,8 +109,10 @@ export default function ConversationDetailsScreen({ route, navigation }: any) {
   const { state } = useAuth();
   const [friend, setFriend] = useState<Friend>((route.params as { friend: Friend }).friend);
   const insets = useSafeAreaInsets();
+  const isFocused = useIsFocused();
   const [busyAction, setBusyAction] = useState<"export" | "clear" | "delete" | null>(null);
   const [localKeyState, setLocalKeyState] = useState<"loading" | "ready" | "missing" | "error">("loading");
+  const [dialog, setDialog] = useState<DialogState>(null);
   const name = displayName(friend);
   const isProtected = !!friend.public_key && localKeyState === "ready";
   const securityTitle = isProtected
@@ -121,6 +129,9 @@ export default function ConversationDetailsScreen({ route, navigation }: any) {
         : localKeyState === "loading"
           ? "正在读取当前设备的安全存储"
           : "查看这段会话如何受到保护";
+  const showDialog = (title: string, message: string, actions?: KinDialogAction[]) => {
+    setDialog({ title, message, actions });
+  };
 
   useEffect(() => {
     const ownerId = state.user?.id;
@@ -151,7 +162,7 @@ export default function ConversationDetailsScreen({ route, navigation }: any) {
   }, [friend.user_id]);
 
   const showEncryptionDetails = () => {
-    Alert.alert(
+    showDialog(
       securityTitle,
       isProtected
         ? "新消息会在发送设备上加密，并在对方设备上解密。Kin 服务器只负责转发加密后的内容。"
@@ -163,15 +174,15 @@ export default function ConversationDetailsScreen({ route, navigation }: any) {
     if (busyAction) return;
     const ownerId = state.user?.id;
     if (!ownerId) {
-      Alert.alert("导出失败", "当前账号状态不可用，请重新登录后再试。");
+      showDialog("导出失败", "当前账号状态不可用，请重新登录后再试。");
       return;
     }
     setBusyAction("export");
     try {
       const count = await exportConversationToFile(ownerId, friend.user_id, name);
-      if (count === 0) Alert.alert("暂无聊天记录", "当前会话还没有可导出的本地消息。");
+      if (count === 0) showDialog("暂无聊天记录", "当前会话还没有可导出的本地消息。");
     } catch (error: any) {
-      Alert.alert("导出失败", error.message || "请稍后重试");
+      showDialog("导出失败", error.message || "请稍后重试");
     } finally {
       setBusyAction(null);
     }
@@ -179,18 +190,18 @@ export default function ConversationDetailsScreen({ route, navigation }: any) {
 
   const handleClear = () => {
     if (busyAction) return;
-    Alert.alert(
+    showDialog(
       "清空本地聊天记录",
       `将从这台设备删除与${name}的全部聊天记录。该操作无法撤销。`,
       [
-        { text: "取消", style: "cancel" },
+        { text: "取消", tone: "cancel" },
         {
           text: "清空",
-          style: "destructive",
+          tone: "destructive",
           onPress: async () => {
             const ownerId = state.user?.id;
             if (!ownerId) {
-              Alert.alert("清空失败", "当前账号状态不可用，请重新登录后再试。");
+              showDialog("清空失败", "当前账号状态不可用，请重新登录后再试。");
               return;
             }
             setBusyAction("clear");
@@ -201,7 +212,7 @@ export default function ConversationDetailsScreen({ route, navigation }: any) {
                 historyClearedAt: Date.now(),
               });
             } catch (error: any) {
-              Alert.alert("清空失败", error.message || "请稍后重试");
+              showDialog("清空失败", error.message || "请稍后重试");
               setBusyAction(null);
             }
           },
@@ -212,21 +223,21 @@ export default function ConversationDetailsScreen({ route, navigation }: any) {
 
   const handleDelete = () => {
     if (busyAction) return;
-    Alert.alert(
+    showDialog(
       "删除好友",
       `删除${name}后，你们将不能继续聊天。此操作不会自动清空本机已有记录。`,
       [
-        { text: "取消", style: "cancel" },
+        { text: "取消", tone: "cancel" },
         {
           text: "删除",
-          style: "destructive",
+          tone: "destructive",
           onPress: async () => {
             setBusyAction("delete");
             try {
               await deleteFriend(friend.user_id);
               navigation.popToTop();
             } catch (error: any) {
-              Alert.alert("删除失败", error.message || "请稍后重试");
+              showDialog("删除失败", error.message || "请稍后重试");
               setBusyAction(null);
             }
           },
@@ -237,6 +248,7 @@ export default function ConversationDetailsScreen({ route, navigation }: any) {
 
   return (
     <View style={styles.container}>
+      {isFocused ? <ExpoStatusBar style="light" /> : null}
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
         <TouchableOpacity
           onPress={() => navigation.goBack()}
@@ -246,7 +258,7 @@ export default function ConversationDetailsScreen({ route, navigation }: any) {
         >
           <Text style={styles.backMark}>‹</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>会话详情</Text>
+        <Text style={styles.headerTitle}>好友资料</Text>
         <View style={styles.headerAction} />
       </View>
 
@@ -259,7 +271,7 @@ export default function ConversationDetailsScreen({ route, navigation }: any) {
               <Image
                 source={{ uri: resolveMediaUrl(friend.profile_banner) || friend.profile_banner }}
                 style={styles.profileBannerImage}
-                resizeMode="cover"
+                resizeMode="contain"
                 accessibilityLabel={`${name}的背景名片`}
               />
             ) : (
@@ -284,6 +296,14 @@ export default function ConversationDetailsScreen({ route, navigation }: any) {
           <Text style={styles.name}>{name}</Text>
           <Text style={styles.username}>@{friend.username}</Text>
           <Text style={styles.statusMessage}>{friend.status_msg || "还没有留下个性签名"}</Text>
+          <TouchableOpacity
+            style={styles.messageButton}
+            onPress={() => navigation.navigate("Chat", { friend })}
+            accessibilityRole="button"
+            accessibilityLabel={`给${name}发消息`}
+          >
+            <Text style={styles.messageButtonText}>发消息</Text>
+          </TouchableOpacity>
         </View>
 
         <View style={styles.section}>
@@ -338,6 +358,13 @@ export default function ConversationDetailsScreen({ route, navigation }: any) {
           />
         </View>
       </ScrollView>
+      <KinDialog
+        visible={!!dialog}
+        title={dialog?.title || ""}
+        message={dialog?.message || ""}
+        actions={dialog?.actions}
+        onClose={() => setDialog(null)}
+      />
     </View>
   );
 }
@@ -350,30 +377,37 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.line,
     backgroundColor: COLORS.background,
   },
-  headerAction: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  headerAction: { width: 48, height: 48, alignItems: "center", justifyContent: "center" },
   backMark: { color: COLORS.ink, fontSize: 36, fontWeight: "300", lineHeight: 38 },
   headerTitle: { color: COLORS.ink, fontSize: 17, fontWeight: "700" },
   content: { paddingBottom: 40 },
-  identity: { alignItems: "center", paddingBottom: 32, backgroundColor: COLORS.surface },
-  profileBanner: { width: "100%", height: 168, overflow: "hidden", backgroundColor: "#345C50" },
+  identity: {
+    marginHorizontal: 14, overflow: "hidden", alignItems: "center", paddingBottom: 24,
+    borderRadius: 22, borderWidth: StyleSheet.hairlineWidth, borderColor: COLORS.line,
+    backgroundColor: COLORS.surface,
+  },
+  profileBanner: {
+    width: "100%", height: 168, overflow: "hidden",
+    backgroundColor: GRAPHITE_COLORS.surfacePressed,
+  },
   profileBannerImage: { width: "100%", height: "100%" },
-  profileBannerFallback: { flex: 1, backgroundColor: "#345C50", overflow: "hidden" },
+  profileBannerFallback: { flex: 1, backgroundColor: GRAPHITE_COLORS.surfaceStrong, overflow: "hidden" },
   bannerOrbLarge: {
     position: "absolute", width: 230, height: 230, borderRadius: 115,
-    right: -42, top: -96, backgroundColor: "#5E8B7C",
+    right: -42, top: -96, backgroundColor: "rgba(105,200,164,0.12)",
   },
   bannerOrbSmall: {
     position: "absolute", width: 130, height: 130, borderRadius: 65,
-    left: -28, bottom: -69, backgroundColor: "#203C35",
+    left: -28, bottom: -69, backgroundColor: "rgba(52,92,76,0.26)",
   },
   avatarFrame: {
     width: 82, height: 82, marginTop: -41, borderRadius: 41,
     borderWidth: 4, borderColor: COLORS.surface, overflow: "hidden",
     alignItems: "center", justifyContent: "center",
-    backgroundColor: "#28313A",
+    backgroundColor: GRAPHITE_COLORS.surfacePressed,
   },
   avatarImage: { width: "100%", height: "100%" },
-  avatarInitials: { color: "#FFFFFF", fontSize: 24, fontWeight: "700" },
+  avatarInitials: { color: GRAPHITE_COLORS.text, fontSize: 24, fontWeight: "800" },
   presenceDot: {
     position: "absolute", right: 1, bottom: 4,
     width: 16, height: 16, borderRadius: 8,
@@ -384,11 +418,18 @@ const styles = StyleSheet.create({
   name: { marginTop: 15, color: COLORS.ink, fontSize: 22, fontWeight: "700" },
   username: { marginTop: 3, color: COLORS.muted, fontSize: 14 },
   statusMessage: {
-    marginTop: 12, color: COLORS.muted, fontSize: 14, lineHeight: 20,
+    marginTop: 12, paddingHorizontal: 24, color: COLORS.muted, fontSize: 14, lineHeight: 20,
     textAlign: "center",
   },
+  messageButton: {
+    minWidth: 132, minHeight: 48, marginTop: 18, paddingHorizontal: 24,
+    borderRadius: 16, alignItems: "center", justifyContent: "center",
+    backgroundColor: GRAPHITE_COLORS.primary,
+  },
+  messageButtonText: { color: GRAPHITE_COLORS.onPrimary, fontSize: 14, fontWeight: "800" },
   section: {
-    marginTop: 12, backgroundColor: COLORS.surface,
+    marginTop: 14, marginHorizontal: 14, overflow: "hidden",
+    borderRadius: 18, backgroundColor: COLORS.surface,
     borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth,
     borderColor: COLORS.line,
   },
@@ -404,13 +445,13 @@ const styles = StyleSheet.create({
   detailLabel: { color: COLORS.ink, fontSize: 15 },
   detailValue: { maxWidth: "62%", color: COLORS.muted, fontSize: 14, textAlign: "right" },
   securityBand: {
-    minHeight: 72, marginTop: 22, paddingHorizontal: 20,
+    minHeight: 76, marginTop: 16, marginHorizontal: 14, paddingHorizontal: 18,
     flexDirection: "row", alignItems: "center",
     backgroundColor: COLORS.accentSoft,
-    borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: "#C8E4DA",
+    borderWidth: StyleSheet.hairlineWidth, borderRadius: 18,
+    borderColor: GRAPHITE_COLORS.primaryLine,
   },
-  securityBandMuted: { backgroundColor: "#ECEEEC", borderColor: "#DADDD9" },
+  securityBandMuted: { backgroundColor: GRAPHITE_COLORS.surface, borderColor: GRAPHITE_COLORS.lineStrong },
   lockIcon: { width: 30, height: 32, marginRight: 12, alignItems: "center", justifyContent: "flex-end" },
   lockLoop: {
     position: "absolute", top: 2, width: 15, height: 15,
@@ -425,7 +466,7 @@ const styles = StyleSheet.create({
   securityTitleMuted: { color: COLORS.ink },
   securityHint: { marginTop: 3, color: COLORS.muted, fontSize: 12 },
   actionRow: {
-    minHeight: 66, marginLeft: 20, paddingRight: 17,
+    minHeight: 70, marginLeft: 20, paddingRight: 17,
     flexDirection: "row", alignItems: "center",
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.line,
   },
@@ -434,4 +475,5 @@ const styles = StyleSheet.create({
   actionHint: { marginTop: 4, color: COLORS.muted, fontSize: 12 },
   chevron: { marginLeft: 12, color: COLORS.faint, fontSize: 26, fontWeight: "300" },
   dangerText: { color: COLORS.danger },
+  rowDisabled: { opacity: 0.48 },
 });

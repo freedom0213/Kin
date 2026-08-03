@@ -2,10 +2,14 @@
 
 import React, { useEffect, useState } from "react";
 import {
-  ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Switch,
+  ActivityIndicator, Image, ScrollView, StyleSheet, Switch,
   Linking, Text, TouchableOpacity, View,
 } from "react-native";
+import { useIsFocused } from "@react-navigation/native";
+import { StatusBar as ExpoStatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { resolveMediaUrl } from "../api/client";
+import KinDialog, { type KinDialogAction } from "../components/KinDialog";
 import { useAuth } from "../stores/AuthContext";
 import { getLocalMessageStats } from "../services/db";
 import { exportMessagesToFile } from "../services/export";
@@ -21,22 +25,24 @@ import {
   getPushNotificationStatus,
   type PushNotificationStatus,
 } from "../services/notifications";
+import { GRAPHITE_COLORS } from "../theme/graphite";
 
 const COLORS = {
-  background: "#F4F5F2",
-  surface: "#FFFFFF",
-  ink: "#171A1F",
-  muted: "#70757D",
-  faint: "#9CA19F",
-  line: "#E2E5E1",
-  accent: "#2DAD82",
-  accentDark: "#176B52",
-  accentSoft: "#E2F2EC",
-  danger: "#B43A33",
+  background: GRAPHITE_COLORS.canvas,
+  surface: GRAPHITE_COLORS.surface,
+  ink: GRAPHITE_COLORS.text,
+  muted: GRAPHITE_COLORS.textMuted,
+  faint: GRAPHITE_COLORS.textFaint,
+  line: GRAPHITE_COLORS.line,
+  accent: GRAPHITE_COLORS.primary,
+  accentDark: GRAPHITE_COLORS.primaryStrong,
+  accentSoft: GRAPHITE_COLORS.primarySoft,
+  danger: GRAPHITE_COLORS.danger,
 };
 
 type BusyAction = "export" | "logout" | null;
 type PreferenceKey = keyof KinPreferences;
+type DialogState = { title: string; message: string; actions?: KinDialogAction[] } | null;
 
 function getInitials(name: string): string {
   return Array.from(name).slice(0, 2).join("").toUpperCase();
@@ -79,8 +85,8 @@ function PreferenceRow({
           value={value}
           disabled={disabled}
           onValueChange={onValueChange}
-          trackColor={{ false: "#D8DBD7", true: "#A9DEC9" }}
-          thumbColor={value ? COLORS.accent : "#FFFFFF"}
+          trackColor={{ false: GRAPHITE_COLORS.surfacePressed, true: GRAPHITE_COLORS.primaryDeep }}
+          thumbColor={value ? COLORS.accent : GRAPHITE_COLORS.textMuted}
           accessibilityLabel={title}
           accessibilityState={{ disabled, checked: value }}
         />
@@ -108,7 +114,7 @@ function ActionRow({
 }) {
   return (
     <TouchableOpacity
-      style={styles.row}
+      style={[styles.row, (loading || disabled) && styles.rowDisabled]}
       onPress={onPress}
       disabled={loading || disabled}
       accessibilityRole="button"
@@ -140,6 +146,7 @@ function ActionRow({
 
 export default function SettingsScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
+  const isFocused = useIsFocused();
   const { state, logoutAction } = useAuth();
   const [messageCount, setMessageCount] = useState<number | null>(null);
   const [conversationCount, setConversationCount] = useState<number | null>(null);
@@ -150,9 +157,14 @@ export default function SettingsScreen({ navigation }: any) {
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
   const [pushStatus, setPushStatus] = useState<PushNotificationStatus>("error");
   const [pushBusy, setPushBusy] = useState(false);
+  const [dialog, setDialog] = useState<DialogState>(null);
 
   const user = state.user;
   const displayName = user?.nickname || user?.username || "Kin 用户";
+  const avatarUrl = resolveMediaUrl(user?.avatar);
+  const showDialog = (title: string, message: string, actions?: KinDialogAction[]) => {
+    setDialog({ title, message, actions });
+  };
 
   useEffect(() => {
     if (!user?.id) {
@@ -194,7 +206,7 @@ export default function SettingsScreen({ navigation }: any) {
       setPreferences(saved);
     } catch {
       setPreferences((current) => ({ ...current, [key]: previous }));
-      Alert.alert("设置未保存", "无法写入这台设备，请检查存储权限后重试。");
+      showDialog("设置未保存", "无法写入这台设备，请检查存储权限后重试。");
     } finally {
       setBusyPreference(null);
     }
@@ -202,10 +214,10 @@ export default function SettingsScreen({ navigation }: any) {
 
   const showEncryptionStatus = () => {
     if (hasKeyPair === null) {
-      Alert.alert("暂时无法读取", "本机密钥状态读取失败，请重新进入设置页后再试。");
+      showDialog("暂时无法读取", "本机密钥状态读取失败，请重新进入设置页后再试。");
       return;
     }
-    Alert.alert(
+    showDialog(
       hasKeyPair ? "本机密钥正常" : "本机密钥未建立",
       hasKeyPair
         ? "本机已保存端到端加密密钥。消息在发送设备上加密，在对方设备上解密。"
@@ -216,25 +228,25 @@ export default function SettingsScreen({ navigation }: any) {
   const handleSystemNotifications = async () => {
     if (pushBusy) return;
     if (pushStatus === "enabled") {
-      Alert.alert("系统通知已开启", "Kin 可以在后台通过系统通知提醒你收到的新消息和语音来电。", [
-        { text: "知道了" },
+      showDialog("系统通知已开启", "Kin 可以在后台通过系统通知提醒你收到的新消息和语音来电。", [
+        { text: "知道了", tone: "cancel" },
         { text: "系统设置", onPress: () => { void Linking.openSettings(); } },
       ]);
       return;
     }
     if (pushStatus === "denied") {
-      Alert.alert("系统通知已关闭", "请前往系统设置允许 Kin 发送通知。", [
-        { text: "取消", style: "cancel" },
+      showDialog("系统通知已关闭", "请前往系统设置允许 Kin 发送通知。", [
+        { text: "取消", tone: "cancel" },
         { text: "打开设置", onPress: () => { void Linking.openSettings(); } },
       ]);
       return;
     }
     if (pushStatus === "simulator") {
-      Alert.alert("需要真机", "远程系统推送不能在模拟器中注册，请使用安装了 Kin 开发版本的真实手机测试。");
+      showDialog("需要真机", "远程系统推送不能在模拟器中注册，请使用安装了 Kin 开发版本的真实手机测试。");
       return;
     }
     if (pushStatus === "unsupported") {
-      Alert.alert("当前平台不支持", "Kin Web 演示页不会注册手机系统通知。");
+      showDialog("当前平台不支持", "Kin Web 演示页不会注册手机系统通知。");
       return;
     }
     setPushBusy(true);
@@ -242,13 +254,13 @@ export default function SettingsScreen({ navigation }: any) {
     setPushStatus(nextStatus);
     setPushBusy(false);
     if (nextStatus === "enabled") {
-      Alert.alert("系统通知已开启", "新消息和语音来电现在可以通过系统通知提醒你。");
+      showDialog("系统通知已开启", "新消息和语音来电现在可以通过系统通知提醒你。");
     } else if (nextStatus === "unconfigured") {
-      Alert.alert("等待推送服务配置", "通知权限已经准备好，但当前开发版本还没有配置 Expo EAS projectId。配置后重新进入 Kin 即可注册。");
+      showDialog("等待推送服务配置", "通知权限已经准备好，但当前开发版本还没有配置 Expo EAS projectId。配置后重新进入 Kin 即可注册。");
     } else if (nextStatus === "denied") {
-      Alert.alert("未获得通知权限", "你可以稍后在系统设置中允许 Kin 发送通知。");
+      showDialog("未获得通知权限", "你可以稍后在系统设置中允许 Kin 发送通知。");
     } else {
-      Alert.alert("暂时无法开启", "请检查网络和项目推送配置后重试。");
+      showDialog("暂时无法开启", "请检查网络和项目推送配置后重试。");
     }
   };
 
@@ -265,14 +277,14 @@ export default function SettingsScreen({ navigation }: any) {
   const handleExport = async () => {
     if (busyAction) return;
     if (!user?.id) {
-      Alert.alert("导出失败", "当前账号状态不可用，请重新登录后再试。");
+      showDialog("导出失败", "当前账号状态不可用，请重新登录后再试。");
       return;
     }
     setBusyAction("export");
     try {
       await exportMessagesToFile(user.id);
     } catch (error: any) {
-      Alert.alert("导出失败", error.message || "请稍后重试");
+      showDialog("导出失败", error.message || "请稍后重试");
     } finally {
       setBusyAction(null);
     }
@@ -280,21 +292,21 @@ export default function SettingsScreen({ navigation }: any) {
 
   const handleLogout = () => {
     if (busyAction) return;
-    Alert.alert(
+    showDialog(
       "退出 Kin",
       "本机聊天记录不会被删除。下次使用同一账号登录时，仍可读取该账号在这台设备上的历史消息。",
       [
-        { text: "取消", style: "cancel" },
+        { text: "取消", tone: "cancel" },
         {
           text: "退出",
-          style: "destructive",
+          tone: "destructive",
           onPress: async () => {
             setBusyAction("logout");
             try {
               await logoutAction();
             } catch {
               setBusyAction(null);
-              Alert.alert("退出失败", "请稍后重试。");
+              showDialog("退出失败", "请稍后重试。");
             }
           },
         },
@@ -305,6 +317,7 @@ export default function SettingsScreen({ navigation }: any) {
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
+        {isFocused ? <ExpoStatusBar style="light" /> : null}
         <ActivityIndicator size="small" color={COLORS.accent} />
         <Text style={styles.loadingText}>正在读取本机设置</Text>
       </View>
@@ -313,6 +326,7 @@ export default function SettingsScreen({ navigation }: any) {
 
   return (
     <View style={styles.container}>
+      {isFocused ? <ExpoStatusBar style="light" /> : null}
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
         <TouchableOpacity
           onPress={() => navigation.goBack()}
@@ -338,9 +352,9 @@ export default function SettingsScreen({ navigation }: any) {
           accessibilityHint="修改昵称和个性签名"
         >
           <View style={styles.avatar}>
-            {user?.avatar ? (
+            {avatarUrl ? (
               <Image
-                source={{ uri: user.avatar }}
+                source={{ uri: avatarUrl }}
                 style={styles.avatarImage}
                 accessibilityLabel={`${displayName}的头像`}
               />
@@ -408,7 +422,7 @@ export default function SettingsScreen({ navigation }: any) {
           <ActionRow
             title="本地数据保护"
             hint="聊天正文保存在这台设备的 SQLite 中"
-            onPress={() => Alert.alert(
+            onPress={() => showDialog(
               "本地数据保护",
               "Kin 的完整聊天记录主要保存在当前设备。请使用系统锁屏，并谨慎导出聊天备份。"
             )}
@@ -436,7 +450,7 @@ export default function SettingsScreen({ navigation }: any) {
               ? "暂时无法读取本机消息统计"
               : `当前设备共 ${conversationCount} 个会话`}
             value={messageCount === null ? "未知" : `${messageCount} 条`}
-            onPress={() => Alert.alert(
+            onPress={() => showDialog(
               "本地存储",
               "当前版本按设备保存聊天记录。清理单个会话请进入对应的会话详情页。"
             )}
@@ -447,7 +461,7 @@ export default function SettingsScreen({ navigation }: any) {
           <ActionRow
             title="隐私说明"
             hint="了解服务器与本机分别保存什么"
-            onPress={() => Alert.alert(
+            onPress={() => showDialog(
               "隐私说明",
               "聊天历史主要保存在你的设备。服务器只临时保存尚未送达的加密消息，并在接收设备确认保存后清除密文正文。"
             )}
@@ -456,7 +470,7 @@ export default function SettingsScreen({ navigation }: any) {
             title="关于 Kin"
             hint="只和现实中见过的人聊天"
             value="0.1.0"
-            onPress={() => Alert.alert("Kin 0.1.0", "通过近距离碰一碰建立关系，以聊天为核心。")}
+            onPress={() => showDialog("Kin 0.1.0", "通过近距离碰一碰建立关系，以聊天为核心。")}
           />
           <ActionRow
             title="退出账号"
@@ -467,6 +481,13 @@ export default function SettingsScreen({ navigation }: any) {
           />
         </Section>
       </ScrollView>
+      <KinDialog
+        visible={!!dialog}
+        title={dialog?.title || ""}
+        message={dialog?.message || ""}
+        actions={dialog?.actions}
+        onClose={() => setDialog(null)}
+      />
     </View>
   );
 }
@@ -484,27 +505,36 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.line,
     backgroundColor: COLORS.background,
   },
-  headerAction: { width: 44, height: 44, alignItems: "center", justifyContent: "center" },
+  headerAction: { width: 48, height: 48, alignItems: "center", justifyContent: "center" },
   backMark: { color: COLORS.ink, fontSize: 36, fontWeight: "300", lineHeight: 38 },
   headerTitle: { color: COLORS.ink, fontSize: 17, fontWeight: "700" },
   content: { paddingBottom: 40 },
   identity: {
     minHeight: 128, paddingHorizontal: 20, paddingVertical: 24,
     flexDirection: "row", alignItems: "center",
+    backgroundColor: GRAPHITE_COLORS.surface,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: GRAPHITE_COLORS.line,
   },
   avatar: {
     width: 72, height: 72, borderRadius: 36, overflow: "hidden",
-    alignItems: "center", justifyContent: "center", backgroundColor: "#28313A",
+    alignItems: "center", justifyContent: "center", backgroundColor: GRAPHITE_COLORS.surfacePressed,
+    borderWidth: 3, borderColor: GRAPHITE_COLORS.surfaceStrong,
   },
   avatarImage: { width: 72, height: 72 },
-  avatarInitials: { color: "#FFFFFF", fontSize: 22, fontWeight: "700" },
+  avatarInitials: { color: GRAPHITE_COLORS.text, fontSize: 22, fontWeight: "800" },
   identityCopy: { flex: 1, marginLeft: 16 },
   identityName: { color: COLORS.ink, fontSize: 21, fontWeight: "700" },
   identityUsername: { marginTop: 2, color: COLORS.muted, fontSize: 13 },
   identityStatus: { marginTop: 9, color: COLORS.muted, fontSize: 13, lineHeight: 19 },
-  identityEdit: { marginLeft: 12, color: COLORS.accentDark, fontSize: 13, fontWeight: "700" },
+  identityEdit: {
+    minWidth: 48, minHeight: 48, marginLeft: 12,
+    color: COLORS.accentDark, fontSize: 13, fontWeight: "800",
+    textAlign: "center", textAlignVertical: "center",
+  },
   section: {
-    marginTop: 12, backgroundColor: COLORS.surface,
+    marginTop: 14, marginHorizontal: 14, overflow: "hidden",
+    borderRadius: 18, backgroundColor: COLORS.surface,
     borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth,
     borderColor: COLORS.line,
   },
@@ -513,16 +543,17 @@ const styles = StyleSheet.create({
     color: COLORS.faint, fontSize: 12, fontWeight: "700",
   },
   row: {
-    minHeight: 68, marginLeft: 20, paddingRight: 17,
+    minHeight: 72, marginLeft: 18, paddingRight: 16,
     flexDirection: "row", alignItems: "center",
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.line,
   },
   rowCopy: { flex: 1, paddingVertical: 11, paddingRight: 12 },
-  rowTitle: { color: COLORS.ink, fontSize: 15, fontWeight: "500" },
+  rowTitle: { color: COLORS.ink, fontSize: 15, fontWeight: "600" },
   rowHint: { marginTop: 4, color: COLORS.muted, fontSize: 12, lineHeight: 17 },
   rowValueWrap: { flexDirection: "row", alignItems: "center" },
   rowValue: { maxWidth: 90, color: COLORS.muted, fontSize: 13, textAlign: "right" },
   chevron: { marginLeft: 10, color: COLORS.faint, fontSize: 26, fontWeight: "300" },
   dangerText: { color: COLORS.danger },
   disabledText: { color: COLORS.faint },
+  rowDisabled: { opacity: 0.52 },
 });
