@@ -16,6 +16,7 @@ assert.match(editSource, /更换头像/, "编辑资料页缺少更换头像操�
 assert.match(editSource, /移除头像/, "编辑资料页缺少移除头像操作");
 assert.match(editSource, /updateProfileAction\(latest\)/, "头像保存后尚未刷新当前账号资料");
 assert.match(editSource, /GRAPHITE_COLORS/, "编辑资料页尚未迁移到 Graphite Flow");
+assert.doesNotMatch(editSource, /bannerShade/, "编辑资料背景图不应使用造成硬分割线的底部遮罩");
 assert.match(profileSource, /resolveMediaUrl\(user\?\.avatar\)/, "个人主页尚未显示服务端头像");
 
-console.log("PASS: 头像支持正方形选择、预览、更换、移除，并同步到 Graphite Flow 个人资料");
+console.log("PASS: 头像支持正方形编辑，资料背景保持原图且不添加底部硬遮罩");

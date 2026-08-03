@@ -216,7 +216,6 @@ export default function ProfileEditScreen({ navigation }: any) {
                 <View style={styles.bannerOrbSmall} />
               </View>
             )}
-            <View style={styles.bannerShade} />
           </View>
 
           <View style={styles.avatar}>
@@ -367,7 +366,6 @@ const styles = StyleSheet.create({
     position: "absolute", width: 130, height: 130, borderRadius: 65,
     left: -28, bottom: -69, backgroundColor: "rgba(52,92,76,0.26)",
   },
-  bannerShade: { position: "absolute", right: 0, bottom: 0, left: 0, height: 42, backgroundColor: "rgba(20, 30, 27, 0.16)" },
   avatar: {
     width: 84, height: 84, marginTop: -42, borderRadius: 42, borderWidth: 4,
     borderColor: COLORS.surface, overflow: "hidden",
