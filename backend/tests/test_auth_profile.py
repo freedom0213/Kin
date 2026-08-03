@@ -69,6 +69,24 @@ class AuthProfileTests(unittest.TestCase):
         self.assertEqual("/media/profile-banners/first.jpg", old_banner)
         self.assertIsNone(profile["profile_banner"])
 
+    def test_update_avatar_returns_old_value(self):
+        profile, old_avatar = auth_service.update_avatar(
+            "alice", "/media/avatars/first.jpg"
+        )
+        self.assertIsNone(old_avatar)
+        self.assertEqual("/media/avatars/first.jpg", profile["avatar"])
+
+        profile, old_avatar = auth_service.update_avatar("alice", None)
+        self.assertEqual("/media/avatars/first.jpg", old_avatar)
+        self.assertIsNone(profile["avatar"])
+
+    def test_update_avatar_does_not_create_unknown_user(self):
+        profile, old_avatar = auth_service.update_avatar(
+            "missing", "/media/avatars/missing.jpg"
+        )
+        self.assertIsNone(profile)
+        self.assertIsNone(old_avatar)
+
     def test_service_rejects_overlong_values(self):
         with self.assertRaisesRegex(ValueError, "昵称最多 24 个字符"):
             auth_service.update_profile("alice", "a" * 25, None)

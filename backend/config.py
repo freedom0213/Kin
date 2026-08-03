@@ -19,7 +19,9 @@ DB_PATH = os.getenv("KIN_DB_PATH", os.path.join(os.path.dirname(__file__), "data
 
 # 用户上传媒体（开发阶段保存在 Kin 本地后端；生产环境可替换为对象存储）
 MEDIA_ROOT = os.getenv("KIN_MEDIA_ROOT", os.path.join(os.path.dirname(__file__), "data", "media"))
+AVATAR_DIR = os.path.join(MEDIA_ROOT, "avatars")
 PROFILE_BANNER_DIR = os.path.join(MEDIA_ROOT, "profile-banners")
+MAX_AVATAR_BYTES = int(os.getenv("KIN_MAX_AVATAR_BYTES", str(5 * 1024 * 1024)))
 MAX_PROFILE_BANNER_BYTES = int(os.getenv("KIN_MAX_PROFILE_BANNER_BYTES", str(5 * 1024 * 1024)))
 
 # 用户名校验规则

@@ -1,4 +1,4 @@
-/** 个人资料编辑 — 背景名片、昵称与个性签名 */
+/** 个人资料编辑 — 头像、背景名片、昵称与个性签名 */
 
 import React, { useState } from "react";
 import * as ImagePicker from "expo-image-picker";
@@ -8,18 +8,26 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
-  removeProfileBanner, resolveMediaUrl, updateProfile, uploadProfileBanner,
+  removeAvatar, removeProfileBanner, resolveMediaUrl, updateProfile,
+  uploadAvatar, uploadProfileBanner,
   type UserProfile,
 } from "../api/client";
 import { useAuth } from "../stores/AuthContext";
+import { GRAPHITE_COLORS } from "../theme/graphite";
 
 const COLORS = {
-  background: "#F4F5F2", surface: "#FFFFFF", ink: "#171A1F",
-  muted: "#70757D", faint: "#9CA19F", line: "#E2E5E1",
-  accent: "#2DAD82", accentDark: "#176B52", accentSoft: "#E2F2EC",
+  background: GRAPHITE_COLORS.canvas,
+  surface: GRAPHITE_COLORS.surface,
+  ink: GRAPHITE_COLORS.text,
+  muted: GRAPHITE_COLORS.textMuted,
+  faint: GRAPHITE_COLORS.textFaint,
+  line: GRAPHITE_COLORS.line,
+  accent: GRAPHITE_COLORS.primary,
+  accentDark: GRAPHITE_COLORS.primaryStrong,
+  accentSoft: GRAPHITE_COLORS.primarySoft,
 };
 
-const MAX_BANNER_BYTES = 5 * 1024 * 1024;
+const MAX_PROFILE_IMAGE_BYTES = 5 * 1024 * 1024;
 
 function normalizeField(value: string): string {
   return value.trim().replace(/\s+/g, " ");
@@ -43,52 +51,68 @@ export default function ProfileEditScreen({ navigation }: any) {
   const user = state.user;
   const [nickname, setNickname] = useState(user?.nickname || "");
   const [statusMessage, setStatusMessage] = useState(user?.status_msg || "");
+  const [selectedAvatar, setSelectedAvatar] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [removeAvatarImage, setRemoveAvatarImage] = useState(false);
   const [selectedBanner, setSelectedBanner] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [removeBanner, setRemoveBanner] = useState(false);
-  const [selecting, setSelecting] = useState(false);
+  const [selectingMedia, setSelectingMedia] = useState<"avatar" | "banner" | null>(null);
   const [saving, setSaving] = useState(false);
 
   const normalizedNickname = normalizeField(nickname);
   const normalizedStatus = normalizeField(statusMessage);
   const textChanged = normalizedNickname !== normalizeField(user?.nickname || "")
     || normalizedStatus !== normalizeField(user?.status_msg || "");
+  const avatarChanged = !!selectedAvatar || (removeAvatarImage && !!user?.avatar);
   const bannerChanged = !!selectedBanner || (removeBanner && !!user?.profile_banner);
-  const hasChanges = textChanged || bannerChanged;
-  const canSave = !!user && hasChanges && !saving && !selecting;
+  const hasChanges = textChanged || avatarChanged || bannerChanged;
+  const canSave = !!user && hasChanges && !saving && !selectingMedia;
   const displayName = normalizedNickname || user?.username || "Kin";
+  const currentAvatar = removeAvatarImage
+    ? null
+    : selectedAvatar?.uri || resolveMediaUrl(user?.avatar);
   const currentBanner = removeBanner
     ? null
     : selectedBanner?.uri || resolveMediaUrl(user?.profile_banner);
 
-  const handleChooseBanner = async () => {
-    if (saving || selecting) return;
-    setSelecting(true);
+  const handleChooseImage = async (kind: "avatar" | "banner") => {
+    if (saving || selectingMedia) return;
+    setSelectingMedia(kind);
     try {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
-        Alert.alert("需要相册权限", "请允许 Kin 访问相册，才能选择背景名片。");
+        Alert.alert("需要相册权限", `请允许 Kin 访问相册，才能选择${kind === "avatar" ? "头像" : "背景名片"}。`);
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images"],
         allowsEditing: true,
-        aspect: [16, 7],
+        aspect: kind === "avatar" ? [1, 1] : [16, 7],
         quality: 0.82,
       });
       if (result.canceled) return;
 
       const asset = result.assets[0];
-      if (asset.fileSize && asset.fileSize > MAX_BANNER_BYTES) {
+      if (asset.fileSize && asset.fileSize > MAX_PROFILE_IMAGE_BYTES) {
         Alert.alert("图片过大", "请选择小于 5 MB 的图片；裁剪后再试通常可以减小体积。");
         return;
       }
-      setSelectedBanner(asset);
-      setRemoveBanner(false);
+      if (kind === "avatar") {
+        setSelectedAvatar(asset);
+        setRemoveAvatarImage(false);
+      } else {
+        setSelectedBanner(asset);
+        setRemoveBanner(false);
+      }
     } catch (error: any) {
       Alert.alert("无法选择图片", error?.message || "请稍后重试。");
     } finally {
-      setSelecting(false);
+      setSelectingMedia(null);
     }
+  };
+
+  const handleRemoveAvatar = () => {
+    setSelectedAvatar(null);
+    setRemoveAvatarImage(true);
   };
 
   const handleRemoveBanner = () => {
@@ -106,12 +130,23 @@ export default function ProfileEditScreen({ navigation }: any) {
         latest = await updateProfile(normalizedNickname || null, normalizedStatus || null);
         await updateProfileAction(latest);
       }
+      if (selectedAvatar) {
+        latest = await uploadAvatar(selectedAvatar.uri, inferMimeType(selectedAvatar));
+        await updateProfileAction(latest);
+        setSelectedAvatar(null);
+      } else if (removeAvatarImage && user.avatar) {
+        latest = await removeAvatar();
+        await updateProfileAction(latest);
+        setRemoveAvatarImage(false);
+      }
       if (selectedBanner) {
         latest = await uploadProfileBanner(selectedBanner.uri, inferMimeType(selectedBanner));
         await updateProfileAction(latest);
+        setSelectedBanner(null);
       } else if (removeBanner && user.profile_banner) {
         latest = await removeProfileBanner();
         await updateProfileAction(latest);
+        setRemoveBanner(false);
       }
       navigation.goBack();
     } catch (error: any) {
@@ -176,9 +211,9 @@ export default function ProfileEditScreen({ navigation }: any) {
           </View>
 
           <View style={styles.avatar}>
-            {user?.avatar ? (
+            {currentAvatar ? (
               <Image
-                source={{ uri: resolveMediaUrl(user.avatar) || user.avatar }}
+                source={{ uri: currentAvatar }}
                 style={styles.avatarImage}
                 accessibilityLabel={`${displayName}的头像`}
               />
@@ -189,16 +224,47 @@ export default function ProfileEditScreen({ navigation }: any) {
 
           <Text style={styles.previewName}>{displayName}</Text>
           <Text style={styles.username}>@{user?.username}</Text>
+          <View style={styles.avatarActions}>
+            <TouchableOpacity
+              style={styles.avatarActionPrimary}
+              onPress={() => { void handleChooseImage("avatar"); }}
+              disabled={saving || !!selectingMedia}
+              accessibilityRole="button"
+              accessibilityLabel={currentAvatar ? "更换头像" : "选择头像"}
+              accessibilityState={{
+                busy: selectingMedia === "avatar",
+                disabled: saving || !!selectingMedia,
+              }}
+            >
+              {selectingMedia === "avatar" ? (
+                <ActivityIndicator size="small" color={COLORS.accentDark} />
+              ) : (
+                <Text style={styles.avatarActionPrimaryText}>{currentAvatar ? "更换头像" : "选择头像"}</Text>
+              )}
+            </TouchableOpacity>
+            {currentAvatar ? (
+              <TouchableOpacity
+                style={styles.avatarActionSecondary}
+                onPress={handleRemoveAvatar}
+                disabled={saving}
+                accessibilityRole="button"
+                accessibilityLabel="移除头像"
+              >
+                <Text style={styles.avatarActionSecondaryText}>移除头像</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+          <Text style={styles.avatarHint}>头像会以圆形展示，建议选择主体居中的正方形图片。</Text>
           <View style={styles.bannerActions}>
             <TouchableOpacity
               style={styles.bannerActionPrimary}
-              onPress={() => { void handleChooseBanner(); }}
-              disabled={saving || selecting}
+              onPress={() => { void handleChooseImage("banner"); }}
+              disabled={saving || !!selectingMedia}
               accessibilityRole="button"
               accessibilityLabel={currentBanner ? "更换背景名片" : "选择背景名片"}
-              accessibilityState={{ busy: selecting, disabled: saving || selecting }}
+              accessibilityState={{ busy: selectingMedia === "banner", disabled: saving || !!selectingMedia }}
             >
-              {selecting ? <ActivityIndicator size="small" color={COLORS.accentDark} /> : (
+              {selectingMedia === "banner" ? <ActivityIndicator size="small" color={COLORS.accentDark} /> : (
                 <Text style={styles.bannerActionPrimaryText}>{currentBanner ? "更换背景" : "选择背景"}</Text>
               )}
             </TouchableOpacity>
@@ -257,7 +323,7 @@ export default function ProfileEditScreen({ navigation }: any) {
 
         <View style={styles.privacyNote}>
           <Text style={styles.privacyTitle}>谁能看到？</Text>
-          <Text style={styles.privacyText}>背景名片、昵称和个性签名会展示给已经与你成为好友的人。</Text>
+          <Text style={styles.privacyText}>头像、背景名片、昵称和个性签名会展示给已经与你成为好友的人。</Text>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -270,6 +336,7 @@ const styles = StyleSheet.create({
     minHeight: 58, paddingHorizontal: 12, paddingBottom: 10,
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: COLORS.line,
+    backgroundColor: COLORS.background,
   },
   headerAction: { width: 52, height: 44, alignItems: "center", justifyContent: "center" },
   backMark: { color: COLORS.ink, fontSize: 36, fontWeight: "300", lineHeight: 38 },
@@ -294,20 +361,32 @@ const styles = StyleSheet.create({
   avatar: {
     width: 84, height: 84, marginTop: -42, borderRadius: 42, borderWidth: 4,
     borderColor: COLORS.surface, overflow: "hidden",
-    alignItems: "center", justifyContent: "center", backgroundColor: "#28313A",
+    alignItems: "center", justifyContent: "center", backgroundColor: GRAPHITE_COLORS.surfacePressed,
   },
   avatarInitials: { color: "#FFFFFF", fontSize: 24, fontWeight: "700" },
   avatarImage: { width: "100%", height: "100%" },
   previewName: { marginTop: 10, color: COLORS.ink, fontSize: 19, fontWeight: "700" },
   username: { marginTop: 2, color: COLORS.muted, fontSize: 13, fontWeight: "500" },
-  bannerActions: { marginTop: 17, flexDirection: "row", alignItems: "center" },
+  avatarActions: { marginTop: 15, flexDirection: "row", alignItems: "center" },
+  avatarActionPrimary: {
+    minWidth: 112, minHeight: 48, paddingHorizontal: 16, borderRadius: 16,
+    alignItems: "center", justifyContent: "center", backgroundColor: COLORS.accentSoft,
+  },
+  avatarActionPrimaryText: { color: COLORS.accentDark, fontSize: 13, fontWeight: "700" },
+  avatarActionSecondary: {
+    minWidth: 92, minHeight: 48, marginLeft: 8, paddingHorizontal: 14, borderRadius: 16,
+    alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: COLORS.line,
+  },
+  avatarActionSecondaryText: { color: COLORS.muted, fontSize: 13, fontWeight: "600" },
+  avatarHint: { marginTop: 8, paddingHorizontal: 24, color: COLORS.faint, fontSize: 12, textAlign: "center" },
+  bannerActions: { marginTop: 20, flexDirection: "row", alignItems: "center" },
   bannerActionPrimary: {
-    minWidth: 108, minHeight: 40, paddingHorizontal: 16, borderRadius: 20,
+    minWidth: 108, minHeight: 48, paddingHorizontal: 16, borderRadius: 16,
     alignItems: "center", justifyContent: "center", backgroundColor: COLORS.accentSoft,
   },
   bannerActionPrimaryText: { color: COLORS.accentDark, fontSize: 13, fontWeight: "700" },
   bannerActionSecondary: {
-    minWidth: 66, minHeight: 40, marginLeft: 8, paddingHorizontal: 14, borderRadius: 20,
+    minWidth: 72, minHeight: 48, marginLeft: 8, paddingHorizontal: 14, borderRadius: 16,
     alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: COLORS.line,
   },
   bannerActionSecondaryText: { color: COLORS.muted, fontSize: 13, fontWeight: "600" },
@@ -324,15 +403,15 @@ const styles = StyleSheet.create({
   input: {
     minHeight: 48, marginTop: 10, paddingHorizontal: 14,
     borderWidth: 1, borderColor: COLORS.line, borderRadius: 15,
-    backgroundColor: "#FAFBF9", color: COLORS.ink, fontSize: 15,
+    backgroundColor: GRAPHITE_COLORS.surfacePressed, color: COLORS.ink, fontSize: 15,
   },
   statusInput: { minHeight: 108, paddingTop: 13, paddingBottom: 13 },
   fieldHint: { marginTop: 8, color: COLORS.muted, fontSize: 12, lineHeight: 17 },
   privacyNote: {
     marginHorizontal: 20, marginTop: 22, padding: 16,
-    borderWidth: 1, borderColor: "#CEE4DC", borderRadius: 16,
+    borderWidth: 1, borderColor: GRAPHITE_COLORS.primaryLine, borderRadius: 16,
     backgroundColor: COLORS.accentSoft,
   },
   privacyTitle: { color: COLORS.accentDark, fontSize: 13, fontWeight: "700" },
-  privacyText: { marginTop: 5, color: "#3F6F60", fontSize: 12, lineHeight: 18 },
+  privacyText: { marginTop: 5, color: COLORS.muted, fontSize: 12, lineHeight: 18 },
 });

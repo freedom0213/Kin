@@ -226,6 +226,23 @@ def update_profile_banner(user_id: str, profile_banner: str | None) -> tuple[dic
     return get_profile(user_id), old_banner
 
 
+def update_avatar(user_id: str, avatar: str | None) -> tuple[dict | None, str | None]:
+    """更新头像地址，返回（完整资料，旧地址）。"""
+    table = get_table("users")
+    with engine.begin() as conn:
+        old_avatar = conn.execute(
+            select(table.c.avatar).where(table.c.id == user_id)
+        ).scalar_one_or_none()
+        result = conn.execute(
+            table.update()
+            .where(table.c.id == user_id)
+            .values(avatar=avatar)
+        )
+    if result.rowcount == 0:
+        return None, None
+    return get_profile(user_id), old_avatar
+
+
 def update_public_key(user_id: str, public_key: str) -> dict | None:
     """更新当前设备对应的公开加密身份密钥。"""
     normalized_key = _validate_public_key(public_key)

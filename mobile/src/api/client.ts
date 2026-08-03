@@ -115,11 +115,11 @@ async function parseProfileResponse(res: Response): Promise<UserProfile> {
   return data as UserProfile;
 }
 
-export async function uploadProfileBanner(uri: string, mimeType: string): Promise<UserProfile> {
+async function uploadProfileImage(path: string, uri: string, mimeType: string): Promise<UserProfile> {
   if (!_token) throw new Error("登录状态已失效，请重新登录");
   const fileResponse = await fetch(uri);
   const blob = await fileResponse.blob();
-  const res = await fetch(`${API_BASE}/api/auth/me/profile-banner`, {
+  const res = await fetch(`${API_BASE}${path}`, {
     method: "PUT",
     headers: {
       Authorization: `Bearer ${_token}`,
@@ -130,13 +130,29 @@ export async function uploadProfileBanner(uri: string, mimeType: string): Promis
   return parseProfileResponse(res);
 }
 
-export async function removeProfileBanner(): Promise<UserProfile> {
+async function removeProfileImage(path: string): Promise<UserProfile> {
   if (!_token) throw new Error("登录状态已失效，请重新登录");
-  const res = await fetch(`${API_BASE}/api/auth/me/profile-banner`, {
+  const res = await fetch(`${API_BASE}${path}`, {
     method: "DELETE",
     headers: { Authorization: `Bearer ${_token}` },
   });
   return parseProfileResponse(res);
+}
+
+export function uploadAvatar(uri: string, mimeType: string): Promise<UserProfile> {
+  return uploadProfileImage("/api/auth/me/avatar", uri, mimeType);
+}
+
+export function removeAvatar(): Promise<UserProfile> {
+  return removeProfileImage("/api/auth/me/avatar");
+}
+
+export function uploadProfileBanner(uri: string, mimeType: string): Promise<UserProfile> {
+  return uploadProfileImage("/api/auth/me/profile-banner", uri, mimeType);
+}
+
+export function removeProfileBanner(): Promise<UserProfile> {
+  return removeProfileImage("/api/auth/me/profile-banner");
 }
 
 // -- 系统推送 --
