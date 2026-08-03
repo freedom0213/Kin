@@ -20,6 +20,7 @@ import {
   useAudioRecorder,
 } from "expo-audio";
 import { File, Paths } from "expo-file-system";
+import { GRAPHITE_COLORS } from "../theme/graphite";
 
 interface VoiceRecorderProps {
   onRecordComplete: (base64Audio: string, duration: number) => void;
@@ -359,7 +360,7 @@ export function VoiceMessageBubble({
   return (
     <TouchableOpacity onPress={togglePlay} style={styles.voiceBubble}>
       {loading ? (
-        <ActivityIndicator size="small" color={isMine ? "#fff" : "#1a1a2e"} />
+        <ActivityIndicator size="small" color={isMine ? GRAPHITE_COLORS.text : GRAPHITE_COLORS.primary} />
       ) : (
         <View style={styles.playIconFrame}>
           {playing ? (
@@ -384,62 +385,62 @@ const styles = StyleSheet.create({
   containerHold: { flex: 1, width: "auto" },
   micBtn: {
     width: 48, height: 48, borderRadius: 24,
-    backgroundColor: "#F0F2EF", alignItems: "center", justifyContent: "center",
+    backgroundColor: GRAPHITE_COLORS.surfacePressed, alignItems: "center", justifyContent: "center",
   },
   micBtnHold: {
     width: "100%", borderRadius: 14,
-    borderWidth: 1, borderColor: "#D7DBD6", backgroundColor: "#F7F8F6",
+    borderWidth: 1, borderColor: GRAPHITE_COLORS.lineStrong, backgroundColor: GRAPHITE_COLORS.surfacePressed,
   },
-  micBtnActive: { backgroundColor: "#F9DCD9" },
-  micBtnCancel: { backgroundColor: "#E3E6E2" },
+  micBtnActive: { backgroundColor: "rgba(229,144,135,0.16)" },
+  micBtnCancel: { backgroundColor: GRAPHITE_COLORS.surfaceStrong },
   micBtnDisabled: { opacity: 0.42 },
   micIcon: { width: 22, height: 24, alignItems: "center" },
   micCapsule: {
     width: 8, height: 13, borderRadius: 4,
-    borderWidth: 1.7, borderColor: "#4E555B",
+    borderWidth: 1.7, borderColor: GRAPHITE_COLORS.textMuted,
   },
   micArc: {
     position: "absolute", top: 5, width: 15, height: 11,
-    borderWidth: 1.7, borderTopWidth: 0, borderColor: "#4E555B",
+    borderWidth: 1.7, borderTopWidth: 0, borderColor: GRAPHITE_COLORS.textMuted,
     borderBottomLeftRadius: 8, borderBottomRightRadius: 8,
   },
-  micStem: { width: 1.7, height: 5, backgroundColor: "#4E555B" },
-  micBase: { width: 10, height: 1.7, borderRadius: 1, backgroundColor: "#4E555B" },
-  holdButtonText: { color: "#343A37", fontSize: 14, fontWeight: "700" },
-  holdButtonTextActive: { color: "#9D3731" },
-  holdButtonTextCancel: { color: "#555B58" },
+  micStem: { width: 1.7, height: 5, backgroundColor: GRAPHITE_COLORS.textMuted },
+  micBase: { width: 10, height: 1.7, borderRadius: 1, backgroundColor: GRAPHITE_COLORS.textMuted },
+  holdButtonText: { color: GRAPHITE_COLORS.text, fontSize: 14, fontWeight: "700" },
+  holdButtonTextActive: { color: GRAPHITE_COLORS.danger },
+  holdButtonTextCancel: { color: GRAPHITE_COLORS.textMuted },
   recordingIndicator: {
     position: "absolute", left: 0, bottom: 56, width: 204,
     flexDirection: "row", alignItems: "center",
     paddingHorizontal: 10, paddingVertical: 8,
-    backgroundColor: "#FFFFFF", borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: "#E3BDB9",
+    backgroundColor: GRAPHITE_COLORS.surfaceStrong, borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: GRAPHITE_COLORS.dangerLine,
   },
   recordingIndicatorCancel: {
-    backgroundColor: "#F1F2EF", borderColor: "#C7CBC6",
+    backgroundColor: GRAPHITE_COLORS.surfaceStrong, borderColor: GRAPHITE_COLORS.lineStrong,
   },
   noticeIndicator: {
     position: "absolute", left: 0, bottom: 56, minWidth: 132,
     paddingHorizontal: 10, paddingVertical: 8,
-    backgroundColor: "#FFFFFF", borderRadius: 12,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: "#D7DCD7",
+    backgroundColor: GRAPHITE_COLORS.surfaceStrong, borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: GRAPHITE_COLORS.lineStrong,
   },
-  noticeText: { fontSize: 12, color: "#555B58" },
+  noticeText: { fontSize: 12, color: GRAPHITE_COLORS.textMuted },
   recordingDot: {
     width: 8, height: 8, borderRadius: 4,
-    backgroundColor: "#C84E46", marginRight: 6,
+    backgroundColor: GRAPHITE_COLORS.danger, marginRight: 6,
   },
-  recordingText: { fontSize: 12, color: "#9D3731" },
-  recordingTextCancel: { color: "#555B58", fontWeight: "600" },
+  recordingText: { fontSize: 12, color: GRAPHITE_COLORS.danger },
+  recordingTextCancel: { color: GRAPHITE_COLORS.textMuted, fontWeight: "600" },
   cancelChevron: {
     width: 8, height: 8, marginRight: 8, marginLeft: 1,
-    borderTopWidth: 1.5, borderLeftWidth: 1.5, borderColor: "#626966",
+    borderTopWidth: 1.5, borderLeftWidth: 1.5, borderColor: GRAPHITE_COLORS.textMuted,
     transform: [{ rotate: "45deg" }],
   },
   voiceBubble: {
     flexDirection: "row", alignItems: "center",
     paddingHorizontal: 2, paddingVertical: 4,
-    minWidth: 70,
+    minWidth: 70, minHeight: 48,
   },
   playIconFrame: {
     width: 22, height: 22, alignItems: "center", justifyContent: "center", marginRight: 6,
@@ -447,12 +448,12 @@ const styles = StyleSheet.create({
   playTriangle: {
     width: 0, height: 0, marginLeft: 2,
     borderTopWidth: 6, borderBottomWidth: 6, borderLeftWidth: 9,
-    borderTopColor: "transparent", borderBottomColor: "transparent", borderLeftColor: "#273A34",
+    borderTopColor: "transparent", borderBottomColor: "transparent", borderLeftColor: GRAPHITE_COLORS.primary,
   },
-  playTriangleMine: { borderLeftColor: "#FFFFFF" },
+  playTriangleMine: { borderLeftColor: GRAPHITE_COLORS.text },
   pauseIcon: { flexDirection: "row", gap: 4 },
-  pauseBar: { width: 3, height: 12, borderRadius: 1, backgroundColor: "#273A34" },
-  iconShapeMine: { backgroundColor: "#FFFFFF" },
-  durationText: { fontSize: 13, color: "#171A1F" },
-  durationTextMine: { color: "#FFFFFF" },
+  pauseBar: { width: 3, height: 12, borderRadius: 1, backgroundColor: GRAPHITE_COLORS.primary },
+  iconShapeMine: { backgroundColor: GRAPHITE_COLORS.text },
+  durationText: { fontSize: 13, color: GRAPHITE_COLORS.text },
+  durationTextMine: { color: GRAPHITE_COLORS.text },
 });

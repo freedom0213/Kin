@@ -7,7 +7,8 @@ import {
   Animated, AccessibilityInfo, Clipboard, Easing,
   type NativeScrollEvent, type NativeSyntheticEvent,
 } from "react-native";
-import { useNavigation } from "@react-navigation/native";
+import { useIsFocused, useNavigation } from "@react-navigation/native";
+import { StatusBar as ExpoStatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { kinWS } from "../api/ws";
 import { getFriendList, type Friend } from "../api/client";
@@ -25,6 +26,11 @@ import {
   isMessageListNearBottom,
   shouldAutoScrollAfterContentChange,
 } from "../services/chatScrollPolicy";
+import {
+  GRAPHITE_COLORS,
+  GRAPHITE_INPUT_COLORS,
+  GRAPHITE_RADII,
+} from "../theme/graphite";
 
 type DeliveryStatus = "sending" | "queued" | "delivered" | "read" | "failed";
 type EncryptionState = "loading" | "ready" | "missing_peer_key" | "missing_local_key" | "error";
@@ -395,6 +401,7 @@ export default function ChatScreen({ route }: any) {
   const { state } = useAuth();
   const myId = state.user?.id || "";
   const navigation = useNavigation<any>();
+  const isFocused = useIsFocused();
   const insets = useSafeAreaInsets();
 
   const [messages, setMessages] = useState<Message[]>([]);
@@ -1000,7 +1007,7 @@ export default function ChatScreen({ route }: any) {
                 <TouchableOpacity
                   style={styles.retryStatusButton}
                   onPress={() => { void retryMessage(item); }}
-                  hitSlop={{ top: 11, right: 11, bottom: 11, left: 11 }}
+                  hitSlop={{ top: 13, right: 13, bottom: 13, left: 13 }}
                   accessibilityRole="button"
                   accessibilityLabel="消息发送失败"
                   accessibilityHint="轻点重新发送"
@@ -1024,11 +1031,14 @@ export default function ChatScreen({ route }: any) {
     );
   };
 
+  const sendDisabled = inputMode === "voice" || !inputText.trim() || !isEncryptionReady;
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
+      {isFocused ? <ExpoStatusBar style="light" /> : null}
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
         <TouchableOpacity
           onPress={() => navigation.goBack()}
@@ -1050,6 +1060,7 @@ export default function ChatScreen({ route }: any) {
             <TouchableOpacity
               onPress={showEncryptionDetails}
               style={styles.lockButton}
+              hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}
               accessibilityRole="button"
               accessibilityLabel={isEncryptionReady ? "查看消息加密说明" : "查看加密保护问题"}
             >
@@ -1159,6 +1170,9 @@ export default function ChatScreen({ route }: any) {
             placeholder={isEncryptionReady ? "说点什么..." : "加密保护不可用"}
             value={inputText}
             onChangeText={handleInputChange}
+            placeholderTextColor={GRAPHITE_INPUT_COLORS.placeholder}
+            cursorColor={GRAPHITE_INPUT_COLORS.cursor}
+            selectionColor={GRAPHITE_INPUT_COLORS.selection}
             multiline
             maxLength={2000}
             accessibilityLabel="消息输入框"
@@ -1188,20 +1202,19 @@ export default function ChatScreen({ route }: any) {
           <TouchableOpacity
             style={[
               styles.sendBtn,
-              (inputMode === "voice" || !inputText.trim() || !isEncryptionReady)
-                && styles.sendBtnDisabled,
+              sendDisabled && styles.sendBtnDisabled,
             ]}
             onPress={() => { void sendTextMessage(); }}
             onPressIn={() => animateSendButton(true)}
             onPressOut={() => animateSendButton(false)}
-            disabled={inputMode === "voice" || !inputText.trim() || !isEncryptionReady}
+            disabled={sendDisabled}
             accessibilityRole="button"
             accessibilityLabel="发送消息"
             accessibilityState={{
-              disabled: inputMode === "voice" || !inputText.trim() || !isEncryptionReady,
+              disabled: sendDisabled,
             }}
           >
-            <Text style={styles.sendBtnText}>发送</Text>
+            <Text style={[styles.sendBtnText, sendDisabled && styles.sendBtnTextDisabled]}>发送</Text>
           </TouchableOpacity>
         </Animated.View>
       </View>
@@ -1244,39 +1257,39 @@ export default function ChatScreen({ route }: any) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#EEF0ED" },
+  container: { flex: 1, backgroundColor: GRAPHITE_COLORS.canvas },
   ambientRoot: {
     position: "absolute", top: 0, right: 0, bottom: 0, left: 0,
     zIndex: 0, overflow: "hidden",
   },
   ambientBase: {
     position: "absolute", top: 0, right: 0, bottom: 0, left: 0,
-    backgroundColor: "#E8EAE7",
+    backgroundColor: GRAPHITE_COLORS.canvas,
   },
   ambientOnlineLayer: {
     position: "absolute", top: 0, right: 0, bottom: 0, left: 0,
-    backgroundColor: "rgba(238,244,240,0.42)", overflow: "hidden",
+    backgroundColor: "rgba(24,38,31,0.36)", overflow: "hidden",
   },
   ambientBlob: { position: "absolute", borderRadius: 999 },
   ambientBlobMutedOne: {
     width: 280, height: 280, top: "9%", left: -96,
-    backgroundColor: "rgba(176,184,179,0.20)",
+    backgroundColor: "rgba(163,172,166,0.035)",
   },
   ambientBlobMutedTwo: {
     width: 330, height: 330, right: -148, bottom: "7%",
-    backgroundColor: "rgba(187,190,184,0.18)",
+    backgroundColor: "rgba(133,143,136,0.035)",
   },
   ambientBlobOnlineOne: {
     width: 280, height: 280, top: "9%", left: -96,
-    backgroundColor: "rgba(111,205,170,0.20)",
+    backgroundColor: "rgba(105,200,164,0.075)",
   },
   ambientBlobOnlineTwo: {
     width: 330, height: 330, right: -148, bottom: "7%",
-    backgroundColor: "rgba(126,165,199,0.14)",
+    backgroundColor: "rgba(142,218,187,0.045)",
   },
   messageRipple: {
     position: "absolute", top: "42%", width: 72, height: 72, borderRadius: 36,
-    borderWidth: 1.5, borderColor: "rgba(45,173,130,0.62)",
+    borderWidth: 1.5, borderColor: GRAPHITE_COLORS.primaryLine,
   },
   messageRippleMine: { right: -8 },
   messageRippleOther: { left: -8 },
@@ -1284,114 +1297,115 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center",
     paddingHorizontal: 12, paddingBottom: 10,
     zIndex: 3,
-    backgroundColor: "#F4F5F2",
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#DDE0DC",
+    backgroundColor: GRAPHITE_COLORS.surface,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: GRAPHITE_COLORS.line,
   },
   headerAction: {
     width: 48, height: 48, alignItems: "center", justifyContent: "center",
   },
-  backBtn: { color: "#171A1F", fontSize: 36, lineHeight: 38, fontWeight: "300" },
+  backBtn: { color: GRAPHITE_COLORS.text, fontSize: 36, lineHeight: 38, fontWeight: "300" },
   headerCenter: { flex: 1, alignItems: "center" },
-  headerName: { color: "#171A1F", fontSize: 17, fontWeight: "600" },
+  headerName: { color: GRAPHITE_COLORS.text, fontSize: 17, fontWeight: "700" },
   headerInfo: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 2 },
   headerStatusDot: { width: 7, height: 7, borderRadius: 4 },
-  onlineDot: { backgroundColor: "#2DAD82" },
-  offlineDot: { backgroundColor: "#A5A9AE" },
+  onlineDot: { backgroundColor: GRAPHITE_COLORS.primary },
+  offlineDot: { backgroundColor: GRAPHITE_COLORS.textFaint },
   onlineStatus: { fontSize: 12, fontWeight: "500" },
-  online: { color: "#157454" },
-  offline: { color: "#777C82" },
+  online: { color: GRAPHITE_COLORS.primary },
+  offline: { color: GRAPHITE_COLORS.textMuted },
   lockButton: {
     width: 28, height: 28, borderRadius: 14,
     alignItems: "center", justifyContent: "center",
   },
-  securityWarningMark: { color: "#A06324", fontSize: 15, fontWeight: "800" },
+  securityWarningMark: { color: GRAPHITE_COLORS.warning, fontSize: 15, fontWeight: "800" },
   lockIcon: {
     width: 14, height: 16, alignItems: "center", justifyContent: "flex-end",
   },
   lockShackle: {
     position: "absolute", top: 0,
-    width: 9, height: 9, borderWidth: 1.5, borderColor: "#596068",
+    width: 9, height: 9, borderWidth: 1.5, borderColor: GRAPHITE_COLORS.textMuted,
     borderBottomWidth: 0, borderTopLeftRadius: 5, borderTopRightRadius: 5,
   },
   lockBody: {
-    width: 12, height: 9, borderRadius: 2, backgroundColor: "#596068",
+    width: 12, height: 9, borderRadius: 2, backgroundColor: GRAPHITE_COLORS.textMuted,
   },
   moreIcon: {
     width: 24, height: 24, flexDirection: "row", gap: 4,
     alignItems: "center", justifyContent: "center",
   },
-  moreDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: "#343A40" },
+  moreDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: GRAPHITE_COLORS.textMuted },
   encryptionNotice: {
     minHeight: 36, flexDirection: "row", alignItems: "center", justifyContent: "center",
     zIndex: 2,
-    gap: 8, backgroundColor: "#E2F2EC",
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#C8E4DA",
+    gap: 8, backgroundColor: GRAPHITE_COLORS.primarySoft,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: GRAPHITE_COLORS.primaryLine,
   },
-  encryptionNoticeText: { color: "#266A54", fontSize: 13, fontWeight: "500" },
+  encryptionNoticeText: { color: GRAPHITE_COLORS.primaryStrong, fontSize: 13, fontWeight: "600" },
   securityNotice: {
     minHeight: 40, paddingHorizontal: 14,
     flexDirection: "row", alignItems: "center", justifyContent: "center",
-    zIndex: 2, gap: 7, backgroundColor: "#F6EADB",
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#E4CEB2",
+    zIndex: 2, gap: 7, backgroundColor: GRAPHITE_COLORS.warningSoft,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: GRAPHITE_COLORS.warningLine,
   },
-  securityNoticeLoading: { backgroundColor: "#ECEEEC", borderBottomColor: "#D9DCD8" },
+  securityNoticeLoading: { backgroundColor: GRAPHITE_COLORS.surfaceStrong, borderBottomColor: GRAPHITE_COLORS.line },
   securityNoticeMark: {
     width: 18, height: 18, borderRadius: 9, textAlign: "center",
-    color: "#955D25", fontSize: 12, lineHeight: 18, fontWeight: "800",
-    borderWidth: 1, borderColor: "#B77A3C",
+    color: GRAPHITE_COLORS.warningStrong, fontSize: 12, lineHeight: 18, fontWeight: "800",
+    borderWidth: 1, borderColor: GRAPHITE_COLORS.warningLine,
   },
-  securityNoticeText: { flexShrink: 1, color: "#75481F", fontSize: 12, lineHeight: 17 },
+  securityNoticeText: { flexShrink: 1, color: GRAPHITE_COLORS.warningStrong, fontSize: 12, lineHeight: 17 },
   offlineNotice: {
     minHeight: 36, flexDirection: "row", alignItems: "center", justifyContent: "center",
     zIndex: 2,
-    gap: 7, backgroundColor: "#E7E8E5",
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: "#D7D9D5",
+    gap: 7, backgroundColor: GRAPHITE_COLORS.surfaceStrong,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: GRAPHITE_COLORS.line,
   },
   offlineNoticeMark: {
     width: 18, height: 18, borderRadius: 9, textAlign: "center",
-    color: "#62676D", fontSize: 12, lineHeight: 18, fontWeight: "700",
-    borderWidth: 1, borderColor: "#878C91",
+    color: GRAPHITE_COLORS.textMuted, fontSize: 12, lineHeight: 18, fontWeight: "700",
+    borderWidth: 1, borderColor: GRAPHITE_COLORS.lineStrong,
   },
-  offlineNoticeText: { color: "#565B61", fontSize: 13 },
+  offlineNoticeText: { color: GRAPHITE_COLORS.textMuted, fontSize: 13 },
   messageList: { zIndex: 1 },
   msgList: { paddingHorizontal: 14, paddingTop: 18, paddingBottom: 20 },
   messageEntry: { width: "100%" },
   newMessageButton: {
     position: "absolute", right: 18, bottom: 112, zIndex: 4,
-    minHeight: 38, paddingHorizontal: 14, borderRadius: 19,
+    minHeight: 48, paddingHorizontal: 16, borderRadius: 24,
     alignItems: "center", justifyContent: "center",
-    backgroundColor: "#273A34",
-    borderWidth: StyleSheet.hairlineWidth, borderColor: "#4F786A",
-    shadowColor: "#000000", shadowOpacity: 0.2, shadowRadius: 8,
+    backgroundColor: GRAPHITE_COLORS.primary,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: GRAPHITE_COLORS.primaryStrong,
+    shadowColor: GRAPHITE_COLORS.shadow, shadowOpacity: 0.32, shadowRadius: 8,
     shadowOffset: { width: 0, height: 3 }, elevation: 4,
   },
-  newMessageButtonText: { color: "#DDF4E9", fontSize: 13, fontWeight: "600" },
+  newMessageButtonText: { color: GRAPHITE_COLORS.onPrimary, fontSize: 13, fontWeight: "800" },
   msgBubble: {
     maxWidth: "82%", minWidth: 76,
     paddingHorizontal: 14, paddingTop: 10, paddingBottom: 7,
     borderRadius: 18, marginBottom: 8,
   },
   msgMine: {
-    alignSelf: "flex-end", backgroundColor: "#273A34", borderBottomRightRadius: 6,
+    alignSelf: "flex-end", backgroundColor: GRAPHITE_COLORS.primaryDeep, borderBottomRightRadius: 6,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: GRAPHITE_COLORS.primaryLine,
   },
   msgOther: {
-    alignSelf: "flex-start", backgroundColor: "#FFFFFF", borderBottomLeftRadius: 6,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: "#E0E3DF",
+    alignSelf: "flex-start", backgroundColor: GRAPHITE_COLORS.surfaceStrong, borderBottomLeftRadius: 6,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: GRAPHITE_COLORS.lineStrong,
   },
-  msgTextMine: { color: "#FFFFFF", fontSize: 16, lineHeight: 23 },
-  msgTextOther: { color: "#171A1F", fontSize: 16, lineHeight: 23 },
+  msgTextMine: { color: GRAPHITE_COLORS.text, fontSize: 16, lineHeight: 23 },
+  msgTextOther: { color: GRAPHITE_COLORS.text, fontSize: 16, lineHeight: 23 },
   messageMeta: {
     alignSelf: "flex-end", flexDirection: "row", alignItems: "center",
     minHeight: 16, gap: 4, marginTop: 3,
   },
-  messageTime: { color: "#858A90", fontSize: 10, fontVariant: ["tabular-nums"] },
-  messageTimeMine: { color: "rgba(255,255,255,0.62)" },
+  messageTime: { color: GRAPHITE_COLORS.textFaint, fontSize: 10, fontVariant: ["tabular-nums"] },
+  messageTimeMine: { color: GRAPHITE_COLORS.textMuted },
   deliveryStatus: {
-    minWidth: 12, color: "rgba(255,255,255,0.68)",
+    minWidth: 12, color: GRAPHITE_COLORS.textMuted,
     fontSize: 11, fontWeight: "600", letterSpacing: -2,
   },
-  deliveryStatusRead: { color: "#75E0B8" },
-  deliveryStatusFailed: { color: "#FFAAA4", letterSpacing: 0 },
+  deliveryStatusRead: { color: GRAPHITE_COLORS.primaryStrong },
+  deliveryStatusFailed: { color: GRAPHITE_COLORS.danger, letterSpacing: 0 },
   retryStatusButton: {
     minWidth: 22, minHeight: 22, marginVertical: -3, marginRight: -4,
     alignItems: "center", justifyContent: "center",
@@ -1403,97 +1417,98 @@ const styles = StyleSheet.create({
   typingBubble: {
     width: 48, height: 24, borderRadius: 12,
     flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5,
-    backgroundColor: "#FFFFFF",
-    borderWidth: StyleSheet.hairlineWidth, borderColor: "#DDE0DC",
+    backgroundColor: GRAPHITE_COLORS.surfaceStrong,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: GRAPHITE_COLORS.lineStrong,
   },
   typingDot: {
-    width: 5, height: 5, borderRadius: 3, backgroundColor: "#597168",
+    width: 5, height: 5, borderRadius: 3, backgroundColor: GRAPHITE_COLORS.primary,
   },
   inputBar: {
     flexDirection: "row", alignItems: "flex-end",
     zIndex: 2,
     paddingHorizontal: 8, paddingTop: 8,
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#DDE0DC",
-    backgroundColor: "#FFFFFF", gap: 6,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: GRAPHITE_COLORS.line,
+    backgroundColor: GRAPHITE_COLORS.surface, gap: 6,
   },
   input: {
-    flex: 1, minHeight: 48, borderWidth: 1, borderColor: "#DDE0DC", borderRadius: 24,
+    flex: 1, minHeight: 48, borderWidth: 1, borderColor: GRAPHITE_COLORS.lineStrong, borderRadius: 24,
     paddingHorizontal: 15, paddingVertical: 10, fontSize: 16, lineHeight: 22,
-    maxHeight: 112, backgroundColor: "#F7F8F6", color: "#171A1F",
+    maxHeight: 112, backgroundColor: GRAPHITE_COLORS.surfacePressed, color: GRAPHITE_INPUT_COLORS.text,
   },
   inputIconButton: {
     width: 48, height: 48, borderRadius: 24,
-    alignItems: "center", justifyContent: "center", backgroundColor: "#F0F2EF",
+    alignItems: "center", justifyContent: "center", backgroundColor: GRAPHITE_COLORS.surfacePressed,
   },
-  inputIconButtonActive: { backgroundColor: "#DDF3EB" },
+  inputIconButtonActive: { backgroundColor: GRAPHITE_COLORS.primarySoft },
   voiceModeIcon: { width: 22, height: 24, alignItems: "center" },
   voiceModeCapsule: {
     width: 8, height: 13, borderRadius: 4,
-    borderWidth: 1.7, borderColor: "#4E555B",
+    borderWidth: 1.7, borderColor: GRAPHITE_COLORS.textMuted,
   },
   voiceModeArc: {
     position: "absolute", top: 5, width: 15, height: 11,
-    borderWidth: 1.7, borderTopWidth: 0, borderColor: "#4E555B",
+    borderWidth: 1.7, borderTopWidth: 0, borderColor: GRAPHITE_COLORS.textMuted,
     borderBottomLeftRadius: 8, borderBottomRightRadius: 8,
   },
-  voiceModeStem: { width: 1.7, height: 5, backgroundColor: "#4E555B" },
-  voiceModeBase: { width: 10, height: 1.7, borderRadius: 1, backgroundColor: "#4E555B" },
+  voiceModeStem: { width: 1.7, height: 5, backgroundColor: GRAPHITE_COLORS.textMuted },
+  voiceModeBase: { width: 10, height: 1.7, borderRadius: 1, backgroundColor: GRAPHITE_COLORS.textMuted },
   keyboardModeIcon: {
     width: 23, height: 18, paddingHorizontal: 3, paddingTop: 3,
-    borderWidth: 1.5, borderColor: "#4E555B", borderRadius: 4,
+    borderWidth: 1.5, borderColor: GRAPHITE_COLORS.textMuted, borderRadius: 4,
   },
   keyboardModeRow: { height: 3, flexDirection: "row", justifyContent: "space-between" },
-  keyboardModeKey: { width: 2.5, height: 2, borderRadius: 1, backgroundColor: "#4E555B" },
+  keyboardModeKey: { width: 2.5, height: 2, borderRadius: 1, backgroundColor: GRAPHITE_COLORS.textMuted },
   keyboardModeSpace: {
     position: "absolute", left: 6, right: 6, bottom: 3,
-    height: 1.7, borderRadius: 1, backgroundColor: "#4E555B",
+    height: 1.7, borderRadius: 1, backgroundColor: GRAPHITE_COLORS.textMuted,
   },
   smileIcon: {
     width: 22, height: 22, borderRadius: 11,
-    borderWidth: 1.7, borderColor: "#4E555B",
+    borderWidth: 1.7, borderColor: GRAPHITE_COLORS.textMuted,
   },
   smileEye: {
     position: "absolute", top: 6, width: 2.5, height: 2.5,
-    borderRadius: 2, backgroundColor: "#4E555B",
+    borderRadius: 2, backgroundColor: GRAPHITE_COLORS.textMuted,
   },
   smileEyeLeft: { left: 5 },
   smileEyeRight: { right: 5 },
   smileMouth: {
     position: "absolute", left: 5, right: 5, bottom: 4,
-    height: 5, borderBottomWidth: 1.7, borderColor: "#4E555B",
+    height: 5, borderBottomWidth: 1.7, borderColor: GRAPHITE_COLORS.textMuted,
     borderBottomLeftRadius: 8, borderBottomRightRadius: 8,
   },
   sendBtn: {
-    minWidth: 62, height: 48, backgroundColor: "#273A34", borderRadius: 24,
+    minWidth: 62, height: 48, backgroundColor: GRAPHITE_COLORS.primary, borderRadius: 24,
     paddingHorizontal: 14, alignItems: "center", justifyContent: "center",
   },
   sendButtonShell: { borderRadius: 24 },
-  sendBtnDisabled: { backgroundColor: "#D9DCD8" },
-  sendBtnText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
+  sendBtnDisabled: { backgroundColor: GRAPHITE_COLORS.surfacePressed },
+  sendBtnText: { color: GRAPHITE_COLORS.onPrimary, fontSize: 14, fontWeight: "800" },
+  sendBtnTextDisabled: { color: GRAPHITE_COLORS.textFaint },
   emojiPanel: {
     flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between",
     zIndex: 2,
-    paddingHorizontal: 16, paddingVertical: 12, backgroundColor: "#FFFFFF",
-    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: "#DDE0DC",
+    paddingHorizontal: 16, paddingVertical: 12, backgroundColor: GRAPHITE_COLORS.surface,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: GRAPHITE_COLORS.line,
   },
   emojiItem: {
-    width: "16.66%", minHeight: 44, alignItems: "center", justifyContent: "center",
+    width: "16.66%", minHeight: 48, alignItems: "center", justifyContent: "center",
   },
   emojiText: { fontSize: 25 },
   menuScrim: {
     position: "absolute", top: 0, right: 0, bottom: 0, left: 0,
-    zIndex: 10, backgroundColor: "rgba(0,0,0,0.12)",
+    zIndex: 10, backgroundColor: "rgba(0,0,0,0.58)",
   },
   moreMenu: {
     position: "absolute", right: 12, zIndex: 20, width: 224,
-    backgroundColor: "#FFFFFF", borderRadius: 14, overflow: "hidden",
-    borderWidth: StyleSheet.hairlineWidth, borderColor: "#D9DCD8",
-    shadowColor: "#000000", shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.16, shadowRadius: 18, elevation: 8,
+    backgroundColor: GRAPHITE_COLORS.surfaceStrong, borderRadius: GRAPHITE_RADII.control, overflow: "hidden",
+    borderWidth: StyleSheet.hairlineWidth, borderColor: GRAPHITE_COLORS.lineStrong,
+    shadowColor: GRAPHITE_COLORS.shadow, shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.34, shadowRadius: 18, elevation: 8,
   },
   menuItem: { minHeight: 68, paddingHorizontal: 16, paddingVertical: 12, justifyContent: "center" },
   menuItemDisabled: { opacity: 0.42 },
-  menuItemTitle: { color: "#171A1F", fontSize: 15, fontWeight: "600" },
-  menuItemHint: { color: "#6D7278", fontSize: 12, marginTop: 3 },
-  menuDivider: { height: StyleSheet.hairlineWidth, backgroundColor: "#E3E5E1", marginLeft: 16 },
+  menuItemTitle: { color: GRAPHITE_COLORS.text, fontSize: 15, fontWeight: "700" },
+  menuItemHint: { color: GRAPHITE_COLORS.textMuted, fontSize: 12, marginTop: 3 },
+  menuDivider: { height: StyleSheet.hairlineWidth, backgroundColor: GRAPHITE_COLORS.line, marginLeft: 16 },
 });

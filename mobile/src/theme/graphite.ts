@@ -13,11 +13,16 @@ export const GRAPHITE_COLORS = {
   textFaint: "#858F88",
   primary: "#69C8A4",
   primaryStrong: "#8EDABB",
+  primaryDeep: "#1F493B",
   onPrimary: "#07120D",
   primarySoft: "rgba(105,200,164,0.13)",
   primaryLine: "rgba(105,200,164,0.38)",
   danger: "#E59087",
   dangerLine: "rgba(229,144,135,0.55)",
+  warning: "#E7B06A",
+  warningStrong: "#F1C783",
+  warningSoft: "rgba(231,176,106,0.13)",
+  warningLine: "rgba(231,176,106,0.42)",
   shadow: "#000000",
 } as const;
 
