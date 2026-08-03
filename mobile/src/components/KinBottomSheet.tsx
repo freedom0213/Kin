@@ -35,6 +35,26 @@ const EXPANDED_HEIGHT_RATIO = 0.88;
 const DISMISS_DISTANCE = 120;
 const DISMISS_VELOCITY = 1.1;
 
+interface DragReleaseState {
+  startOffset: number;
+  finalOffset: number;
+  velocityY: number;
+  expandedHeight: number;
+}
+
+export function shouldDismissBottomSheet({
+  startOffset,
+  finalOffset,
+  velocityY,
+  expandedHeight,
+}: DragReleaseState): boolean {
+  return (
+    finalOffset - startOffset > DISMISS_DISTANCE
+    || velocityY > DISMISS_VELOCITY
+    || finalOffset >= expandedHeight - 1
+  );
+}
+
 export default function KinBottomSheet({
   visible,
   children,
@@ -55,6 +75,8 @@ export default function KinBottomSheet({
   const translateY = useRef(new Animated.Value(expandedHeight)).current;
   const scrimOpacity = useRef(new Animated.Value(0)).current;
   const dragStartRef = useRef(defaultSnapOffset);
+  const dragOffsetRef = useRef(defaultSnapOffset);
+  const dragActiveRef = useRef(false);
   const closingRef = useRef(false);
   const onRequestCloseRef = useRef(onRequestClose);
   const dragAreaRef = useRef<View | null>(null);
@@ -97,8 +119,33 @@ export default function KinBottomSheet({
     });
   }, [expandedHeight, reduceMotion, scrimOpacity, translateY]);
 
+  const finishDrag = useCallback((velocityY = 0) => {
+    if (!dragActiveRef.current) return;
+    dragActiveRef.current = false;
+
+    const finalOffset = Math.max(0, Math.min(expandedHeight, dragOffsetRef.current));
+    const shouldDismiss = shouldDismissBottomSheet({
+      startOffset: dragStartRef.current,
+      finalOffset,
+      velocityY,
+      expandedHeight,
+    });
+    if (shouldDismiss) {
+      if (dragDismissEnabled) requestClose();
+      else animateTo(finalOffset < defaultSnapOffset / 2 ? 0 : defaultSnapOffset);
+      return;
+    }
+
+    const shouldExpand = (
+      finalOffset - dragStartRef.current < -36
+      || finalOffset < defaultSnapOffset / 2
+    );
+    animateTo(shouldExpand ? 0 : defaultSnapOffset);
+  }, [animateTo, defaultSnapOffset, dragDismissEnabled, expandedHeight, requestClose]);
+
   useEffect(() => {
     if (!visible) {
+      dragActiveRef.current = false;
       closingRef.current = false;
       return;
     }
@@ -125,45 +172,64 @@ export default function KinBottomSheet({
     return () => cancelAnimationFrame(focusFrame);
   }, [defaultSnapOffset, expandedHeight, reduceMotion, scrimOpacity, translateY, visible]);
 
+  useEffect(() => {
+    if (Platform.OS !== "web" || typeof window === "undefined") return undefined;
+
+    const releasePointer = () => finishDrag();
+    const releasePointerIfButtonUp = (event: MouseEvent | PointerEvent) => {
+      if (event.buttons === 0) finishDrag();
+    };
+    window.addEventListener("pointerup", releasePointer);
+    window.addEventListener("pointercancel", releasePointer);
+    window.addEventListener("pointermove", releasePointerIfButtonUp);
+    window.addEventListener("mouseup", releasePointer);
+    window.addEventListener("mousemove", releasePointerIfButtonUp);
+    window.addEventListener("blur", releasePointer);
+    window.document.documentElement.addEventListener("mouseleave", releasePointer);
+
+    return () => {
+      window.removeEventListener("pointerup", releasePointer);
+      window.removeEventListener("pointercancel", releasePointer);
+      window.removeEventListener("pointermove", releasePointerIfButtonUp);
+      window.removeEventListener("mouseup", releasePointer);
+      window.removeEventListener("mousemove", releasePointerIfButtonUp);
+      window.removeEventListener("blur", releasePointer);
+      window.document.documentElement.removeEventListener("mouseleave", releasePointer);
+    };
+  }, [finishDrag]);
+
   const panResponder = useMemo(() => PanResponder.create({
-    onStartShouldSetPanResponder: () => false,
+    onStartShouldSetPanResponder: () => true,
     onMoveShouldSetPanResponder: (_, gestureState) => (
       Math.abs(gestureState.dy) > 4
       && Math.abs(gestureState.dy) > Math.abs(gestureState.dx)
     ),
     onPanResponderGrant: () => {
+      dragActiveRef.current = true;
       translateY.stopAnimation((value) => {
         dragStartRef.current = value;
+        dragOffsetRef.current = value;
       });
     },
     onPanResponderMove: (_, gestureState) => {
+      if (!dragActiveRef.current) return;
       const nextOffset = Math.max(
         0,
         Math.min(expandedHeight, dragStartRef.current + gestureState.dy),
       );
+      dragOffsetRef.current = nextOffset;
       translateY.setValue(nextOffset);
     },
     onPanResponderRelease: (_, gestureState) => {
-      const shouldDismiss = (
-        gestureState.dy > DISMISS_DISTANCE
-        || gestureState.vy > DISMISS_VELOCITY
+      dragOffsetRef.current = Math.max(
+        0,
+        Math.min(expandedHeight, dragStartRef.current + gestureState.dy),
       );
-      if (shouldDismiss) {
-        if (dragDismissEnabled) requestClose();
-        else animateTo(dragStartRef.current < defaultSnapOffset / 2 ? 0 : defaultSnapOffset);
-        return;
-      }
-      const shouldExpand = (
-        gestureState.dy < -36
-        || dragStartRef.current + gestureState.dy < defaultSnapOffset / 2
-      );
-      animateTo(shouldExpand ? 0 : defaultSnapOffset);
+      finishDrag(gestureState.vy);
     },
-    onPanResponderTerminate: () => (
-      animateTo(dragStartRef.current < defaultSnapOffset / 2 ? 0 : defaultSnapOffset)
-    ),
-    onPanResponderTerminationRequest: () => false,
-  }), [animateTo, defaultSnapOffset, dragDismissEnabled, expandedHeight, requestClose, translateY]);
+    onPanResponderTerminate: () => finishDrag(),
+    onPanResponderTerminationRequest: () => true,
+  }), [expandedHeight, finishDrag, translateY]);
 
   return (
     <Modal
