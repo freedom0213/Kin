@@ -2,7 +2,6 @@
 
 import React, { createContext, useContext, useReducer, useEffect, useRef, ReactNode } from "react";
 import { AppState } from "react-native";
-import * as SecureStore from "expo-secure-store";
 import {
   setToken,
   getProfile as apiGetProfile,
@@ -15,6 +14,7 @@ import { kinFeedback } from "../services/feedback";
 import { updateCachedFriendProfile } from "../services/db";
 import { parseFriendProfileEvent } from "../services/friendProfile";
 import { ensureAccountKeyPair, type AccountKeyPair } from "../services/keys";
+import { deleteSecureItem, getSecureItem, setSecureItem } from "../services/secureStorage";
 import {
   syncExistingPushRegistration,
   retryPendingPushUnregistration,
@@ -104,8 +104,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await retryPendingPushUnregistration();
       try {
         const [savedToken, savedProfile] = await Promise.all([
-          SecureStore.getItemAsync("kin_token"),
-          SecureStore.getItemAsync(PROFILE_STORAGE_KEY),
+          getSecureItem("kin_token"),
+          getSecureItem(PROFILE_STORAGE_KEY),
         ]);
         if (savedToken) {
           setToken(savedToken);
@@ -118,15 +118,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             } catch {
               // 已有登录恢复不应因短暂网络问题被强制退出；下次显式登录会再次上传。
             }
-            await SecureStore.setItemAsync(PROFILE_STORAGE_KEY, JSON.stringify(restoredProfile));
+            await setSecureItem(PROFILE_STORAGE_KEY, JSON.stringify(restoredProfile));
             await messageInbox.start(restoredProfile.id);
             kinWS.connect(savedToken);
             dispatch({ type: "RESTORE_TOKEN", token: savedToken, user: restoredProfile });
           } catch (error: any) {
             if ([401, 403, 404].includes(error?.status)) {
               await Promise.all([
-                SecureStore.deleteItemAsync("kin_token"),
-                SecureStore.deleteItemAsync(PROFILE_STORAGE_KEY),
+                deleteSecureItem("kin_token"),
+                deleteSecureItem(PROFILE_STORAGE_KEY),
               ]);
               setToken(null);
               dispatch({ type: "LOADING_DONE" });
@@ -201,8 +201,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const keyPair = await activateAccountEncryption(user.id);
       const activatedUser = { ...user, public_key: keyPair.publicKey };
       await Promise.all([
-        SecureStore.setItemAsync("kin_token", token),
-        SecureStore.setItemAsync(PROFILE_STORAGE_KEY, JSON.stringify(activatedUser)),
+        setSecureItem("kin_token", token),
+        setSecureItem(PROFILE_STORAGE_KEY, JSON.stringify(activatedUser)),
       ]);
       await messageInbox.start(user.id);
       kinWS.connect(token);
@@ -220,8 +220,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // 注销设备通知失败不应阻止退出账号。
     }
     await Promise.all([
-      SecureStore.deleteItemAsync("kin_token"),
-      SecureStore.deleteItemAsync(PROFILE_STORAGE_KEY),
+      deleteSecureItem("kin_token"),
+      deleteSecureItem(PROFILE_STORAGE_KEY),
     ]);
     setToken(null);
     kinWS.disconnect();
@@ -231,7 +231,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const updateProfileAction = async (user: User) => {
-    await SecureStore.setItemAsync(PROFILE_STORAGE_KEY, JSON.stringify(user));
+    await setSecureItem(PROFILE_STORAGE_KEY, JSON.stringify(user));
     dispatch({ type: "UPDATE_PROFILE", user });
   };
 

@@ -1,7 +1,7 @@
-/** 密钥持久化 — expo-secure-store */
+/** 按账号隔离的密钥持久化。 */
 
-import * as SecureStore from "expo-secure-store";
 import { generateKeyPair } from "./encryption";
+import { getSecureItem, setSecureItem } from "./secureStorage";
 
 export interface AccountKeyPair {
   publicKey: string;
@@ -24,16 +24,16 @@ export async function storeAccountKeyPair(
   keyPair: AccountKeyPair
 ): Promise<void> {
   await Promise.all([
-    SecureStore.setItemAsync(accountKey(ownerId, "secret"), keyPair.secretKey),
-    SecureStore.setItemAsync(accountKey(ownerId, "public"), keyPair.publicKey),
+    setSecureItem(accountKey(ownerId, "secret"), keyPair.secretKey),
+    setSecureItem(accountKey(ownerId, "public"), keyPair.publicKey),
   ]);
 }
 
 /** 读取指定账号已有的密钥对。 */
 export async function getStoredKeyPair(ownerId: string): Promise<AccountKeyPair | null> {
   const [secretKey, publicKey] = await Promise.all([
-    SecureStore.getItemAsync(accountKey(ownerId, "secret")),
-    SecureStore.getItemAsync(accountKey(ownerId, "public")),
+    getSecureItem(accountKey(ownerId, "secret")),
+    getSecureItem(accountKey(ownerId, "public")),
   ]);
   if (secretKey && publicKey) return { publicKey, secretKey };
   return null;
@@ -50,10 +50,10 @@ export async function ensureAccountKeyPair(ownerId: string): Promise<AccountKeyP
 
 /** 读取指定账号的私钥。 */
 export function getSecretKey(ownerId: string): Promise<string | null> {
-  return SecureStore.getItemAsync(accountKey(ownerId, "secret"));
+  return getSecureItem(accountKey(ownerId, "secret"));
 }
 
 /** 读取指定账号的公钥。 */
 export function getPublicKey(ownerId: string): Promise<string | null> {
-  return SecureStore.getItemAsync(accountKey(ownerId, "public"));
+  return getSecureItem(accountKey(ownerId, "public"));
 }
