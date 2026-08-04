@@ -1196,6 +1196,8 @@ export default function ChatScreen({ route }: any) {
         <FlatList
           ref={flatListRef}
           data={messages}
+          initialNumToRender={50}
+          maxToRenderPerBatch={50}
           keyExtractor={(item) => item.id}
           renderItem={renderMessage}
           style={styles.messageList}

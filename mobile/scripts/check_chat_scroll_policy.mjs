@@ -51,6 +51,12 @@ assert.match(
   "消息数量变化时必须主动唤醒虚拟列表，否则最新消息可能永远不会进入可见区域",
 );
 
+assert.match(
+  chatScreenSource,
+  /<FlatList[\s\S]*initialNumToRender=\{50\}[\s\S]*maxToRenderPerBatch=\{50\}/,
+  "聊天页必须完整渲染当前 50 条历史批次，否则最近消息可能只有数据却没有可见节点",
+);
+
 const {
   shouldAutoScrollAfterContentChange,
   isMessageListNearBottom,
