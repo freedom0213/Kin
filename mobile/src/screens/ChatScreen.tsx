@@ -423,7 +423,6 @@ export default function ChatScreen({ route }: any) {
   const [isOnline, setIsOnline] = useState(friend.is_online);
   const [showMore, setShowMore] = useState(false);
   const [showEmojiPanel, setShowEmojiPanel] = useState(false);
-  const [showEncryptionNotice, setShowEncryptionNotice] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const [hasNewMessages, setHasNewMessages] = useState(false);
   const [backgroundPulse, setBackgroundPulse] = useState<{
@@ -538,16 +537,6 @@ export default function ChatScreen({ route }: any) {
     userNearBottomRef.current = true;
     setHasNewMessages(false);
   };
-
-  useEffect(() => {
-    if (!isEncryptionReady) {
-      setShowEncryptionNotice(false);
-      return;
-    }
-    setShowEncryptionNotice(true);
-    const timer = setTimeout(() => setShowEncryptionNotice(false), 2400);
-    return () => clearTimeout(timer);
-  }, [isEncryptionReady]);
 
   useEffect(() => {
     let active = true;
@@ -1125,13 +1114,6 @@ export default function ChatScreen({ route }: any) {
         </TouchableOpacity>
       </View>
 
-      {showEncryptionNotice ? (
-        <View style={styles.encryptionNotice} accessibilityLiveRegion="polite">
-          <LockMark />
-          <Text style={styles.encryptionNoticeText}>仅你和对方可读取</Text>
-        </View>
-      ) : null}
-
       {!isEncryptionReady ? (
         <View
           style={[styles.securityNotice, encryptionState === "loading" && styles.securityNoticeLoading]}
@@ -1162,6 +1144,16 @@ export default function ChatScreen({ route }: any) {
           updateWebScrollIndicator({ viewportHeight: nativeEvent.layout.height });
         }}
       >
+        {isEncryptionReady ? (
+          <View
+            pointerEvents="none"
+            style={styles.encryptionNotice}
+            accessibilityLiveRegion="polite"
+          >
+            <LockMark />
+            <Text style={styles.encryptionNoticeText}>仅你和对方可读取</Text>
+          </View>
+        ) : null}
         <FlatList
           ref={flatListRef}
           data={messages}
@@ -1415,12 +1407,11 @@ const styles = StyleSheet.create({
   },
   moreDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: GRAPHITE_COLORS.textMuted },
   encryptionNotice: {
-    minHeight: 36, flexDirection: "row", alignItems: "center", justifyContent: "center",
-    zIndex: 2,
-    gap: 8, backgroundColor: GRAPHITE_COLORS.surfaceStrong,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: GRAPHITE_COLORS.lineStrong,
+    position: "absolute", top: 8, left: 0, right: 0, height: 28,
+    flexDirection: "row", alignItems: "center", justifyContent: "center",
+    zIndex: 3, gap: 7, backgroundColor: "transparent",
   },
-  encryptionNoticeText: { color: GRAPHITE_COLORS.textMuted, fontSize: 13, fontWeight: "600" },
+  encryptionNoticeText: { color: GRAPHITE_COLORS.textMuted, fontSize: 12, fontWeight: "600" },
   securityNotice: {
     minHeight: 40, paddingHorizontal: 14,
     flexDirection: "row", alignItems: "center", justifyContent: "center",
@@ -1448,7 +1439,7 @@ const styles = StyleSheet.create({
   offlineNoticeText: { color: GRAPHITE_COLORS.textMuted, fontSize: 13 },
   messageViewport: { flex: 1, zIndex: 1, position: "relative" },
   messageList: { flex: 1 },
-  msgList: { paddingHorizontal: 14, paddingTop: 18, paddingBottom: 20 },
+  msgList: { paddingHorizontal: 14, paddingTop: 48, paddingBottom: 20 },
   webScrollTrack: {
     position: "absolute", top: WEB_SCROLL_TRACK_INSET, right: 3, bottom: WEB_SCROLL_TRACK_INSET,
     width: 4, borderRadius: 2, alignItems: "center",

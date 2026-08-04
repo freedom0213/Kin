@@ -17,6 +17,9 @@ assert.match(chatSource, /backgroundColor: GRAPHITE_COLORS\.surfaceStrong/, "对
 assert.match(chatSource, /ambientOnlineLayer:[\s\S]*backgroundColor: "rgba\(0,0,0,0\.10\)"/, "在线聊天背景仍带有大面积绿色底色");
 assert.match(chatSource, /messageRipple:[\s\S]*borderColor: GRAPHITE_COLORS\.lineStrong/, "消息涟漪尚未改为中性石墨色");
 assert.match(chatSource, /deliveryStatusRead: \{ color: GRAPHITE_COLORS\.text \}/, "已读标记仍在扩大绿色视觉占比");
+assert.doesNotMatch(chatSource, /showEncryptionNotice/, "加密提示仍会定时卸载并造成聊天区域尺寸变化");
+assert.match(chatSource, /encryptionNotice:[\s\S]*position: "absolute"[\s\S]*backgroundColor: "transparent"/, "加密提示尚未作为透明悬浮状态显示在消息区域顶部");
+assert.match(chatSource, /msgList: \{ paddingHorizontal: 14, paddingTop: 48/, "消息列表尚未为悬浮加密提示保留稳定空间");
 assert.match(chatSource, /sendBtnTextDisabled/, "发送按钮禁用状态缺少独立文字对比度");
 assert.match(voiceSource, /GRAPHITE_COLORS/, "语音录制和播放组件尚未迁移到 Graphite Flow");
 assert.doesNotMatch(
