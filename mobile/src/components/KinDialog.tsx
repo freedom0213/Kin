@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import {
   Modal,
   StyleSheet,
@@ -35,7 +35,12 @@ export default function KinDialog({
   actions,
   onClose,
 }: KinDialogProps) {
-  const resolvedActions = actions?.length ? actions : [{ text: "知道了" }];
+  const retainedContentRef = useRef({ title, message, actions });
+  if (visible) retainedContentRef.current = { title, message, actions };
+  const renderedContent = retainedContentRef.current;
+  const resolvedActions = renderedContent.actions?.length
+    ? renderedContent.actions
+    : [{ text: "知道了" }];
   const stacked = resolvedActions.length > 2;
 
   const runAction = (action: KinDialogAction) => {
@@ -53,8 +58,8 @@ export default function KinDialog({
     >
       <View style={styles.overlay} accessibilityViewIsModal>
         <View style={styles.dialog}>
-          <Text style={styles.title}>{title}</Text>
-          <Text style={styles.message}>{message}</Text>
+          <Text style={styles.title}>{renderedContent.title}</Text>
+          <Text style={styles.message}>{renderedContent.message}</Text>
           <View style={[styles.actions, stacked && styles.actionsStacked]}>
             {resolvedActions.map((action, index) => {
               const destructive = action.tone === "destructive";
