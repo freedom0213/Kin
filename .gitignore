@@ -2,7 +2,7 @@
 __pycache__/
 *.pyc
 *.pyo
-backend/data/*.db
+backend/data/
 backend/*.log
 
 # Node / Expo
@@ -10,6 +10,7 @@ node_modules/
 .expo/
 dist/
 *.tsbuildinfo
+preview/index.html
 
 # IDE
 .vscode/
