@@ -6,7 +6,13 @@
     "scheme": "kin",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#080A09",
+    "primaryColor": "#080A09",
+    "androidStatusBar": {
+      "barStyle": "light-content",
+      "backgroundColor": "#080A09"
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.freedom0213.kin"
@@ -14,9 +20,8 @@
     "android": {
       "package": "com.freedom0213.kin",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#080A09",
         "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
