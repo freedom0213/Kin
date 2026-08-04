@@ -71,6 +71,14 @@ function getEncryptionIssueCopy(state: EncryptionState): string {
   return "";
 }
 
+function getWebComposerHeight(value: string): number {
+  if (!value) return 48;
+  const visualLines = value.split("\n").reduce((total, line) => (
+    total + Math.max(1, Math.ceil(Array.from(line).length / 18))
+  ), 0);
+  return Math.min(112, 48 + Math.max(0, visualLines - 1) * 22);
+}
+
 function LockMark() {
   return (
     <View style={styles.lockIcon}>
@@ -434,6 +442,7 @@ export default function ChatScreen({ route }: any) {
 
   const [mySecretKey, setMySecretKey] = useState<string | null>(null);
   const [localKeyState, setLocalKeyState] = useState<"loading" | "ready" | "missing" | "error">("loading");
+  const [inputHeight, setInputHeight] = useState(48);
   const friendPublicKey: string | null = friend.public_key || null;
   const [loadingHistory, setLoadingHistory] = useState(true);
   const encryptionState: EncryptionState = !friendPublicKey
@@ -705,6 +714,7 @@ export default function ChatScreen({ route }: any) {
     setMessages((prev) => [...prev, msg]);
     triggerBackgroundPulse("mine");
     setInputText("");
+    setInputHeight(48);
     try {
       await saveMessage(myId, {
         id: msg.id, chat_id: friend.user_id, sender_id: myId,
@@ -810,6 +820,7 @@ export default function ChatScreen({ route }: any) {
 
   const handleInputChange = (text: string) => {
     setInputText(text);
+    if (Platform.OS === "web") setInputHeight(getWebComposerHeight(text));
     if (text.trim()) notifyTyping();
   };
 
@@ -1168,7 +1179,7 @@ export default function ChatScreen({ route }: any) {
         {inputMode === "text" ? (
           <TextInput
             ref={inputRef}
-            style={styles.input}
+            style={[styles.input, { height: inputHeight }]}
             placeholder={isEncryptionReady ? "说点什么..." : "加密保护不可用"}
             value={inputText}
             onChangeText={handleInputChange}
@@ -1176,6 +1187,16 @@ export default function ChatScreen({ route }: any) {
             cursorColor={GRAPHITE_INPUT_COLORS.cursor}
             selectionColor={GRAPHITE_INPUT_COLORS.selection}
             multiline
+            numberOfLines={1}
+            textAlignVertical={inputHeight > 52 ? "top" : "center"}
+            onContentSizeChange={({ nativeEvent }) => {
+              if (Platform.OS === "web") return;
+              const nextHeight = Math.max(
+                48,
+                Math.min(112, Math.ceil(nativeEvent.contentSize.height) + 20),
+              );
+              setInputHeight((current) => current === nextHeight ? current : nextHeight);
+            }}
             maxLength={2000}
             accessibilityLabel="消息输入框"
             onFocus={() => setShowEmojiPanel(false)}
@@ -1431,15 +1452,15 @@ const styles = StyleSheet.create({
     zIndex: 2,
     paddingHorizontal: 8, paddingTop: 8,
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: GRAPHITE_COLORS.line,
-    backgroundColor: GRAPHITE_COLORS.surface, gap: 6,
+    backgroundColor: GRAPHITE_COLORS.surface, gap: 5,
   },
   input: {
-    flex: 1, minHeight: 48, borderWidth: 1, borderColor: GRAPHITE_COLORS.lineStrong, borderRadius: 24,
+    flex: 1, minWidth: 0, minHeight: 48, borderWidth: 1, borderColor: GRAPHITE_COLORS.lineStrong, borderRadius: 24,
     paddingHorizontal: 15, paddingVertical: 10, fontSize: 16, lineHeight: 22,
     maxHeight: 112, backgroundColor: GRAPHITE_COLORS.surfacePressed, color: GRAPHITE_INPUT_COLORS.text,
   },
   inputIconButton: {
-    width: 48, height: 48, borderRadius: 24,
+    width: 46, height: 48, borderRadius: 24,
     alignItems: "center", justifyContent: "center", backgroundColor: GRAPHITE_COLORS.surfacePressed,
   },
   inputIconButtonActive: { backgroundColor: GRAPHITE_COLORS.surfaceStrong },
@@ -1481,8 +1502,8 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 8, borderBottomRightRadius: 8,
   },
   sendBtn: {
-    minWidth: 62, height: 48, backgroundColor: GRAPHITE_COLORS.surfaceStrong, borderRadius: 24,
-    paddingHorizontal: 14, alignItems: "center", justifyContent: "center",
+    minWidth: 58, height: 48, backgroundColor: GRAPHITE_COLORS.surfaceStrong, borderRadius: 24,
+    paddingHorizontal: 12, alignItems: "center", justifyContent: "center",
     borderWidth: StyleSheet.hairlineWidth, borderColor: GRAPHITE_COLORS.lineStrong,
   },
   sendButtonShell: { borderRadius: 24 },
