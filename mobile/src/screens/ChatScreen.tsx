@@ -754,7 +754,7 @@ export default function ChatScreen({ route }: any) {
       encrypted: true,
       wire_content: contentToSend,
     };
-    explicitScrollPendingRef.current = userNearBottomRef.current;
+    explicitScrollPendingRef.current = true;
     animatedMessageIdsRef.current.set(msg.id, Date.now());
     setMessages((prev) => [...prev, msg]);
     triggerBackgroundPulse("mine");
@@ -798,7 +798,7 @@ export default function ChatScreen({ route }: any) {
       encrypted: true,
       wire_content: contentToSend,
     };
-    explicitScrollPendingRef.current = userNearBottomRef.current;
+    explicitScrollPendingRef.current = true;
     animatedMessageIdsRef.current.set(msg.id, Date.now());
     setMessages((prev) => [...prev, msg]);
     triggerBackgroundPulse("mine");

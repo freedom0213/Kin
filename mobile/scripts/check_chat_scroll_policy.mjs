@@ -36,6 +36,15 @@ assert.match(
   "Web 自定义滚动滑块尚未跟随聊天阅读位置",
 );
 
+const ownMessageScrollIntentMatches = chatScreenSource.match(
+  /explicitScrollPendingRef\.current = true;/g,
+) || [];
+assert.equal(
+  ownMessageScrollIntentMatches.length,
+  2,
+  "发送文字或语音消息时必须明确滚动到刚发送的新消息",
+);
+
 const {
   shouldAutoScrollAfterContentChange,
   isMessageListNearBottom,
