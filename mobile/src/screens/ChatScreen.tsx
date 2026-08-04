@@ -554,6 +554,23 @@ export default function ChatScreen({ route }: any) {
     setHasNewMessages(false);
   };
 
+  useEffect(() => {
+    if (loadingHistory) return;
+    const shouldPrimeScroll = shouldAutoScrollAfterContentChange({
+      initialScrollPending: initialScrollPendingRef.current,
+      explicitScrollPending: explicitScrollPendingRef.current,
+      userNearBottom: userNearBottomRef.current,
+    });
+    if (!shouldPrimeScroll) return;
+
+    const frame = requestAnimationFrame(() => {
+      flatListRef.current?.scrollToEnd({
+        animated: explicitScrollPendingRef.current && !userNearBottomRef.current,
+      });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [loadingHistory, messages.length]);
+
   const scrollToLatestMessage = () => {
     flatListRef.current?.scrollToEnd({ animated: true });
     userNearBottomRef.current = true;

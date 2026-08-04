@@ -45,6 +45,12 @@ assert.equal(
   "发送文字或语音消息时必须明确滚动到刚发送的新消息",
 );
 
+assert.match(
+  chatScreenSource,
+  /useEffect\(\(\) => \{[\s\S]*shouldAutoScrollAfterContentChange\([\s\S]*requestAnimationFrame\([\s\S]*scrollToEnd\([\s\S]*\[loadingHistory, messages\.length\]\)/,
+  "消息数量变化时必须主动唤醒虚拟列表，否则最新消息可能永远不会进入可见区域",
+);
+
 const {
   shouldAutoScrollAfterContentChange,
   isMessageListNearBottom,
