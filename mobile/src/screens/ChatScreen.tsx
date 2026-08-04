@@ -432,6 +432,7 @@ export default function ChatScreen({ route }: any) {
   const flatListRef = useRef<FlatList>(null);
   const inputRef = useRef<TextInput>(null);
   const sendButtonScale = useRef(new Animated.Value(1)).current;
+  const encryptionNoticeOpacity = useRef(new Animated.Value(0)).current;
   const animatedMessageIdsRef = useRef(new Map<string, number>());
   const lastBackgroundPulseAtRef = useRef(0);
   const userNearBottomRef = useRef(true);
@@ -496,6 +497,27 @@ export default function ChatScreen({ route }: any) {
     );
     return () => subscription.remove();
   }, []);
+
+  useEffect(() => {
+    encryptionNoticeOpacity.stopAnimation();
+    if (!isFocused || !isEncryptionReady) {
+      encryptionNoticeOpacity.setValue(0);
+      return;
+    }
+
+    encryptionNoticeOpacity.setValue(1);
+    const animation = Animated.sequence([
+      Animated.delay(2000),
+      Animated.timing(encryptionNoticeOpacity, {
+        toValue: 0,
+        duration: reduceMotion ? 0 : 180,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]);
+    animation.start();
+    return () => animation.stop();
+  }, [encryptionNoticeOpacity, isEncryptionReady, isFocused, reduceMotion]);
 
   const handleMessageListScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentSize, layoutMeasurement, contentOffset } = event.nativeEvent;
@@ -1145,14 +1167,14 @@ export default function ChatScreen({ route }: any) {
         }}
       >
         {isEncryptionReady ? (
-          <View
+          <Animated.View
             pointerEvents="none"
-            style={styles.encryptionNotice}
+            style={[styles.encryptionNotice, { opacity: encryptionNoticeOpacity }]}
             accessibilityLiveRegion="polite"
           >
             <LockMark />
             <Text style={styles.encryptionNoticeText}>仅你和对方可读取</Text>
-          </View>
+          </Animated.View>
         ) : null}
         <FlatList
           ref={flatListRef}

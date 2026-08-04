@@ -20,6 +20,8 @@ assert.match(chatSource, /deliveryStatusRead: \{ color: GRAPHITE_COLORS\.text \}
 assert.doesNotMatch(chatSource, /showEncryptionNotice/, "加密提示仍会定时卸载并造成聊天区域尺寸变化");
 assert.match(chatSource, /encryptionNotice:[\s\S]*position: "absolute"[\s\S]*backgroundColor: "transparent"/, "加密提示尚未作为透明悬浮状态显示在消息区域顶部");
 assert.match(chatSource, /msgList: \{ paddingHorizontal: 14, paddingTop: 48/, "消息列表尚未为悬浮加密提示保留稳定空间");
+assert.match(chatSource, /Animated\.delay\(2000\)[\s\S]*Animated\.timing\(encryptionNoticeOpacity,[\s\S]*toValue: 0/, "加密提示尚未在进入聊天页两秒后淡出");
+assert.match(chatSource, /<Animated\.View[\s\S]*styles\.encryptionNotice[\s\S]*opacity: encryptionNoticeOpacity/, "加密提示淡出不应卸载节点或改变消息列表布局");
 assert.match(chatSource, /sendBtnTextDisabled/, "发送按钮禁用状态缺少独立文字对比度");
 assert.match(voiceSource, /GRAPHITE_COLORS/, "语音录制和播放组件尚未迁移到 Graphite Flow");
 assert.doesNotMatch(
