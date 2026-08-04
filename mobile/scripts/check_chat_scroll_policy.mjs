@@ -12,6 +12,30 @@ assert.doesNotMatch(
   "ChatScreen 仍会在任意内容尺寸变化时无条件滚到底部",
 );
 
+assert.match(
+  chatScreenSource,
+  /showsVerticalScrollIndicator=\{Platform\.OS !== "web"\}/,
+  "Web 聊天列表仍会显示浏览器原生高对比滚动条",
+);
+
+assert.match(
+  chatScreenSource,
+  /WEB_SCROLL_THUMB_HEIGHT\s*=\s*42/,
+  "Web 聊天列表尚未使用固定小尺寸滚动滑块",
+);
+
+assert.match(
+  chatScreenSource,
+  /styles\.webScrollTrack/,
+  "Web 聊天列表尚未提供贴合 Graphite 背景的自定义滚动轨道",
+);
+
+assert.match(
+  chatScreenSource,
+  /webScrollThumbY\.setValue\(progress \* travel\)/,
+  "Web 自定义滚动滑块尚未跟随聊天阅读位置",
+);
+
 const {
   shouldAutoScrollAfterContentChange,
   isMessageListNearBottom,

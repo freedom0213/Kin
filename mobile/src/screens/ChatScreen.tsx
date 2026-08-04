@@ -52,6 +52,8 @@ interface Message {
 type InputMode = "text" | "voice";
 
 const EMOJIS = ["😀", "😂", "🥹", "😊", "😍", "🤔", "👍", "👏", "❤️", "🎉", "🌙", "✨"];
+const WEB_SCROLL_TRACK_INSET = 8;
+const WEB_SCROLL_THUMB_HEIGHT = 42;
 
 function formatMessageTime(value: string): string {
   const date = new Date(value);
@@ -439,10 +441,14 @@ export default function ChatScreen({ route }: any) {
   const lastTypingSentRef = useRef(0);
   const typingHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryingMessageIdsRef = useRef(new Set<string>());
+  const webScrollThumbY = useRef(new Animated.Value(0)).current;
+  const webScrollMetricsRef = useRef({ contentHeight: 0, viewportHeight: 0, offsetY: 0 });
+  const webScrollVisibleRef = useRef(false);
 
   const [mySecretKey, setMySecretKey] = useState<string | null>(null);
   const [localKeyState, setLocalKeyState] = useState<"loading" | "ready" | "missing" | "error">("loading");
   const [inputHeight, setInputHeight] = useState(48);
+  const [showWebScrollIndicator, setShowWebScrollIndicator] = useState(false);
   const friendPublicKey: string | null = friend.public_key || null;
   const [loadingHistory, setLoadingHistory] = useState(true);
   const encryptionState: EncryptionState = !friendPublicKey
@@ -461,6 +467,28 @@ export default function ChatScreen({ route }: any) {
     setBackgroundPulse((current) => ({ key: current.key + 1, side }));
   };
 
+  const updateWebScrollIndicator = (metrics: Partial<{
+    contentHeight: number;
+    viewportHeight: number;
+    offsetY: number;
+  }>) => {
+    if (Platform.OS !== "web") return;
+    webScrollMetricsRef.current = { ...webScrollMetricsRef.current, ...metrics };
+    const { contentHeight, viewportHeight, offsetY } = webScrollMetricsRef.current;
+    const scrollableHeight = Math.max(0, contentHeight - viewportHeight);
+    const shouldShow = scrollableHeight > 1 && viewportHeight > WEB_SCROLL_THUMB_HEIGHT;
+    if (webScrollVisibleRef.current !== shouldShow) {
+      webScrollVisibleRef.current = shouldShow;
+      setShowWebScrollIndicator(shouldShow);
+    }
+    const trackHeight = Math.max(0, viewportHeight - WEB_SCROLL_TRACK_INSET * 2);
+    const travel = Math.max(0, trackHeight - WEB_SCROLL_THUMB_HEIGHT);
+    const progress = scrollableHeight > 0
+      ? Math.max(0, Math.min(1, offsetY / scrollableHeight))
+      : 0;
+    webScrollThumbY.setValue(progress * travel);
+  };
+
   useEffect(() => {
     AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
     const subscription = AccessibilityInfo.addEventListener(
@@ -472,6 +500,11 @@ export default function ChatScreen({ route }: any) {
 
   const handleMessageListScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentSize, layoutMeasurement, contentOffset } = event.nativeEvent;
+    updateWebScrollIndicator({
+      contentHeight: contentSize.height,
+      viewportHeight: layoutMeasurement.height,
+      offsetY: contentOffset.y,
+    });
     const isNearBottom = isMessageListNearBottom({
       contentHeight: contentSize.height,
       viewportHeight: layoutMeasurement.height,
@@ -481,7 +514,8 @@ export default function ChatScreen({ route }: any) {
     if (isNearBottom) setHasNewMessages(false);
   };
 
-  const handleMessageListContentChange = () => {
+  const handleMessageListContentChange = (_width: number, contentHeight: number) => {
+    updateWebScrollIndicator({ contentHeight });
     if (loadingHistory) return;
 
     const shouldScroll = shouldAutoScrollAfterContentChange({
@@ -1122,18 +1156,40 @@ export default function ChatScreen({ route }: any) {
       />
 
       {/* 消息列表 */}
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        keyExtractor={(item) => item.id}
-        renderItem={renderMessage}
-        style={styles.messageList}
-        contentContainerStyle={styles.msgList}
-        onScroll={handleMessageListScroll}
-        onContentSizeChange={handleMessageListContentChange}
-        scrollEventThrottle={16}
-        keyboardShouldPersistTaps="handled"
-      />
+      <View
+        style={styles.messageViewport}
+        onLayout={({ nativeEvent }) => {
+          updateWebScrollIndicator({ viewportHeight: nativeEvent.layout.height });
+        }}
+      >
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          keyExtractor={(item) => item.id}
+          renderItem={renderMessage}
+          style={styles.messageList}
+          contentContainerStyle={styles.msgList}
+          onScroll={handleMessageListScroll}
+          onContentSizeChange={handleMessageListContentChange}
+          scrollEventThrottle={16}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={Platform.OS !== "web"}
+        />
+        {Platform.OS === "web" && showWebScrollIndicator ? (
+          <View
+            pointerEvents="none"
+            style={styles.webScrollTrack}
+            importantForAccessibility="no-hide-descendants"
+          >
+            <Animated.View
+              style={[
+                styles.webScrollThumb,
+                { transform: [{ translateY: webScrollThumbY }] },
+              ]}
+            />
+          </View>
+        ) : null}
+      </View>
 
       {hasNewMessages ? (
         <TouchableOpacity
@@ -1390,8 +1446,18 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: GRAPHITE_COLORS.lineStrong,
   },
   offlineNoticeText: { color: GRAPHITE_COLORS.textMuted, fontSize: 13 },
-  messageList: { zIndex: 1 },
+  messageViewport: { flex: 1, zIndex: 1, position: "relative" },
+  messageList: { flex: 1 },
   msgList: { paddingHorizontal: 14, paddingTop: 18, paddingBottom: 20 },
+  webScrollTrack: {
+    position: "absolute", top: WEB_SCROLL_TRACK_INSET, right: 3, bottom: WEB_SCROLL_TRACK_INSET,
+    width: 4, borderRadius: 2, alignItems: "center",
+    backgroundColor: "rgba(235,242,237,0.025)",
+  },
+  webScrollThumb: {
+    width: 3, height: WEB_SCROLL_THUMB_HEIGHT, borderRadius: 2,
+    backgroundColor: "rgba(163,172,166,0.46)",
+  },
   messageEntry: { width: "100%" },
   newMessageButton: {
     position: "absolute", right: 18, bottom: 112, zIndex: 4,
