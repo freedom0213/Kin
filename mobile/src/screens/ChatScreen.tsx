@@ -1271,28 +1271,28 @@ const styles = StyleSheet.create({
   },
   ambientOnlineLayer: {
     position: "absolute", top: 0, right: 0, bottom: 0, left: 0,
-    backgroundColor: "rgba(24,38,31,0.36)", overflow: "hidden",
+    backgroundColor: "rgba(0,0,0,0.10)", overflow: "hidden",
   },
   ambientBlob: { position: "absolute", borderRadius: 999 },
   ambientBlobMutedOne: {
     width: 280, height: 280, top: "9%", left: -96,
-    backgroundColor: "rgba(163,172,166,0.035)",
+    backgroundColor: "rgba(235,242,237,0.022)",
   },
   ambientBlobMutedTwo: {
     width: 330, height: 330, right: -148, bottom: "7%",
-    backgroundColor: "rgba(133,143,136,0.035)",
+    backgroundColor: "rgba(235,242,237,0.018)",
   },
   ambientBlobOnlineOne: {
     width: 280, height: 280, top: "9%", left: -96,
-    backgroundColor: "rgba(105,200,164,0.075)",
+    backgroundColor: "rgba(235,242,237,0.040)",
   },
   ambientBlobOnlineTwo: {
     width: 330, height: 330, right: -148, bottom: "7%",
-    backgroundColor: "rgba(142,218,187,0.045)",
+    backgroundColor: "rgba(235,242,237,0.030)",
   },
   messageRipple: {
     position: "absolute", top: "42%", width: 72, height: 72, borderRadius: 36,
-    borderWidth: 1.5, borderColor: GRAPHITE_COLORS.primaryLine,
+    borderWidth: 1.5, borderColor: GRAPHITE_COLORS.lineStrong,
   },
   messageRippleMine: { right: -8 },
   messageRippleOther: { left: -8 },
@@ -1340,10 +1340,10 @@ const styles = StyleSheet.create({
   encryptionNotice: {
     minHeight: 36, flexDirection: "row", alignItems: "center", justifyContent: "center",
     zIndex: 2,
-    gap: 8, backgroundColor: GRAPHITE_COLORS.primarySoft,
-    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: GRAPHITE_COLORS.primaryLine,
+    gap: 8, backgroundColor: GRAPHITE_COLORS.surfaceStrong,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: GRAPHITE_COLORS.lineStrong,
   },
-  encryptionNoticeText: { color: GRAPHITE_COLORS.primaryStrong, fontSize: 13, fontWeight: "600" },
+  encryptionNoticeText: { color: GRAPHITE_COLORS.textMuted, fontSize: 13, fontWeight: "600" },
   securityNotice: {
     minHeight: 40, paddingHorizontal: 14,
     flexDirection: "row", alignItems: "center", justifyContent: "center",
@@ -1376,20 +1376,20 @@ const styles = StyleSheet.create({
     position: "absolute", right: 18, bottom: 112, zIndex: 4,
     minHeight: 48, paddingHorizontal: 16, borderRadius: 24,
     alignItems: "center", justifyContent: "center",
-    backgroundColor: GRAPHITE_COLORS.primary,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: GRAPHITE_COLORS.primaryStrong,
+    backgroundColor: GRAPHITE_COLORS.surfacePressed,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: GRAPHITE_COLORS.lineStrong,
     shadowColor: GRAPHITE_COLORS.shadow, shadowOpacity: 0.32, shadowRadius: 8,
     shadowOffset: { width: 0, height: 3 }, elevation: 4,
   },
-  newMessageButtonText: { color: GRAPHITE_COLORS.onPrimary, fontSize: 13, fontWeight: "800" },
+  newMessageButtonText: { color: GRAPHITE_COLORS.text, fontSize: 13, fontWeight: "800" },
   msgBubble: {
     maxWidth: "82%", minWidth: 76,
     paddingHorizontal: 14, paddingTop: 10, paddingBottom: 7,
     borderRadius: 18, marginBottom: 8,
   },
   msgMine: {
-    alignSelf: "flex-end", backgroundColor: GRAPHITE_COLORS.primaryDeep, borderBottomRightRadius: 6,
-    borderWidth: StyleSheet.hairlineWidth, borderColor: GRAPHITE_COLORS.primaryLine,
+    alignSelf: "flex-end", backgroundColor: GRAPHITE_COLORS.surfacePressed, borderBottomRightRadius: 6,
+    borderWidth: StyleSheet.hairlineWidth, borderColor: GRAPHITE_COLORS.lineStrong,
   },
   msgOther: {
     alignSelf: "flex-start", backgroundColor: GRAPHITE_COLORS.surfaceStrong, borderBottomLeftRadius: 6,
@@ -1407,7 +1407,7 @@ const styles = StyleSheet.create({
     minWidth: 12, color: GRAPHITE_COLORS.textMuted,
     fontSize: 11, fontWeight: "600", letterSpacing: -2,
   },
-  deliveryStatusRead: { color: GRAPHITE_COLORS.primaryStrong },
+  deliveryStatusRead: { color: GRAPHITE_COLORS.text },
   deliveryStatusFailed: { color: GRAPHITE_COLORS.danger, letterSpacing: 0 },
   retryStatusButton: {
     minWidth: 22, minHeight: 22, marginVertical: -3, marginRight: -4,
@@ -1424,7 +1424,7 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth, borderColor: GRAPHITE_COLORS.lineStrong,
   },
   typingDot: {
-    width: 5, height: 5, borderRadius: 3, backgroundColor: GRAPHITE_COLORS.primary,
+    width: 5, height: 5, borderRadius: 3, backgroundColor: GRAPHITE_COLORS.textMuted,
   },
   inputBar: {
     flexDirection: "row", alignItems: "flex-end",
@@ -1442,7 +1442,7 @@ const styles = StyleSheet.create({
     width: 48, height: 48, borderRadius: 24,
     alignItems: "center", justifyContent: "center", backgroundColor: GRAPHITE_COLORS.surfacePressed,
   },
-  inputIconButtonActive: { backgroundColor: GRAPHITE_COLORS.primarySoft },
+  inputIconButtonActive: { backgroundColor: GRAPHITE_COLORS.surfaceStrong },
   voiceModeIcon: { width: 22, height: 24, alignItems: "center" },
   voiceModeCapsule: {
     width: 8, height: 13, borderRadius: 4,
@@ -1481,12 +1481,13 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 8, borderBottomRightRadius: 8,
   },
   sendBtn: {
-    minWidth: 62, height: 48, backgroundColor: GRAPHITE_COLORS.primary, borderRadius: 24,
+    minWidth: 62, height: 48, backgroundColor: GRAPHITE_COLORS.surfaceStrong, borderRadius: 24,
     paddingHorizontal: 14, alignItems: "center", justifyContent: "center",
+    borderWidth: StyleSheet.hairlineWidth, borderColor: GRAPHITE_COLORS.lineStrong,
   },
   sendButtonShell: { borderRadius: 24 },
   sendBtnDisabled: { backgroundColor: GRAPHITE_COLORS.surfacePressed },
-  sendBtnText: { color: GRAPHITE_COLORS.onPrimary, fontSize: 14, fontWeight: "800" },
+  sendBtnText: { color: GRAPHITE_COLORS.text, fontSize: 14, fontWeight: "800" },
   sendBtnTextDisabled: { color: GRAPHITE_COLORS.textFaint },
   emojiPanel: {
     flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between",

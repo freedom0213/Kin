@@ -362,7 +362,7 @@ export function VoiceMessageBubble({
   return (
     <TouchableOpacity onPress={togglePlay} style={styles.voiceBubble}>
       {loading ? (
-        <ActivityIndicator size="small" color={isMine ? GRAPHITE_COLORS.text : GRAPHITE_COLORS.primary} />
+        <ActivityIndicator size="small" color={isMine ? GRAPHITE_COLORS.text : GRAPHITE_COLORS.textMuted} />
       ) : (
         <View style={styles.playIconFrame}>
           {playing ? (
@@ -450,11 +450,11 @@ const styles = StyleSheet.create({
   playTriangle: {
     width: 0, height: 0, marginLeft: 2,
     borderTopWidth: 6, borderBottomWidth: 6, borderLeftWidth: 9,
-    borderTopColor: "transparent", borderBottomColor: "transparent", borderLeftColor: GRAPHITE_COLORS.primary,
+    borderTopColor: "transparent", borderBottomColor: "transparent", borderLeftColor: GRAPHITE_COLORS.textMuted,
   },
   playTriangleMine: { borderLeftColor: GRAPHITE_COLORS.text },
   pauseIcon: { flexDirection: "row", gap: 4 },
-  pauseBar: { width: 3, height: 12, borderRadius: 1, backgroundColor: GRAPHITE_COLORS.primary },
+  pauseBar: { width: 3, height: 12, borderRadius: 1, backgroundColor: GRAPHITE_COLORS.textMuted },
   iconShapeMine: { backgroundColor: GRAPHITE_COLORS.text },
   durationText: { fontSize: 13, color: GRAPHITE_COLORS.text },
   durationTextMine: { color: GRAPHITE_COLORS.text },

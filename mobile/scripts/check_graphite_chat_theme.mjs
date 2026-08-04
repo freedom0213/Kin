@@ -7,13 +7,16 @@ const [themeSource, chatSource, voiceSource] = await Promise.all([
   readFile(new URL("../src/components/VoiceMessage.tsx", import.meta.url), "utf8"),
 ]);
 
-assert.match(themeSource, /primaryDeep/, "Graphite Flow 尚未定义自己的消息气泡深绿色表面");
+assert.match(themeSource, /surfacePressed/, "Graphite Flow 尚未定义聊天页需要的深色层级表面");
 assert.match(themeSource, /warningSoft/, "Graphite Flow 尚未定义加密异常警告表面");
 assert.match(chatSource, /GRAPHITE_COLORS/, "聊天页尚未接入 Graphite Flow Token");
 assert.match(chatSource, /GRAPHITE_INPUT_COLORS/, "聊天输入框尚未显式设置深色主题输入颜色");
 assert.match(chatSource, /ExpoStatusBar style="light"/, "聊天页状态栏图标在深色背景上可能不可见");
-assert.match(chatSource, /backgroundColor: GRAPHITE_COLORS\.primaryDeep/, "自己的消息气泡尚未使用克制深绿色表面");
+assert.match(chatSource, /msgMine:[\s\S]*backgroundColor: GRAPHITE_COLORS\.surfacePressed/, "自己的消息气泡尚未切换为黑灰层级表面");
 assert.match(chatSource, /backgroundColor: GRAPHITE_COLORS\.surfaceStrong/, "对方消息和浮层尚未使用深色层级表面");
+assert.match(chatSource, /ambientOnlineLayer:[\s\S]*backgroundColor: "rgba\(0,0,0,0\.10\)"/, "在线聊天背景仍带有大面积绿色底色");
+assert.match(chatSource, /messageRipple:[\s\S]*borderColor: GRAPHITE_COLORS\.lineStrong/, "消息涟漪尚未改为中性石墨色");
+assert.match(chatSource, /deliveryStatusRead: \{ color: GRAPHITE_COLORS\.text \}/, "已读标记仍在扩大绿色视觉占比");
 assert.match(chatSource, /sendBtnTextDisabled/, "发送按钮禁用状态缺少独立文字对比度");
 assert.match(voiceSource, /GRAPHITE_COLORS/, "语音录制和播放组件尚未迁移到 Graphite Flow");
 assert.doesNotMatch(
