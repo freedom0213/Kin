@@ -27,6 +27,7 @@ import {
 import {
   GRAPHITE_COLORS,
   GRAPHITE_INPUT_COLORS,
+  PROFILE_BANNER_ASPECT_RATIO,
 } from "../theme/graphite";
 
 const COLORS = {
@@ -474,7 +475,6 @@ export default function AddFriendScreen({ navigation }: any) {
         visible={sheetVisible}
         onRequestClose={() => void closePairing(false)}
         reduceMotion={reduceMotion}
-        dragDismissEnabled={!pairing || !ACTIVE_STATUSES.has(pairing.status)}
         accessibilityLabel="碰一碰确认弹窗"
       >
         <ScrollView
@@ -700,7 +700,7 @@ const styles = StyleSheet.create({
   sheetInnerContent: { alignItems: "center", paddingTop: 6 },
   peerIdentityVisual: { width: "100%", alignItems: "center" },
   pairingBannerFrame: {
-    width: "100%", height: 116, borderRadius: 16, overflow: "hidden",
+    width: "100%", aspectRatio: PROFILE_BANNER_ASPECT_RATIO, borderRadius: 16, overflow: "hidden",
     borderWidth: StyleSheet.hairlineWidth, borderColor: COLORS.line,
     backgroundColor: GRAPHITE_COLORS.surfacePressed,
   },
@@ -731,7 +731,12 @@ const styles = StyleSheet.create({
   },
   pairingCodeLabel: { color: COLORS.muted, fontSize: 11, textAlign: "center" },
   pairingCode: { marginTop: 8, color: COLORS.ink, fontSize: 12, lineHeight: 18, textAlign: "center" },
-  sheetActions: { paddingHorizontal: 22, paddingTop: 16, flexDirection: "row", gap: 12 },
+  sheetActions: {
+    paddingHorizontal: 22, paddingTop: 14, paddingBottom: 4,
+    flexDirection: "row", gap: 12,
+    borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.line,
+    backgroundColor: COLORS.surface,
+  },
   cancelButton: {
     flex: 1, minHeight: 52, borderRadius: 16, borderWidth: 1, borderColor: COLORS.line,
     backgroundColor: GRAPHITE_COLORS.surfaceStrong, alignItems: "center", justifyContent: "center",

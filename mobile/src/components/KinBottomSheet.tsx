@@ -30,7 +30,7 @@ interface KinBottomSheetProps {
   accessibilityLabel?: string;
 }
 
-const DEFAULT_HEIGHT_RATIO = 0.72;
+const DEFAULT_HEIGHT_RATIO = 0.88;
 const EXPANDED_HEIGHT_RATIO = 0.88;
 const DISMISS_DISTANCE = 120;
 const DISMISS_VELOCITY = 1.1;
@@ -228,7 +228,7 @@ export default function KinBottomSheet({
       finishDrag(gestureState.vy);
     },
     onPanResponderTerminate: () => finishDrag(),
-    onPanResponderTerminationRequest: () => true,
+    onPanResponderTerminationRequest: () => false,
   }), [expandedHeight, finishDrag, translateY]);
 
   return (
