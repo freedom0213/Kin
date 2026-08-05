@@ -54,6 +54,9 @@ type InputMode = "text" | "voice";
 const EMOJIS = ["😀", "😂", "🥹", "😊", "😍", "🤔", "👍", "👏", "❤️", "🎉", "🌙", "✨"];
 const WEB_SCROLL_TRACK_INSET = 8;
 const WEB_SCROLL_THUMB_HEIGHT = 42;
+const COMPOSER_MIN_HEIGHT = 48;
+const COMPOSER_MAX_HEIGHT = 112;
+const COMPOSER_SINGLE_LINE_CONTENT_MAX = 32;
 
 function formatMessageTime(value: string): string {
   const date = new Date(value);
@@ -451,6 +454,7 @@ export default function ChatScreen({ route }: any) {
   const [showWebScrollIndicator, setShowWebScrollIndicator] = useState(false);
   const friendPublicKey: string | null = friend.public_key || null;
   const [loadingHistory, setLoadingHistory] = useState(true);
+  const [initialHistoryReady, setInitialHistoryReady] = useState(false);
   const encryptionState: EncryptionState = !friendPublicKey
     ? "missing_peer_key"
     : localKeyState === "ready"
@@ -556,19 +560,41 @@ export default function ChatScreen({ route }: any) {
 
   useEffect(() => {
     if (loadingHistory) return;
+    if (messages.length === 0) {
+      initialScrollPendingRef.current = false;
+      setInitialHistoryReady(true);
+      return;
+    }
     const shouldPrimeScroll = shouldAutoScrollAfterContentChange({
       initialScrollPending: initialScrollPendingRef.current,
       explicitScrollPending: explicitScrollPendingRef.current,
       userNearBottom: userNearBottomRef.current,
     });
-    if (!shouldPrimeScroll) return;
+    if (!shouldPrimeScroll) {
+      setInitialHistoryReady(true);
+      return;
+    }
 
+    const preparingInitialHistory = !initialHistoryReady;
+    let readyFrame: number | null = null;
     const frame = requestAnimationFrame(() => {
       flatListRef.current?.scrollToEnd({
-        animated: explicitScrollPendingRef.current && !userNearBottomRef.current,
+        animated: !preparingInitialHistory
+          && explicitScrollPendingRef.current
+          && !userNearBottomRef.current,
       });
+      if (preparingInitialHistory) {
+        readyFrame = requestAnimationFrame(() => {
+          initialScrollPendingRef.current = false;
+          userNearBottomRef.current = true;
+          setInitialHistoryReady(true);
+        });
+      }
     });
-    return () => cancelAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(frame);
+      if (readyFrame !== null) cancelAnimationFrame(readyFrame);
+    };
   }, [loadingHistory, messages.length]);
 
   const scrollToLatestMessage = () => {
@@ -1109,10 +1135,16 @@ export default function ChatScreen({ route }: any) {
   const sendDisabled = inputMode === "voice" || !inputText.trim() || !isEncryptionReady;
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-    >
+    <View style={styles.container}>
+      <ChatAmbientBackground
+        isOnline={isOnline}
+        pulseKey={backgroundPulse.key}
+        pulseSide={backgroundPulse.side}
+      />
+      <KeyboardAvoidingView
+        style={styles.contentLayer}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
       {isFocused ? <ExpoStatusBar style="light" /> : null}
       <View style={[styles.header, { paddingTop: Math.max(insets.top, 12) }]}>
         <TouchableOpacity
@@ -1170,12 +1202,6 @@ export default function ChatScreen({ route }: any) {
         </View>
       ) : null}
 
-      <ChatAmbientBackground
-        isOnline={isOnline}
-        pulseKey={backgroundPulse.key}
-        pulseSide={backgroundPulse.side}
-      />
-
       {/* 消息列表 */}
       <View
         style={styles.messageViewport}
@@ -1196,11 +1222,14 @@ export default function ChatScreen({ route }: any) {
         <FlatList
           ref={flatListRef}
           data={messages}
-          initialNumToRender={50}
-          maxToRenderPerBatch={50}
+          initialNumToRender={18}
+          maxToRenderPerBatch={12}
+          updateCellsBatchingPeriod={32}
+          windowSize={7}
+          removeClippedSubviews={Platform.OS === "android"}
           keyExtractor={(item) => item.id}
           renderItem={renderMessage}
-          style={styles.messageList}
+          style={[styles.messageList, !initialHistoryReady && styles.messageListPreparing]}
           contentContainerStyle={styles.msgList}
           onScroll={handleMessageListScroll}
           onContentSizeChange={handleMessageListContentChange}
@@ -1280,10 +1309,10 @@ export default function ChatScreen({ route }: any) {
             textAlignVertical={inputHeight > 52 ? "top" : "center"}
             onContentSizeChange={({ nativeEvent }) => {
               if (Platform.OS === "web") return;
-              const nextHeight = Math.max(
-                48,
-                Math.min(112, Math.ceil(nativeEvent.contentSize.height) + 20),
-              );
+              const measuredHeight = Math.ceil(nativeEvent.contentSize.height);
+              const nextHeight = measuredHeight <= COMPOSER_SINGLE_LINE_CONTENT_MAX
+                ? COMPOSER_MIN_HEIGHT
+                : Math.min(COMPOSER_MAX_HEIGHT, measuredHeight + 16);
               setInputHeight((current) => current === nextHeight ? current : nextHeight);
             }}
             maxLength={2000}
@@ -1365,12 +1394,14 @@ export default function ChatScreen({ route }: any) {
         </>
       ) : null}
       {dialog}
-    </KeyboardAvoidingView>
+      </KeyboardAvoidingView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: GRAPHITE_COLORS.canvas },
+  contentLayer: { flex: 1, backgroundColor: "transparent" },
   ambientRoot: {
     position: "absolute", top: 0, right: 0, bottom: 0, left: 0,
     zIndex: 0, overflow: "hidden",
@@ -1480,6 +1511,7 @@ const styles = StyleSheet.create({
   offlineNoticeText: { color: GRAPHITE_COLORS.textMuted, fontSize: 13 },
   messageViewport: { flex: 1, zIndex: 1, position: "relative" },
   messageList: { flex: 1 },
+  messageListPreparing: { opacity: 0 },
   msgList: { paddingHorizontal: 14, paddingTop: 48, paddingBottom: 20 },
   webScrollTrack: {
     position: "absolute", top: WEB_SCROLL_TRACK_INSET, right: 3, bottom: WEB_SCROLL_TRACK_INSET,
@@ -1502,9 +1534,9 @@ const styles = StyleSheet.create({
   },
   newMessageButtonText: { color: GRAPHITE_COLORS.text, fontSize: 13, fontWeight: "800" },
   msgBubble: {
-    maxWidth: "82%", minWidth: 76,
-    paddingHorizontal: 14, paddingTop: 10, paddingBottom: 7,
-    borderRadius: 18, marginBottom: 8,
+    maxWidth: "82%", minWidth: 54,
+    paddingHorizontal: 12, paddingTop: 7, paddingBottom: 5,
+    borderRadius: 16, marginBottom: 6,
   },
   msgMine: {
     alignSelf: "flex-end", backgroundColor: GRAPHITE_COLORS.surfacePressed, borderBottomRightRadius: 6,
@@ -1514,11 +1546,11 @@ const styles = StyleSheet.create({
     alignSelf: "flex-start", backgroundColor: GRAPHITE_COLORS.surfaceStrong, borderBottomLeftRadius: 6,
     borderWidth: StyleSheet.hairlineWidth, borderColor: GRAPHITE_COLORS.lineStrong,
   },
-  msgTextMine: { color: GRAPHITE_COLORS.text, fontSize: 16, lineHeight: 23 },
-  msgTextOther: { color: GRAPHITE_COLORS.text, fontSize: 16, lineHeight: 23 },
+  msgTextMine: { color: GRAPHITE_COLORS.text, fontSize: 15, lineHeight: 22 },
+  msgTextOther: { color: GRAPHITE_COLORS.text, fontSize: 15, lineHeight: 22 },
   messageMeta: {
     alignSelf: "flex-end", flexDirection: "row", alignItems: "center",
-    minHeight: 16, gap: 4, marginTop: 3,
+    minHeight: 14, gap: 3, marginTop: 1,
   },
   messageTime: { color: GRAPHITE_COLORS.textFaint, fontSize: 10, fontVariant: ["tabular-nums"] },
   messageTimeMine: { color: GRAPHITE_COLORS.textMuted },

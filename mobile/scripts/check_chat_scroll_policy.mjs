@@ -53,7 +53,7 @@ assert.match(
 
 assert.match(
   chatScreenSource,
-  /<FlatList[\s\S]*initialNumToRender=\{50\}[\s\S]*maxToRenderPerBatch=\{50\}/,
+  /<FlatList[\s\S]*initialNumToRender=\{18\}[\s\S]*maxToRenderPerBatch=\{12\}[\s\S]*windowSize=\{7\}/,
   "聊天页必须完整渲染当前 50 条历史批次，否则最近消息可能只有数据却没有可见节点",
 );
 
