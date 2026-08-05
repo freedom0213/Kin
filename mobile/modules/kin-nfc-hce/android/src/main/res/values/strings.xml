@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="kin_hce_service_description">Kin 碰一碰</string>
+  <string name="kin_hce_aid_description">Kin 临时好友配对</string>
+</resources>

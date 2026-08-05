@@ -1,133 +1,159 @@
-/** NFC 碰一碰服务 — 基于 react-native-nfc-manager v3 */
+/** Android 物理碰一碰：发起方 HCE 模拟卡，接收方 IsoDep Reader Mode。 */
 
-import NfcManager, { NfcTech, Ndef, NfcEvents, TagEvent } from "react-native-nfc-manager";
+import { Platform } from "react-native";
+import NfcManager, { NfcAdapter, NfcTech } from "react-native-nfc-manager";
+import {
+  getKinHceCapabilities,
+  startKinHceSharing,
+  stopKinHceSharing,
+  type KinHceCapabilities,
+} from "../native/kinNfcHce";
 
-let _initialized = false;
+const KIN_AID = [0xF0, 0x4B, 0x49, 0x4E, 0x30, 0x31];
+const SELECT_KIN_AID_APDU = [0x00, 0xA4, 0x04, 0x00, KIN_AID.length, ...KIN_AID, 0x00];
+const PROTOCOL_PREFIX = "KIN1:";
+const TOKEN_PATTERN = /^[A-Za-z0-9_-]{20,128}$/;
 
-/** 初始化 NFC 模块（应用启动时调用一次） */
+export interface NfcCapabilities extends KinHceCapabilities {
+  platformSupported: boolean;
+}
+
+let initialized = false;
+
 export async function initNfc(): Promise<boolean> {
-  if (_initialized) return true;
+  if (Platform.OS !== "android") return false;
+  if (initialized) return true;
   try {
     const supported = await NfcManager.isSupported();
-    if (supported) {
-      await NfcManager.start();
-      _initialized = true;
-    }
-    return supported || false;
+    if (!supported) return false;
+    await NfcManager.start();
+    initialized = true;
+    return true;
   } catch {
     return false;
   }
 }
 
-/** 设备是否支持 NFC */
-export async function isNfcAvailable(): Promise<boolean> {
-  try {
-    return await NfcManager.isSupported();
-  } catch {
-    return false;
-  }
-}
-
-/** 清理 NFC 资源（离开加好友页面时调用） */
-export async function cancelNfc(): Promise<void> {
-  try {
-    NfcManager.setEventListener(NfcEvents.DiscoverTag, null);
-    NfcManager.setEventListener(NfcEvents.SessionClosed, null);
-    await NfcManager.cancelTechnologyRequest();
-    await NfcManager.unregisterTagEvent();
-  } catch {
-    // 忽略清理阶段的错误
-  }
-}
-
-// -- 发送模式：将 token 编码为 NDEF 写入 NFC --
-
-/** 启动 NFC 发送，将 token 写入 NDEF 消息等待对方读取。返回 cancel 函数 */
-export async function startNfcSend(token: string): Promise<() => void> {
-  await NfcManager.requestTechnology(NfcTech.Ndef);
-
-  // 编码 NDEF 文本记录
-  const ndefBytes = Ndef.encodeMessage([Ndef.textRecord(token)]);
-  await NfcManager.ndefHandler.writeNdefMessage(ndefBytes);
-
-  const cancel = async () => {
-    try {
-      await NfcManager.cancelTechnologyRequest();
-    } catch { /* ignore */ }
-  };
-
-  return cancel;
-}
-
-// -- 接收模式：前台调度监听 NFC tag，读取 token --
-
-/** 启动 NFC 接收模式，返回读取到的 token。超时抛出错误 */
-export function startNfcReceive(timeoutMs = 60000): Promise<string> {
-  return new Promise<string>(async (resolve, reject) => {
-    let settled = false;
-
-    // 超时定时器
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      NfcManager.setEventListener(NfcEvents.DiscoverTag, null);
-      NfcManager.unregisterTagEvent().catch(() => {});
-      reject(new Error("NFC 扫描超时，请重新碰一碰"));
-    }, timeoutMs);
-
-    // 发现 NFC tag 的回调
-    const onTagDiscovered = (tag: TagEvent) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-
-      try {
-        const ndefMessage = tag?.ndefMessage;
-        if (!ndefMessage || ndefMessage.length === 0) {
-          reject(new Error("未检测到 NFC 数据，请重试"));
-          return;
-        }
-
-        const firstRecord = ndefMessage[0];
-        if (!firstRecord?.payload) {
-          reject(new Error("NFC 数据为空"));
-          return;
-        }
-
-        // payload 是 any[]，转为 Uint8Array 调用 decodePayload
-        const payloadBytes = new Uint8Array(firstRecord.payload as number[]);
-        const token = Ndef.text.decodePayload(payloadBytes);
-
-        if (!token) {
-          reject(new Error("无法解析 NFC 数据"));
-          return;
-        }
-
-        // 读取成功，清理并返回
-        NfcManager.unregisterTagEvent().catch(() => {});
-        NfcManager.setEventListener(NfcEvents.DiscoverTag, null);
-        resolve(token);
-      } catch (e: any) {
-        reject(new Error(e.message || "NFC 读取失败"));
-      }
+export async function getNfcCapabilities(): Promise<NfcCapabilities> {
+  if (Platform.OS !== "android") {
+    return {
+      platformSupported: false,
+      nativeModuleAvailable: false,
+      nfcSupported: false,
+      nfcEnabled: false,
+      hceSupported: false,
     };
+  }
 
-    // 注册事件监听
-    NfcManager.setEventListener(NfcEvents.DiscoverTag, onTagDiscovered);
-
-    // 启动前台调度
+  const managerSupported = await initNfc();
+  let managerEnabled = false;
+  if (managerSupported) {
     try {
-      await NfcManager.registerTagEvent({
-        invalidateAfterFirstRead: true,
-        alertMessage: "将手机靠近对方的手机",
-      });
-    } catch (e: any) {
-      if (!settled) {
-        settled = true;
-        clearTimeout(timer);
-        NfcManager.setEventListener(NfcEvents.DiscoverTag, null);
-        reject(new Error("NFC 启动失败: " + (e.message || "未知错误")));
-      }
-    }
+      managerEnabled = await NfcManager.isEnabled();
+    } catch { /* native capability result remains authoritative */ }
+  }
+
+  try {
+    const nativeCapabilities = await getKinHceCapabilities();
+    return {
+      ...nativeCapabilities,
+      platformSupported: true,
+      nfcSupported: managerSupported && nativeCapabilities.nfcSupported,
+      nfcEnabled: managerEnabled && nativeCapabilities.nfcEnabled,
+    };
+  } catch {
+    return {
+      platformSupported: true,
+      nativeModuleAvailable: false,
+      nfcSupported: managerSupported,
+      nfcEnabled: managerEnabled,
+      hceSupported: false,
+    };
+  }
+}
+
+export async function isNfcAvailable(): Promise<boolean> {
+  const capabilities = await getNfcCapabilities();
+  return capabilities.nfcSupported && capabilities.nfcEnabled;
+}
+
+export async function cancelNfc(): Promise<void> {
+  await stopKinHceSharing().catch(() => {});
+  try {
+    await NfcManager.cancelTechnologyRequest({ throwOnError: false });
+  } catch { /* cleanup is best effort */ }
+  try {
+    await NfcManager.unregisterTagEvent();
+  } catch { /* no tag event may be active */ }
+}
+
+/** 发起方开启 HCE，等待另一台处于 Reader Mode 的 Android 手机靠近。 */
+export async function startNfcSend(token: string): Promise<() => void> {
+  const capabilities = await getNfcCapabilities();
+  if (!capabilities.platformSupported) throw new Error("物理碰一碰目前仅支持 Android");
+  if (!capabilities.nativeModuleAvailable) throw new Error("请安装包含 HCE 模块的新版 Kin APK");
+  if (!capabilities.nfcSupported) throw new Error("这台手机不支持 NFC，可使用配对码");
+  if (!capabilities.nfcEnabled) throw new Error("请先在系统设置中打开 NFC");
+  if (!capabilities.hceSupported) throw new Error("这台手机不支持发起物理碰一碰，可使用配对码");
+  if (!TOKEN_PATTERN.test(token)) throw new Error("配对凭证格式无效，请重新发起");
+
+  await startKinHceSharing(token, 120);
+  return () => { void stopKinHceSharing(); };
+}
+
+function decodeKinResponse(response: number[]): string {
+  if (response.length < 2) throw new Error("碰一碰返回数据不完整，请重新靠近");
+  const statusWord = response.slice(-2);
+  if (statusWord[0] === 0x69 && statusWord[1] === 0x85) {
+    throw new Error("对方的碰一碰会话已停止或过期");
+  }
+  if (statusWord[0] !== 0x90 || statusWord[1] !== 0x00) {
+    throw new Error("附近设备不是可用的 Kin 碰一碰发起方");
+  }
+  const payload = String.fromCharCode(...response.slice(0, -2));
+  if (!payload.startsWith(PROTOCOL_PREFIX)) {
+    throw new Error("碰一碰协议不匹配，请确认双方使用同一版 Kin");
+  }
+  const token = payload.slice(PROTOCOL_PREFIX.length);
+  if (!TOKEN_PATTERN.test(token)) throw new Error("读取到的配对凭证无效");
+  return token;
+}
+
+/** 接收方进入 Android IsoDep Reader Mode，读取发起方 HCE 返回的短期配对码。 */
+export async function startNfcReceive(timeoutMs = 60_000): Promise<string> {
+  const capabilities = await getNfcCapabilities();
+  if (!capabilities.platformSupported) throw new Error("物理碰一碰目前仅支持 Android");
+  if (!capabilities.nfcSupported) throw new Error("这台手机不支持 NFC，可使用配对码");
+  if (!capabilities.nfcEnabled) throw new Error("请先在系统设置中打开 NFC");
+
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const receive = (async () => {
+    await NfcManager.requestTechnology(NfcTech.IsoDep, {
+      alertMessage: "请将两台手机背部靠近",
+      isReaderModeEnabled: true,
+      readerModeFlags: NfcAdapter.FLAG_READER_NFC_A | NfcAdapter.FLAG_READER_SKIP_NDEF_CHECK,
+      readerModeDelay: 0,
+    });
+    await NfcManager.setTimeout(5_000);
+    const response = await NfcManager.isoDepHandler.transceive(SELECT_KIN_AID_APDU);
+    return decodeKinResponse(response);
+  })();
+
+  const timeout = new Promise<string>((_, reject) => {
+    timer = setTimeout(() => reject(new Error("没有检测到发起碰一碰的 Android 手机，请重新尝试")), timeoutMs);
   });
+
+  try {
+    return await Promise.race([receive, timeout]);
+  } catch (error: any) {
+    const message = String(error?.message || error || "");
+    if (/cancel|cancelled|canceled/i.test(message)) throw new Error("已取消接收附近设备");
+    if (/unsupported tag api/i.test(message)) {
+      throw new Error("当前 APK 仍在使用旧 NFC 标签流程，请安装新版 Kin APK");
+    }
+    throw error instanceof Error ? error : new Error("NFC 读取失败，请重新靠近");
+  } finally {
+    if (timer) clearTimeout(timer);
+    await NfcManager.cancelTechnologyRequest({ throwOnError: false }).catch(() => {});
+  }
 }

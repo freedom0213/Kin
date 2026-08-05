@@ -12,7 +12,9 @@ assert.match(screenSource, /ExpoStatusBar style="light"/, "添加好友页状态
 assert.match(screenSource, /reduceMotion=\{reduceMotion\}/, "设备靠近图形尚未尊重减少动态效果");
 assert.match(screenSource, /resizeMode="contain"/, "配对背景名片尚未保持原比例显示");
 assert.match(screenSource, /resolveMediaUrl\(pairing\.peer\.avatar\)/, "配对头像尚未解析服务端媒体地址");
-assert.match(screenSource, /NFC 不可用，可使用配对码/, "NFC 不可用状态缺少明确备用方案");
+assert.match(screenSource, /无法碰一碰？使用配对码/, "NFC 不可用状态缺少可见的配对码入口");
+assert.match(screenSource, /不支持 NFC，可使用配对码/, "不支持 NFC 时缺少明确备用方案");
+assert.match(screenSource, /不支持发起 HCE 碰一碰，请使用下方配对码/, "不支持 HCE 时缺少明确备用方案");
 assert.match(screenSource, /headerAction: \{ width: 48, height: 48/, "返回操作触控目标不足 48 dp");
 assert.match(screenSource, /fallbackToggle: \{ minHeight: 48/, "配对码入口触控目标不足 48 dp");
 assert.match(sheetSource, /GRAPHITE_COLORS\.surface/, "统一 Bottom Sheet 尚未迁移到深色表面");

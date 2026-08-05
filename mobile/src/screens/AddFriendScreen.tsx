@@ -22,7 +22,8 @@ import {
 } from "../api/client";
 import { kinWS } from "../api/ws";
 import {
-  cancelNfc, initNfc, startNfcReceive, startNfcSend,
+  cancelNfc, getNfcCapabilities, startNfcReceive, startNfcSend,
+  type NfcCapabilities,
 } from "../services/nfc";
 import {
   GRAPHITE_COLORS,
@@ -126,7 +127,7 @@ function DevicePairVisual({
 export default function AddFriendScreen({ navigation }: any) {
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
-  const [nfcAvailable, setNfcAvailable] = useState<boolean | null>(null);
+  const [nfcCapabilities, setNfcCapabilities] = useState<NfcCapabilities | null>(null);
   const [pairing, setPairing] = useState<PairingSession | null>(null);
   const [sheetVisible, setSheetVisible] = useState(false);
   const [sheetMode, setSheetMode] = useState<SheetMode>("pairing");
@@ -151,8 +152,8 @@ export default function AddFriendScreen({ navigation }: any) {
 
   useEffect(() => {
     let mounted = true;
-    void initNfc().then((available) => {
-      if (mounted) setNfcAvailable(available);
+    void getNfcCapabilities().then((capabilities) => {
+      if (mounted) setNfcCapabilities(capabilities);
     });
     AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
     const motionSubscription = AccessibilityInfo.addEventListener("reduceMotionChanged", setReduceMotion);
@@ -163,6 +164,20 @@ export default function AddFriendScreen({ navigation }: any) {
       void cancelNfc();
     };
   }, []);
+
+  const nfcAvailable = !!nfcCapabilities?.nfcSupported && !!nfcCapabilities?.nfcEnabled;
+  const hceAvailable = nfcAvailable
+    && !!nfcCapabilities?.nativeModuleAvailable
+    && !!nfcCapabilities?.hceSupported;
+  const capabilityCopy = useMemo(() => {
+    if (!nfcCapabilities) return "正在检查这台设备";
+    if (!nfcCapabilities.platformSupported) return "物理碰一碰目前仅支持 Android，可使用配对码";
+    if (!nfcCapabilities.nativeModuleAvailable) return "当前 APK 不含 HCE 模块，请更新后使用配对码";
+    if (!nfcCapabilities.nfcSupported) return "这台设备不支持 NFC，可使用配对码";
+    if (!nfcCapabilities.nfcEnabled) return "NFC 尚未开启，可在系统设置打开或使用配对码";
+    if (!nfcCapabilities.hceSupported) return "本机可接收 NFC，但不能发起 HCE；发起时请使用配对码";
+    return "支持 Android 物理碰一碰，也可使用配对码";
+  }, [nfcCapabilities]);
 
   useEffect(() => {
     const onPairingUpdated = (data: any) => {
@@ -221,14 +236,22 @@ export default function AddFriendScreen({ navigation }: any) {
       updatePairing(created);
       setSheetMode("pairing");
       setSheetVisible(true);
-      if (nfcAvailable && created.token) {
-        void startNfcSend(created.token).then((cancel) => {
-          nfcCancelRef.current = cancel;
-        }).catch((error: any) => {
+      if (hceAvailable && created.token) {
+        try {
+          nfcCancelRef.current = await startNfcSend(created.token);
+        } catch (error: any) {
           setSheetMessage(error.message || "NFC 暂时无法发送，可使用下方配对码");
-        });
+        }
       } else {
-        setSheetMessage("这台设备暂时无法使用 NFC，可使用下方配对码完成测试");
+        setSheetMessage(
+          !nfcCapabilities?.nativeModuleAvailable
+            ? "当前 APK 尚未包含 HCE 模块，请使用配对码或安装新版 Kin"
+            : !nfcCapabilities?.hceSupported
+              ? "这台手机不支持发起 HCE 碰一碰，请使用下方配对码"
+              : !nfcCapabilities?.nfcEnabled
+                ? "NFC 尚未开启，请打开系统 NFC 或使用下方配对码"
+                : "物理碰一碰暂时不可用，请使用下方配对码",
+        );
       }
     } catch (error: any) {
       setSheetMode("error");
@@ -415,14 +438,10 @@ export default function AddFriendScreen({ navigation }: any) {
         <View style={styles.capabilityLine}>
           <View style={[
             styles.capabilityDot,
-            nfcAvailable ? styles.capabilityAvailable : styles.capabilityUnavailable,
+            hceAvailable ? styles.capabilityAvailable : styles.capabilityUnavailable,
           ]} />
           <Text style={styles.capabilityText}>
-            {nfcAvailable === null
-              ? "正在检查这台设备"
-              : nfcAvailable
-                ? "NFC 已可用"
-                : "NFC 不可用，可使用配对码"}
+            {capabilityCopy}
           </Text>
         </View>
 
