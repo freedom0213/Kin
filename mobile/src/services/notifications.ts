@@ -53,14 +53,12 @@ async function configureAndroidChannels(): Promise<void> {
       name: "聊天消息",
       description: "好友发来的文字和语音消息",
       importance: Notifications.AndroidImportance.DEFAULT,
-      sound: "default",
       vibrationPattern: [0, 120],
     }),
     Notifications.setNotificationChannelAsync(CALL_CHANNEL_ID, {
       name: "语音来电",
       description: "Kin 好友发起的语音通话",
       importance: Notifications.AndroidImportance.MAX,
-      sound: "default",
       vibrationPattern: [0, 300, 180, 300],
     }),
   ]);

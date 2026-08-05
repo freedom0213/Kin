@@ -97,13 +97,20 @@ type ConnectionNoticeState = "restoring" | "synced" | "offline";
 function ConnectionStatusCoordinator() {
   const [notice, setNotice] = useState<ConnectionNoticeState | null>(null);
   const [reduceMotion, setReduceMotion] = useState(false);
-  const recoveryActiveRef = useRef(false);
+  const recoveryReasonRef = useRef<"probe" | "offline" | null>(null);
+  const restoringTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSyncedAtRef = useRef(0);
   const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const progress = useRef(new Animated.Value(0)).current;
 
   const clearHideTimer = useCallback(() => {
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     hideTimerRef.current = null;
+  }, []);
+
+  const clearRestoringTimer = useCallback(() => {
+    if (restoringTimerRef.current) clearTimeout(restoringTimerRef.current);
+    restoringTimerRef.current = null;
   }, []);
 
   const showNotice = useCallback((nextNotice: ConnectionNoticeState) => {
@@ -138,13 +145,23 @@ function ConnectionStatusCoordinator() {
     }).start(finish);
   }, [clearHideTimer, progress, reduceMotion]);
 
-  const showSynced = useCallback(() => {
-    if (!recoveryActiveRef.current) return;
-    recoveryActiveRef.current = false;
+  const showSynced = useCallback((force = false) => {
+    const recoveryReason = recoveryReasonRef.current;
+    recoveryReasonRef.current = null;
+    clearRestoringTimer();
+    if (!force && recoveryReason !== "offline") {
+      hideNotice();
+      return;
+    }
+    const now = Date.now();
+    if (now - lastSyncedAtRef.current < 8_000) {
+      return;
+    }
+    lastSyncedAtRef.current = now;
     showNotice("synced");
     AccessibilityInfo.announceForAccessibility("消息与在线状态已同步");
-    hideTimerRef.current = setTimeout(hideNotice, 1600);
-  }, [hideNotice, showNotice]);
+    hideTimerRef.current = setTimeout(hideNotice, 1100);
+  }, [clearRestoringTimer, hideNotice, showNotice]);
 
   useEffect(() => {
     AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion);
@@ -158,28 +175,34 @@ function ConnectionStatusCoordinator() {
   useEffect(() => {
     const onConnectionState = (data: any) => {
       if (data?.state === "restoring") {
-        recoveryActiveRef.current = true;
-        showNotice("restoring");
+        if (recoveryReasonRef.current !== "offline") recoveryReasonRef.current = "probe";
+        clearRestoringTimer();
+        restoringTimerRef.current = setTimeout(() => {
+          if (recoveryReasonRef.current) showNotice("restoring");
+        }, 650);
       } else if (data?.state === "offline") {
-        recoveryActiveRef.current = true;
+        recoveryReasonRef.current = "offline";
+        clearRestoringTimer();
         showNotice("offline");
       }
     };
     const onConnected = () => showSynced();
+    const onResumed = (data: any) => showSynced(data?.reconnected === true);
     kinWS.on("connection_state", onConnectionState);
     kinWS.on("connected", onConnected);
-    kinWS.on("resumed", onConnected);
+    kinWS.on("resumed", onResumed);
     return () => {
       kinWS.off("connection_state", onConnectionState);
       kinWS.off("connected", onConnected);
-      kinWS.off("resumed", onConnected);
+      kinWS.off("resumed", onResumed);
     };
-  }, [showNotice, showSynced]);
+  }, [clearRestoringTimer, showNotice, showSynced]);
 
   useEffect(() => () => {
     clearHideTimer();
+    clearRestoringTimer();
     progress.stopAnimation();
-  }, [clearHideTimer, progress]);
+  }, [clearHideTimer, clearRestoringTimer, progress]);
 
   if (!notice) return null;
   const copy = notice === "restoring"
@@ -829,31 +852,31 @@ function AppNavigator() {
 const styles = StyleSheet.create({
   connectionOverlay: {
     position: "absolute", left: 0, right: 0,
-    top: Platform.OS === "android" ? (StatusBar.currentHeight || 24) + 7 : 53,
+    top: Platform.OS === "android" ? (StatusBar.currentHeight || 24) + 54 : 98,
     zIndex: 90, elevation: 18,
     alignItems: "center",
   },
   connectionNotice: {
-    overflow: "hidden", maxWidth: "86%",
+    overflow: "hidden", maxWidth: "76%",
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: GRAPHITE_COLORS.lineStrong, borderRadius: 16,
+    borderColor: GRAPHITE_COLORS.lineStrong, borderRadius: 13,
     shadowColor: GRAPHITE_COLORS.shadow, shadowOpacity: 0.36,
     shadowRadius: 13, shadowOffset: { width: 0, height: 6 },
   },
   connectionBlur: {
-    minHeight: 32, paddingHorizontal: 11,
-    flexDirection: "row", alignItems: "center", gap: 6,
+    minHeight: 27, paddingHorizontal: 8,
+    flexDirection: "row", alignItems: "center", gap: 5,
     backgroundColor: "rgba(23,27,24,0.92)",
   },
   connectionMark: {
-    width: 16, height: 16, borderRadius: 8,
-    textAlign: "center", lineHeight: 16,
-    color: GRAPHITE_COLORS.textMuted, fontSize: 10, fontWeight: "800",
+    width: 14, height: 14, borderRadius: 7,
+    textAlign: "center", lineHeight: 14,
+    color: GRAPHITE_COLORS.textMuted, fontSize: 9, fontWeight: "800",
     borderWidth: StyleSheet.hairlineWidth, borderColor: GRAPHITE_COLORS.lineStrong,
   },
   connectionMarkSynced: { color: GRAPHITE_COLORS.primaryStrong, borderColor: GRAPHITE_COLORS.primaryLine },
   connectionMarkOffline: { color: GRAPHITE_COLORS.warningStrong, borderColor: GRAPHITE_COLORS.warningLine },
-  connectionText: { flexShrink: 1, color: GRAPHITE_COLORS.textMuted, fontSize: 10, fontWeight: "600" },
+  connectionText: { flexShrink: 1, color: GRAPHITE_COLORS.textMuted, fontSize: 9, fontWeight: "600" },
   incomingOverlay: {
     position: "absolute", left: 0, right: 0,
     top: Platform.OS === "android" ? (StatusBar.currentHeight || 24) + 8 : 54,
