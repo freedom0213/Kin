@@ -62,6 +62,19 @@
         {
           "nfcPermission": "允许 Kin 使用 NFC，以便通过碰一碰建立好友关系。"
         }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#080A09",
+          "image": "./assets/splash-transparent.svg",
+          "imageWidth": 1,
+          "resizeMode": "contain",
+          "dark": {
+            "backgroundColor": "#080A09",
+            "image": "./assets/splash-transparent.svg"
+          }
+        }
       ]
     ],
     "extra": {
