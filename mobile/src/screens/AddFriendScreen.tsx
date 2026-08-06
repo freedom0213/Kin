@@ -494,6 +494,8 @@ export default function AddFriendScreen({ navigation }: any) {
         visible={sheetVisible}
         onRequestClose={() => void closePairing(false)}
         reduceMotion={reduceMotion}
+        defaultHeightRatio={0.54}
+        maxHeightRatio={0.54}
         accessibilityLabel="碰一碰确认弹窗"
       >
         <ScrollView
@@ -714,36 +716,36 @@ const styles = StyleSheet.create({
   },
   manualButtonText: { color: GRAPHITE_COLORS.onPrimary, fontSize: 14, fontWeight: "800" },
   buttonDisabled: { opacity: 0.42 },
-  sheetScroll: { flex: 1, paddingHorizontal: 22 },
-  sheetContent: { flexGrow: 1, paddingBottom: 8 },
-  sheetInnerContent: { alignItems: "center", paddingTop: 6 },
-  peerIdentityVisual: { width: "100%", alignItems: "center" },
+  sheetScroll: { flex: 1, paddingHorizontal: 18 },
+  sheetContent: { flexGrow: 1, paddingBottom: 6 },
+  sheetInnerContent: { alignItems: "center" },
+  peerIdentityVisual: { width: "100%", maxWidth: 260, alignItems: "center" },
   pairingBannerFrame: {
-    width: "100%", aspectRatio: PROFILE_BANNER_ASPECT_RATIO, borderRadius: 16, overflow: "hidden",
+    width: "100%", aspectRatio: PROFILE_BANNER_ASPECT_RATIO, borderRadius: 14, overflow: "hidden",
     borderWidth: StyleSheet.hairlineWidth, borderColor: COLORS.line,
     backgroundColor: GRAPHITE_COLORS.surfacePressed,
   },
   pairingBannerImage: { width: "100%", height: "100%" },
   peerAvatar: {
-    width: 82, height: 82, borderRadius: 41, overflow: "hidden",
+    width: 68, height: 68, borderRadius: 34, overflow: "hidden",
     alignItems: "center", justifyContent: "center", backgroundColor: GRAPHITE_COLORS.surfacePressed,
   },
-  peerAvatarOverBanner: { marginTop: -30, borderWidth: 3, borderColor: COLORS.surface },
+  peerAvatarOverBanner: { marginTop: -24, borderWidth: 3, borderColor: GRAPHITE_COLORS.canvas },
   peerAvatarImage: { width: "100%", height: "100%" },
-  peerInitials: { color: GRAPHITE_COLORS.text, fontSize: 25, fontWeight: "700" },
-  sheetTitle: { marginTop: 6, color: COLORS.ink, fontSize: 22, fontWeight: "700", textAlign: "center" },
+  peerInitials: { color: GRAPHITE_COLORS.text, fontSize: 22, fontWeight: "700" },
+  sheetTitle: { marginTop: 4, color: COLORS.ink, fontSize: 20, fontWeight: "700", textAlign: "center" },
   sheetTitleError: { color: COLORS.danger },
-  peerName: { marginTop: 13, color: COLORS.ink, fontSize: 18, fontWeight: "700" },
+  peerName: { marginTop: 8, color: COLORS.ink, fontSize: 17, fontWeight: "700" },
   peerUsername: { marginTop: 3, color: COLORS.muted, fontSize: 13 },
   sheetDescription: {
-    maxWidth: 330, marginTop: 14, color: COLORS.muted,
-    fontSize: 14, lineHeight: 21, textAlign: "center",
+    maxWidth: 330, marginTop: 8, color: COLORS.muted,
+    fontSize: 13, lineHeight: 19, textAlign: "center",
   },
   inlineNotice: {
     marginTop: 14, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 12,
     backgroundColor: GRAPHITE_COLORS.surfacePressed, color: COLORS.muted, fontSize: 12, lineHeight: 18,
   },
-  countdown: { marginTop: 12, color: COLORS.faint, fontSize: 12, fontVariant: ["tabular-nums"] },
+  countdown: { marginTop: 8, color: COLORS.faint, fontSize: 11, fontVariant: ["tabular-nums"] },
   pairingCodeArea: {
     width: "100%", marginTop: 18, padding: 14, borderRadius: 14,
     backgroundColor: GRAPHITE_COLORS.surfacePressed, borderWidth: StyleSheet.hairlineWidth, borderColor: GRAPHITE_COLORS.lineStrong,
@@ -751,22 +753,22 @@ const styles = StyleSheet.create({
   pairingCodeLabel: { color: COLORS.muted, fontSize: 11, textAlign: "center" },
   pairingCode: { marginTop: 8, color: COLORS.ink, fontSize: 12, lineHeight: 18, textAlign: "center" },
   sheetActions: {
-    paddingHorizontal: 22, paddingTop: 14, paddingBottom: 4,
-    flexDirection: "row", gap: 12,
+    paddingHorizontal: 18, paddingTop: 10, paddingBottom: 4,
+    flexDirection: "row", gap: 10,
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.line,
     backgroundColor: GRAPHITE_COLORS.canvas,
   },
   cancelButton: {
-    flex: 1, minHeight: 52, borderRadius: 16, borderWidth: 1, borderColor: COLORS.line,
+    flex: 1, minHeight: 48, borderRadius: 15, borderWidth: 1, borderColor: COLORS.line,
     backgroundColor: GRAPHITE_COLORS.surfaceStrong, alignItems: "center", justifyContent: "center",
   },
   cancelButtonWide: {
-    flex: 1, minHeight: 52, borderRadius: 16, borderWidth: 1, borderColor: COLORS.line,
+    flex: 1, minHeight: 48, borderRadius: 15, borderWidth: 1, borderColor: COLORS.line,
     alignItems: "center", justifyContent: "center",
   },
   cancelButtonText: { color: COLORS.ink, fontSize: 15, fontWeight: "700" },
   confirmButton: {
-    flex: 1, minHeight: 52, borderRadius: 16,
+    flex: 1, minHeight: 48, borderRadius: 15,
     backgroundColor: COLORS.accent, alignItems: "center", justifyContent: "center",
   },
   confirmedButton: { backgroundColor: GRAPHITE_COLORS.primaryDeep },

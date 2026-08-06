@@ -19,6 +19,11 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { GRAPHITE_COLORS } from "../theme/graphite";
+import {
+  BOTTOM_SHEET_DEFAULT_HEIGHT_RATIO,
+  BOTTOM_SHEET_MAX_HEIGHT_RATIO,
+  resolveBottomSheetHeights,
+} from "../services/bottomSheetLayout";
 
 interface KinBottomSheetProps {
   visible: boolean;
@@ -26,12 +31,12 @@ interface KinBottomSheetProps {
   onRequestClose: () => void;
   reduceMotion?: boolean;
   dragDismissEnabled?: boolean;
+  defaultHeightRatio?: number;
+  maxHeightRatio?: number;
   sheetStyle?: StyleProp<ViewStyle>;
   accessibilityLabel?: string;
 }
 
-const DEFAULT_HEIGHT_RATIO = 0.88;
-const EXPANDED_HEIGHT_RATIO = 0.88;
 const DISMISS_DISTANCE = 120;
 const DISMISS_VELOCITY = 1.1;
 
@@ -61,15 +66,17 @@ export default function KinBottomSheet({
   onRequestClose,
   reduceMotion = false,
   dragDismissEnabled = true,
+  defaultHeightRatio = BOTTOM_SHEET_DEFAULT_HEIGHT_RATIO,
+  maxHeightRatio = BOTTOM_SHEET_MAX_HEIGHT_RATIO,
   sheetStyle,
   accessibilityLabel = "底部弹窗",
 }: KinBottomSheetProps) {
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
-  const expandedHeight = Math.max(320, windowHeight * EXPANDED_HEIGHT_RATIO);
-  const defaultHeight = Math.min(
-    expandedHeight,
-    Math.max(360, windowHeight * DEFAULT_HEIGHT_RATIO),
+  const { expandedHeight, defaultHeight } = resolveBottomSheetHeights(
+    windowHeight,
+    defaultHeightRatio,
+    maxHeightRatio,
   );
   const defaultSnapOffset = expandedHeight - defaultHeight;
   const translateY = useRef(new Animated.Value(expandedHeight)).current;
@@ -149,7 +156,7 @@ export default function KinBottomSheet({
       closingRef.current = false;
       return;
     }
-    setIsExpanded(false);
+    setIsExpanded(defaultSnapOffset === 0);
     translateY.setValue(expandedHeight);
     scrimOpacity.setValue(0);
     Animated.parallel([
