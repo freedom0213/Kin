@@ -8,4 +8,9 @@ version = '1.0.0'
 
 android {
   namespace 'com.kin.nfchce'
+
+  defaultConfig {
+    versionCode 1
+    versionName '1.0.0'
+  }
 }
