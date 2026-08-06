@@ -6,23 +6,23 @@ const [screenSource, sheetSource] = await Promise.all([
   readFile(new URL("../src/components/KinBottomSheet.tsx", import.meta.url), "utf8"),
 ]);
 
-assert.match(screenSource, /GRAPHITE_COLORS/, "添加好友页尚未接入 Graphite Flow Token");
-assert.match(screenSource, /GRAPHITE_INPUT_COLORS/, "配对码输入框尚未设置深色输入颜色");
-assert.match(screenSource, /ExpoStatusBar style="light"/, "添加好友页状态栏图标在深色背景上可能不可见");
-assert.match(screenSource, /reduceMotion=\{reduceMotion\}/, "设备靠近图形尚未尊重减少动态效果");
-assert.match(screenSource, /resizeMode="contain"/, "配对背景名片尚未保持原比例显示");
-assert.match(screenSource, /resolveMediaUrl\(pairing\.peer\.avatar\)/, "配对头像尚未解析服务端媒体地址");
-assert.match(screenSource, /无法碰一碰？使用配对码/, "NFC 不可用状态缺少可见的配对码入口");
-assert.match(screenSource, /不支持 NFC，可使用配对码/, "不支持 NFC 时缺少明确备用方案");
-assert.match(screenSource, /不支持发起 HCE 碰一碰，请使用下方配对码/, "不支持 HCE 时缺少明确备用方案");
-assert.match(screenSource, /headerAction: \{ width: 48, height: 48/, "返回操作触控目标不足 48 dp");
-assert.match(screenSource, /fallbackToggle: \{ minHeight: 48/, "配对码入口触控目标不足 48 dp");
-assert.match(sheetSource, /GRAPHITE_COLORS\.surface/, "统一 Bottom Sheet 尚未迁移到深色表面");
-assert.match(sheetSource, /rgba\(0,0,0,0\.64\)/, "深色 Bottom Sheet 遮罩不足以建立焦点");
+assert.match(screenSource, /GRAPHITE_COLORS/, "AddFriendScreen must use Graphite tokens");
+assert.match(screenSource, /GRAPHITE_INPUT_COLORS/, "Pairing code input must use dark input tokens");
+assert.match(screenSource, /ExpoStatusBar style="light"/, "Add friend status bar must remain visible on black");
+assert.match(screenSource, /reduceMotion=\{reduceMotion\}/, "Pairing motion must respect reduce motion");
+assert.match(screenSource, /resizeMode="contain"/, "Pairing profile banner must preserve its aspect ratio");
+assert.match(screenSource, /resolveMediaUrl\(pairing\.peer\.avatar\)/, "Pairing avatar URL must be resolved");
+assert.match(screenSource, /无法碰一碰？使用配对码/, "Pairing-code fallback entry is missing");
+assert.match(screenSource, /不支持 NFC，可使用配对码/, "NFC fallback guidance is missing");
+assert.match(screenSource, /不支持发起 HCE 碰一碰，请使用下方配对码/, "HCE fallback guidance is missing");
+assert.match(screenSource, /headerAction: \{ width: 48, height: 48/, "Back target must remain at least 48dp");
+assert.match(screenSource, /fallbackToggle: \{ minHeight: 48/, "Pairing-code target must remain at least 48dp");
+assert.match(sheetSource, /backgroundColor:\s*GRAPHITE_COLORS\.canvas/, "Bottom Sheet must use pure-black canvas");
+assert.match(sheetSource, /rgba\(0,0,0,0\.64\)/, "Bottom Sheet scrim must preserve focus");
 assert.doesNotMatch(
   `${screenSource}\n${sheetSource}`,
   /#F4F5F2|#FFFFFF|#F0F2EF|#F4F6F3|#171A1F|#E2E5E1/i,
-  "添加好友页或 Bottom Sheet 仍残留旧浅色主题关键色值",
+  "Legacy light-theme colors must not return",
 );
 
-console.log("PASS: 添加好友、碰一碰状态、配对码和 Bottom Sheet 已迁移到 Graphite Flow");
+console.log("PASS: pairing screen and Bottom Sheet use the pure-black Graphite theme");

@@ -7,11 +7,11 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
-    "backgroundColor": "#080A09",
-    "primaryColor": "#080A09",
+    "backgroundColor": "#000000",
+    "primaryColor": "#000000",
     "androidStatusBar": {
       "barStyle": "light-content",
-      "backgroundColor": "#080A09"
+      "backgroundColor": "#000000"
     },
     "ios": {
       "supportsTablet": true,
@@ -20,7 +20,7 @@
     "android": {
       "package": "com.freedom0213.kin",
       "adaptiveIcon": {
-        "backgroundColor": "#080A09",
+        "backgroundColor": "#000000",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
@@ -66,11 +66,11 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#080A09",
+          "backgroundColor": "#000000",
           "image": "./assets/splash-transparent.png",
           "imageWidth": 1,
           "dark": {
-            "backgroundColor": "#080A09",
+            "backgroundColor": "#000000",
             "image": "./assets/splash-transparent.png"
           }
         }

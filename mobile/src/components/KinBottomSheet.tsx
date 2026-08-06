@@ -306,7 +306,7 @@ const styles = StyleSheet.create({
   sheet: {
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    backgroundColor: GRAPHITE_COLORS.surface,
+    backgroundColor: GRAPHITE_COLORS.canvas,
     shadowColor: GRAPHITE_COLORS.shadow,
     shadowOffset: { width: 0, height: -8 },
     shadowOpacity: 0.38,

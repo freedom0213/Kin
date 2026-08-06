@@ -12,8 +12,8 @@ assert.ok(splashPlugin, "expo-splash-screen must be explicitly configured");
 const options = splashPlugin[1];
 const transparentSplashPath = "./assets/splash-transparent.png";
 
-assert.equal(options.backgroundColor, "#080A09", "Splash background must use Graphite black");
-assert.equal(options.dark?.backgroundColor, "#080A09", "Dark splash background must match Graphite black");
+assert.equal(options.backgroundColor, "#000000", "Splash background must use pure black");
+assert.equal(options.dark?.backgroundColor, "#000000", "Dark splash background must use pure black");
 assert.equal(options.image, transparentSplashPath, "Android needs a transparent splash asset to generate splashscreen_logo");
 assert.equal(options.dark?.image, transparentSplashPath, "Dark mode must use the same transparent splash asset");
 assert.equal(options.imageWidth, 1, "Transparent splash asset must use the smallest image width");

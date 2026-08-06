@@ -1441,7 +1441,7 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center",
     paddingHorizontal: 12, paddingBottom: 10,
     zIndex: 3,
-    backgroundColor: GRAPHITE_COLORS.surface,
+    backgroundColor: GRAPHITE_COLORS.canvas,
     borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: GRAPHITE_COLORS.line,
   },
   headerAction: {
@@ -1582,7 +1582,7 @@ const styles = StyleSheet.create({
     zIndex: 2,
     paddingHorizontal: 8, paddingTop: 8,
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: GRAPHITE_COLORS.line,
-    backgroundColor: GRAPHITE_COLORS.surface, gap: 5,
+    backgroundColor: GRAPHITE_COLORS.canvas, gap: 5,
   },
   input: {
     flex: 1, minWidth: 0, minHeight: 48, borderWidth: 1, borderColor: GRAPHITE_COLORS.lineStrong, borderRadius: 24,
@@ -1643,7 +1643,7 @@ const styles = StyleSheet.create({
   emojiPanel: {
     flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between",
     zIndex: 2,
-    paddingHorizontal: 16, paddingVertical: 12, backgroundColor: GRAPHITE_COLORS.surface,
+    paddingHorizontal: 16, paddingVertical: 12, backgroundColor: GRAPHITE_COLORS.canvas,
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: GRAPHITE_COLORS.line,
   },
   emojiItem: {

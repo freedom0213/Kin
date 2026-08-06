@@ -754,7 +754,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22, paddingTop: 14, paddingBottom: 4,
     flexDirection: "row", gap: 12,
     borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: COLORS.line,
-    backgroundColor: COLORS.surface,
+    backgroundColor: GRAPHITE_COLORS.canvas,
   },
   cancelButton: {
     flex: 1, minHeight: 52, borderRadius: 16, borderWidth: 1, borderColor: COLORS.line,

@@ -132,7 +132,7 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: GRAPHITE_COLORS.lineStrong,
-    backgroundColor: GRAPHITE_COLORS.surfaceStrong,
+    backgroundColor: GRAPHITE_COLORS.canvas,
     shadowColor: GRAPHITE_COLORS.shadow,
     shadowOffset: { width: 0, height: 14 },
     shadowOpacity: 0.44,
