@@ -669,7 +669,7 @@ const styles = StyleSheet.create({
   title: { color: COLORS.ink, fontSize: 30, fontWeight: "700", letterSpacing: -0.7 },
   subtitle: { marginTop: 12, maxWidth: 340, color: COLORS.muted, fontSize: 15, lineHeight: 23 },
   pairVisual: {
-    height: 210, flexDirection: "row", alignItems: "center", justifyContent: "center",
+    height: 150, flexDirection: "row", alignItems: "center", justifyContent: "center",
   },
   device: {
     width: 74, height: 128, borderRadius: 20,
@@ -747,7 +747,7 @@ const styles = StyleSheet.create({
   },
   countdown: { marginTop: 8, color: COLORS.faint, fontSize: 11, fontVariant: ["tabular-nums"] },
   pairingCodeArea: {
-    width: "100%", marginTop: 18, padding: 14, borderRadius: 14,
+    width: "100%", marginTop: 10, padding: 10, borderRadius: 14,
     backgroundColor: GRAPHITE_COLORS.surfacePressed, borderWidth: StyleSheet.hairlineWidth, borderColor: GRAPHITE_COLORS.lineStrong,
   },
   pairingCodeLabel: { color: COLORS.muted, fontSize: 11, textAlign: "center" },
