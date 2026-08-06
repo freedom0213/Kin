@@ -101,7 +101,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // 启动时从安全存储恢复令牌
   useEffect(() => {
     (async () => {
-      await retryPendingPushUnregistration();
+      void retryPendingPushUnregistration();
       try {
         const [savedToken, savedProfile] = await Promise.all([
           getSecureItem("kin_token"),

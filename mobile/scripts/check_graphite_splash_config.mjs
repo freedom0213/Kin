@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { access, readFile } from "node:fs/promises";
 
 const appConfig = JSON.parse(await readFile(new URL("../app.json", import.meta.url), "utf8"));
+const appSource = await readFile(new URL("../App.tsx", import.meta.url), "utf8");
+const authSource = await readFile(new URL("../src/stores/AuthContext.tsx", import.meta.url), "utf8");
 const splashPlugin = appConfig.expo.plugins.find(
   (entry) => Array.isArray(entry) && entry[0] === "expo-splash-screen",
 );
@@ -25,5 +27,15 @@ assert.equal(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4AWMAAQAABQABNtCI3QAAAABJRU5ErkJggg==",
   "Splash placeholder must remain a fully transparent 1x1 PNG",
 );
+assert.doesNotMatch(
+  appSource,
+  /state\.isLoading[\s\S]{0,400}<ActivityIndicator/,
+  "Account restoration must not render a separate startup spinner",
+);
+assert.doesNotMatch(
+  authSource,
+  /await retryPendingPushUnregistration\(\)/,
+  "Pending notification cleanup must not block account restoration",
+);
 
-console.log("PASS: Graphite splash uses a transparent asset and preserves the required Android resource");
+console.log("PASS: startup transition is Graphite-only with no logo, spinner, or notification cleanup blocking");

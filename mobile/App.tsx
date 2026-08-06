@@ -786,9 +786,8 @@ function AppNavigator() {
 
   if (state.isLoading) {
     return (
-      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: GRAPHITE_COLORS.canvas }}>
+      <View style={{ flex: 1, backgroundColor: GRAPHITE_COLORS.canvas }}>
         <ExpoStatusBar style="light" />
-        <ActivityIndicator size="large" color={GRAPHITE_COLORS.primary} />
       </View>
     );
   }
