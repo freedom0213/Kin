@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo, ActivityIndicator, Animated, AppState, Easing, Platform,
-  StatusBar, StyleSheet, Text, TouchableOpacity, View,
+  Image, StatusBar, StyleSheet, Text, TouchableOpacity, View,
 } from "react-native";
 import { BlurView } from "expo-blur";
 import { StatusBar as ExpoStatusBar } from "expo-status-bar";
@@ -12,7 +12,7 @@ import {
 } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 
-import type { Friend } from "./src/api/client";
+import { resolveMediaUrl, type Friend } from "./src/api/client";
 import { kinWS } from "./src/api/ws";
 import { kinFeedback } from "./src/services/feedback";
 import { webrtcService } from "./src/services/webrtc";
@@ -52,8 +52,10 @@ type RootStackParamList = {
     direction: "incoming" | "outgoing";
     targetId: string;
     targetName: string;
+    targetAvatar?: string | null;
     callId?: string;
     autoAccept?: boolean;
+    sessionMode?: "pending" | "active";
   };
   Login: undefined;
   Register: undefined;
@@ -63,6 +65,7 @@ interface IncomingCallPayload {
   from: string;
   callId: string;
   callerName: string;
+  callerAvatar: string | null;
   receivedAt: number;
 }
 
@@ -82,8 +85,25 @@ function parseIncomingCall(data: any): IncomingCallPayload | null {
     callerName: typeof data.caller_name === "string" && data.caller_name.trim()
       ? data.caller_name
       : "未知用户",
+    callerAvatar: typeof data.caller_avatar === "string" && data.caller_avatar.trim()
+      ? data.caller_avatar
+      : null,
     receivedAt: Date.now(),
   };
+}
+
+async function withCachedCallerAvatar(
+  call: IncomingCallPayload,
+  ownerId: string | null | undefined
+): Promise<IncomingCallPayload> {
+  if (call.callerAvatar || !ownerId) return call;
+  try {
+    const friends = await getCachedFriends(ownerId);
+    const friend = friends.find((item) => item.user_id === call.from);
+    return friend?.avatar ? { ...call, callerAvatar: friend.avatar } : call;
+  } catch {
+    return call;
+  }
 }
 
 function formatCallDuration(totalSeconds: number): string {
@@ -249,11 +269,13 @@ function IncomingCallCoordinator({
   navigationReady: boolean;
   notificationCallId: string | null;
 }) {
+  const { state } = useAuth();
   const [incomingCall, setIncomingCall] = useState<IncomingCallPayload | null>(null);
   const [actingCallId, setActingCallId] = useState<string | null>(null);
   const [callPhase, setCallPhase] = useState<GlobalCallPhase>("ringing");
   const [callSeconds, setCallSeconds] = useState(0);
   const [reduceMotion, setReduceMotion] = useState(false);
+  const [avatarFailed, setAvatarFailed] = useState(false);
   const handledCallIdRef = useRef<string | null>(null);
   const pendingCallRef = useRef<IncomingCallPayload | null>(null);
   const incomingCallRef = useRef<IncomingCallPayload | null>(null);
@@ -265,6 +287,10 @@ function IncomingCallCoordinator({
   const durationTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const connectedAtRef = useRef(0);
   const cardProgress = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    setAvatarFailed(false);
+  }, [incomingCall?.callerAvatar]);
 
   const clearCallTimers = useCallback(() => {
     if (expiryTimerRef.current) clearTimeout(expiryTimerRef.current);
@@ -350,7 +376,8 @@ function IncomingCallCoordinator({
 
   const openIncomingCall = useCallback(() => {
     const call = incomingCallRef.current;
-    if (!call || actingCallIdRef.current === call.callId || !navigationRef.isReady()) return;
+    if (!call || callPhaseRef.current === "failed" || !navigationRef.isReady()) return;
+    const sessionMode = callPhaseRef.current === "ringing" ? "pending" : "active";
     actingCallIdRef.current = call.callId;
     setActingCallId(call.callId);
     hideIncomingCall(call.callId);
@@ -358,8 +385,10 @@ function IncomingCallCoordinator({
       direction: "incoming",
       targetId: call.from,
       targetName: call.callerName,
+      targetAvatar: call.callerAvatar,
       callId: call.callId,
       autoAccept: false,
+      sessionMode,
     });
   }, [hideIncomingCall]);
 
@@ -508,11 +537,11 @@ function IncomingCallCoordinator({
         pendingCallRef.current = call;
         return;
       }
-      presentIncomingCall(call);
+      void withCachedCallerAvatar(call, state.user?.id).then(presentIncomingCall);
     };
     kinWS.on("incoming_call", onIncomingCall);
     return () => kinWS.off("incoming_call", onIncomingCall);
-  }, [navigationReady, notificationCallId, presentIncomingCall]);
+  }, [navigationReady, notificationCallId, presentIncomingCall, state.user?.id]);
 
   useEffect(() => {
     if (!notificationCallId) return;
@@ -561,6 +590,7 @@ function IncomingCallCoordinator({
 
   if (!incomingCall) return null;
   const initials = Array.from(incomingCall.callerName).slice(0, 2).join("").toUpperCase();
+  const avatarUrl = avatarFailed ? null : resolveMediaUrl(incomingCall.callerAvatar);
   const busy = actingCallId === incomingCall.callId;
   const ringing = callPhase === "ringing";
   const statusText = callPhase === "connected"
@@ -592,13 +622,22 @@ function IncomingCallCoordinator({
           <TouchableOpacity
             style={styles.incomingMain}
             onPress={openIncomingCall}
-            disabled={busy || !ringing}
+            disabled={callPhase === "failed"}
             accessibilityRole="button"
             accessibilityLabel={`${incomingCall.callerName}，${statusText}`}
             accessibilityHint={ringing ? "进入等待接听页面" : undefined}
           >
             <View style={styles.incomingAvatar}>
-              <Text style={styles.incomingAvatarText}>{initials}</Text>
+              {avatarUrl ? (
+                <Image
+                  source={{ uri: avatarUrl }}
+                  style={styles.incomingAvatarImage}
+                  onError={() => setAvatarFailed(true)}
+                  accessibilityLabel={`${incomingCall.callerName}的头像`}
+                />
+              ) : (
+                <Text style={styles.incomingAvatarText}>{initials}</Text>
+              )}
             </View>
             <View style={styles.incomingTextGroup}>
               <Text style={styles.incomingName} numberOfLines={1}>{incomingCall.callerName}</Text>
@@ -730,6 +769,9 @@ function NotificationResponseCoordinator({
       const callerName = typeof data.caller_name === "string" && data.caller_name.trim()
         ? data.caller_name
         : "未知用户";
+      const callerAvatar = typeof data.caller_avatar === "string" && data.caller_avatar.trim()
+        ? data.caller_avatar
+        : null;
       if (!from || !callId || Date.now() - receivedAt > INCOMING_CALL_TIMEOUT_MS) {
         finish();
         return;
@@ -739,18 +781,28 @@ function NotificationResponseCoordinator({
         processingRef.current = false;
         return;
       }
-      const currentRoute = navigationRef.getCurrentRoute();
-      const currentCallId = (currentRoute?.params as RootStackParamList["VoiceCall"] | undefined)?.callId;
-      if (currentRoute?.name !== "VoiceCall" || currentCallId !== callId) {
-        navigationRef.navigate("VoiceCall", {
-          direction: "incoming",
-          targetId: from,
-          targetName: callerName,
-          callId,
-          autoAccept: false,
-        });
-      }
-      finish();
+      void withCachedCallerAvatar({
+        from,
+        callId,
+        callerName,
+        callerAvatar,
+        receivedAt,
+      }, state.user.id).then((call) => {
+        const currentRoute = navigationRef.getCurrentRoute();
+        const currentCallId = (currentRoute?.params as RootStackParamList["VoiceCall"] | undefined)?.callId;
+        if (currentRoute?.name !== "VoiceCall" || currentCallId !== callId) {
+          navigationRef.navigate("VoiceCall", {
+            direction: "incoming",
+            targetId: from,
+            targetName: callerName,
+            targetAvatar: call.callerAvatar,
+            callId,
+            autoAccept: false,
+            sessionMode: "pending",
+          });
+        }
+        finish();
+      });
       return;
     }
 
@@ -906,6 +958,7 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: GRAPHITE_COLORS.lineStrong,
   },
+  incomingAvatarImage: { width: "100%", height: "100%" },
   incomingAvatarText: { color: GRAPHITE_COLORS.text, fontSize: 12, fontWeight: "700" },
   incomingTextGroup: { flex: 1, minWidth: 0, marginLeft: 10 },
   incomingName: { color: GRAPHITE_COLORS.text, fontSize: 15, fontWeight: "700" },

@@ -903,6 +903,7 @@ export default function ChatScreen({ route }: any) {
       direction: "outgoing",
       targetId: friend.user_id,
       targetName: friend.nickname || friend.username,
+      targetAvatar: friend.avatar,
     });
   };
 

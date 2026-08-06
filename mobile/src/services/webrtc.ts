@@ -46,6 +46,13 @@ export interface CallHandlers {
   onConnectionStateChange: (state: RTCPeerConnectionState) => void;
 }
 
+export interface ActiveCallSnapshot {
+  callId: string;
+  peerId: string;
+  connectionState: RTCPeerConnectionState;
+  connectedAt: number;
+}
+
 class WebRTCService {
   private pc: RTCPeerConnection | null = null;
   private localStream: MediaStream | null = null;
@@ -66,6 +73,7 @@ class WebRTCService {
   private pendingRestartOffer: any | null = null;
   private pendingRestartAnswer: any | null = null;
   private lastRestartSignalAt = 0;
+  private connectedAt = 0;
   // 存储来电的 SDP，供 VoiceCallScreen 接听时使用
   private _pendingOffer: {
     callId: string;
@@ -280,6 +288,17 @@ class WebRTCService {
 
   hasActiveCall(): boolean {
     return !!this.currentCallId || !!this.pc || !!this.localStream;
+  }
+
+  /** 供通话浮层把已经建立的会话移交给完整通话页，不会重新接听或重建媒体流。 */
+  getActiveCallSnapshot(): ActiveCallSnapshot | null {
+    if (!this.currentCallId || !this.currentPeerId || !this.pc) return null;
+    return {
+      callId: this.currentCallId,
+      peerId: this.currentPeerId,
+      connectionState: this.pc.connectionState,
+      connectedAt: this.connectedAt,
+    };
   }
 
   /** 当前无需额外原生依赖即可切换通话音频输出的平台。 */
@@ -514,6 +533,7 @@ class WebRTCService {
     if (!this.pc) return;
     const connectionState = this.pc.connectionState;
     if (connectionState === "connected") {
+      if (!this.connectedAt) this.connectedAt = Date.now();
       this.recoveryRequested = false;
       this.restartPreparing = false;
       this.restartInFlight = false;
@@ -615,6 +635,7 @@ class WebRTCService {
     this.pendingRestartOffer = null;
     this.pendingRestartAnswer = null;
     this.lastRestartSignalAt = 0;
+    this.connectedAt = 0;
     this._pendingOffer = null;
     void this.restoreAudioRoute().catch(() => undefined);
   }

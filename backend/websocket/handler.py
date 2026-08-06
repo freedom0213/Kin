@@ -6,7 +6,7 @@ import time
 from fastapi import WebSocket
 
 from services.auth_service import decode_token
-from services import friend_service, status_service
+from services import auth_service, friend_service, status_service
 from services.offline_message_store import MessageConflictError, message_store
 from services.push_service import push_service
 
@@ -503,6 +503,14 @@ class ConnectionManager:
                 })
                 return
 
+            caller_profile = await loop.run_in_executor(None, auth_service.get_profile, from_id)
+            caller_name = (
+                (caller_profile or {}).get("nickname")
+                or (caller_profile or {}).get("username")
+                or "未知用户"
+            )
+            caller_avatar = (caller_profile or {}).get("avatar")
+
             recipient_online = self.is_online(to_id)
             try:
                 has_push_device = await asyncio.to_thread(self._push_sender.has_devices, to_id)
@@ -549,7 +557,12 @@ class ConnectionManager:
                 return
 
             self._register_call(call_id, from_id, to_id)
-            outgoing = {**data, "from": from_id}
+            outgoing = {
+                **data,
+                "from": from_id,
+                "caller_name": caller_name,
+                "caller_avatar": caller_avatar,
+            }
             delivered = await self.send_json(to_id, outgoing) if recipient_online else False
             if not delivered and has_push_device:
                 self._pending_call_requests[call_id] = outgoing
@@ -559,13 +572,14 @@ class ConnectionManager:
                 self._schedule_push(
                     to_id,
                     title="Kin 语音来电",
-                    body=data.get("caller_name") or "一位好友正在呼叫你",
+                    body=caller_name,
                     data={
                         "notification_type": "incoming_call",
                         "recipient_id": to_id,
                         "from": from_id,
                         "call_id": call_id,
-                        "caller_name": data.get("caller_name") or "未知用户",
+                        "caller_name": caller_name,
+                        "caller_avatar": caller_avatar,
                     },
                     channel_id="kin-calls",
                     ttl=int(self._call_ring_timeout),
@@ -589,13 +603,14 @@ class ConnectionManager:
                 self._schedule_push(
                     to_id,
                     title="Kin 语音来电",
-                    body=data.get("caller_name") or "一位好友正在呼叫你",
+                    body=caller_name,
                     data={
                         "notification_type": "incoming_call",
                         "recipient_id": to_id,
                         "from": from_id,
                         "call_id": call_id,
-                        "caller_name": data.get("caller_name") or "未知用户",
+                        "caller_name": caller_name,
+                        "caller_avatar": caller_avatar,
                     },
                     channel_id="kin-calls",
                     ttl=int(self._call_ring_timeout),

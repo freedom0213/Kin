@@ -59,6 +59,26 @@ class CallSignalingTests(unittest.IsolatedAsyncioTestCase):
         })
 
     @patch("websocket.handler.friend_service.are_friends", return_value=True)
+    @patch("websocket.handler.auth_service.get_profile", return_value={
+        "username": "alice_account",
+        "nickname": "Alice Latest",
+        "avatar": "/media/avatars/alice.png",
+    })
+    async def test_call_identity_comes_from_authenticated_profile(self, _, __):
+        await self.manager.handle_message("alice", {
+            "type": "call_request",
+            "to": "bob",
+            "call_id": "call-identity-1",
+            "sdp": {"type": "offer"},
+            "caller_name": "Spoofed Name",
+            "caller_avatar": "/spoofed.png",
+        })
+
+        incoming = self.bob.sent[-1]
+        self.assertEqual("Alice Latest", incoming["caller_name"])
+        self.assertEqual("/media/avatars/alice.png", incoming["caller_avatar"])
+
+    @patch("websocket.handler.friend_service.are_friends", return_value=True)
     async def test_call_lifecycle_keeps_call_id_and_releases_busy_state(self, _):
         await self.manager.handle_message("alice", {
             "type": "call_request",
@@ -245,7 +265,12 @@ class CallSignalingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("call-session-1", self.manager._active_call_by_user["alice"])
 
     @patch("websocket.handler.friend_service.are_friends", return_value=True)
-    async def test_offline_callee_with_push_device_receives_pending_call_after_reconnect(self, _):
+    @patch("websocket.handler.auth_service.get_profile", return_value={
+        "username": "alice_account",
+        "nickname": "Alice Latest",
+        "avatar": "/media/avatars/alice.png",
+    })
+    async def test_offline_callee_with_push_device_receives_pending_call_after_reconnect(self, _, __):
         self.manager._connections.pop("bob")
         self.push_sender.users_with_devices.add("bob")
         await self.manager.handle_message("alice", {
@@ -257,6 +282,11 @@ class CallSignalingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("call_queued", self.alice.sent[-1]["type"])
         await asyncio.sleep(0)
         self.assertEqual("incoming_call", self.push_sender.sent[-1][1]["data"]["notification_type"])
+        self.assertEqual("Alice Latest", self.push_sender.sent[-1][1]["data"]["caller_name"])
+        self.assertEqual(
+            "/media/avatars/alice.png",
+            self.push_sender.sent[-1][1]["data"]["caller_avatar"],
+        )
         self.assertNotIn("sdp", self.push_sender.sent[-1][1]["data"])
         await self.manager.handle_message("alice", {
             "type": "ice_candidate", "to": "bob",

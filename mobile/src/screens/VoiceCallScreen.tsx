@@ -3,12 +3,13 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
   AccessibilityInfo, ActivityIndicator, Animated, BackHandler, StyleSheet,
-  Linking, Text, TouchableOpacity, View,
+  Image, Linking, Text, TouchableOpacity, View,
 } from "react-native";
 import { useIsFocused } from "@react-navigation/native";
 import { StatusBar as ExpoStatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { type CallFailureReason, webrtcService } from "../services/webrtc";
+import { resolveMediaUrl } from "../api/client";
 import { useAuth } from "../stores/AuthContext";
 import { GRAPHITE_COLORS } from "../theme/graphite";
 
@@ -89,14 +90,21 @@ function ControlButton({
 }
 
 export default function VoiceCallScreen({ route, navigation }: any) {
-  const { direction, targetId, targetName, callId, autoAccept = false } = route.params;
+  const {
+    direction, targetId, targetName, targetAvatar = null, callId,
+    autoAccept = false, sessionMode = "pending",
+  } = route.params;
+  const activeSnapshot = sessionMode === "active" ? webrtcService.getActiveCallSnapshot() : null;
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
   const { state } = useAuth();
   const [remoteSdp, setRemoteSdp] = useState<any>(null);
-  const [callState, setCallState] = useState<CallState>(
-    direction === "incoming" ? "ringing" : "calling"
-  );
+  const [callState, setCallState] = useState<CallState>(() => {
+    if (sessionMode !== "active") return direction === "incoming" ? "ringing" : "calling";
+    if (activeSnapshot?.connectionState === "connected") return "connected";
+    if (["disconnected", "failed"].includes(activeSnapshot?.connectionState || "")) return "recovering";
+    return "connecting";
+  });
   const [callSeconds, setCallSeconds] = useState(0);
   const [muted, setMuted] = useState(false);
   const [speakerEnabled, setSpeakerEnabled] = useState(false);
@@ -106,7 +114,8 @@ export default function VoiceCallScreen({ route, navigation }: any) {
   const [outgoingReady, setOutgoingReady] = useState(false);
   const [connectionReady, setConnectionReady] = useState(false);
   const [reduceMotion, setReduceMotion] = useState(false);
-  const connectTimeRef = useRef(0);
+  const [avatarFailed, setAvatarFailed] = useState(false);
+  const connectTimeRef = useRef(activeSnapshot?.connectedAt || 0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const returnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recoveryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -118,6 +127,7 @@ export default function VoiceCallScreen({ route, navigation }: any) {
   const displayName = targetName || "未知用户";
   const myDisplayName = state.user?.nickname || state.user?.username || "";
   const initials = Array.from(displayName).slice(0, 2).join("").toUpperCase();
+  const avatarUrl = avatarFailed ? null : resolveMediaUrl(targetAvatar);
   const activeCall = ["calling", "ringing", "connecting", "connected", "recovering"].includes(callState);
 
   const scheduleReturn = (delay: number) => {
@@ -275,7 +285,16 @@ export default function VoiceCallScreen({ route, navigation }: any) {
       },
     });
 
-    if (direction === "outgoing") {
+    if (sessionMode === "active") {
+      const snapshot = webrtcService.getActiveCallSnapshot();
+      if (!snapshot || snapshot.callId !== callId || snapshot.peerId !== targetId) {
+        finishCall("failed");
+      } else if (snapshot.connectionState === "connected") {
+        if (!connectTimeRef.current) connectTimeRef.current = snapshot.connectedAt || Date.now();
+        setConnectionReady(true);
+        setCallState("connected");
+      }
+    } else if (direction === "outgoing") {
       void webrtcService.startCall(targetId, myDisplayName).then((result) => {
         if (result.ok) {
           setOutgoingReady(true);
@@ -310,7 +329,7 @@ export default function VoiceCallScreen({ route, navigation }: any) {
         onConnectionStateChange: () => {},
       });
     };
-  }, [callId, direction, myDisplayName, navigation, targetId]);
+  }, [callId, direction, myDisplayName, navigation, sessionMode, targetId]);
 
   const handleAccept = async () => {
     if (!remoteSdp || callState !== "ringing") return;
@@ -477,7 +496,16 @@ export default function VoiceCallScreen({ route, navigation }: any) {
             </>
           )}
           <Animated.View style={[styles.avatar, callState === "connected" && { transform: [{ scale: voiceScale }] }]}>
-            <Text style={styles.avatarText}>{initials}</Text>
+            {avatarUrl ? (
+              <Image
+                source={{ uri: avatarUrl }}
+                style={styles.avatarImage}
+                onError={() => setAvatarFailed(true)}
+                accessibilityLabel={`${displayName}的头像`}
+              />
+            ) : (
+              <Text style={styles.avatarText}>{initials}</Text>
+            )}
           </Animated.View>
         </View>
 
@@ -615,7 +643,9 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
     backgroundColor: COLORS.surface,
     borderWidth: StyleSheet.hairlineWidth, borderColor: GRAPHITE_COLORS.lineStrong,
+    overflow: "hidden",
   },
+  avatarImage: { width: "100%", height: "100%" },
   avatarText: { color: COLORS.ink, fontSize: 32, fontWeight: "700" },
   callerName: { marginTop: 18, color: COLORS.ink, fontSize: 25, fontWeight: "700" },
   statusRow: { minHeight: 26, marginTop: 8, flexDirection: "row", alignItems: "center", gap: 8 },
