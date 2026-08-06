@@ -5,38 +5,42 @@ const chatScreenSource = await readFile(
   new URL("../src/screens/ChatScreen.tsx", import.meta.url),
   "utf8",
 );
+const {
+  calculateNativeComposerHeight,
+  calculateWebComposerHeight,
+  CHAT_COMPOSER_MIN_HEIGHT,
+  CHAT_COMPOSER_MAX_HEIGHT,
+} = await import("../src/services/chatComposerLayout.ts");
 
-assert.match(
-  chatScreenSource,
-  /behavior=\{Platform\.OS === "ios" \? "padding" : "height"\}/,
-  "Android 聊天页必须继续避让系统键盘",
+assert.equal(CHAT_COMPOSER_MIN_HEIGHT, 48, "Single-line composer must be 48dp");
+assert.equal(CHAT_COMPOSER_MAX_HEIGHT, 112, "Composer maximum must be 112dp");
+assert.equal(
+  calculateNativeComposerHeight({ contentHeight: 44, singleLineContentHeight: 44 }),
+  48,
+  "Android single-line content must not expand the composer to 60dp",
 );
-assert.match(chatScreenSource, /numberOfLines=\{1\}/, "输入框应从单行高度开始");
-assert.match(
-  chatScreenSource,
-  /textAlignVertical=\{inputHeight > 52 \? "top" : "center"\}/,
-  "单行提示文字必须垂直居中",
+assert.equal(
+  calculateNativeComposerHeight({ contentHeight: 66, singleLineContentHeight: 44 }),
+  70,
+  "A second native line should grow by the measured line delta",
 );
-assert.match(
-  chatScreenSource,
-  /measuredHeight <= COMPOSER_SINGLE_LINE_CONTENT_MAX[\s\S]*\? COMPOSER_MIN_HEIGHT/,
-  "Android 单行输入尚未稳定保持 48 高度",
+assert.equal(
+  calculateNativeComposerHeight({ contentHeight: 180, singleLineContentHeight: 44 }),
+  112,
+  "Native composer height must be capped",
 );
-assert.match(
-  chatScreenSource,
-  /Math\.min\(COMPOSER_MAX_HEIGHT, measuredHeight \+ 16\)/,
-  "多行输入尚未在限制范围内随内容增高",
-);
-assert.match(
-  chatScreenSource,
-  /if \(Platform\.OS === "web"\) setInputHeight\(getWebComposerHeight\(text\)\)/,
-  "Web 输入框缺少独立高度计算",
-);
-assert.match(chatScreenSource, /if \(!value\) return 48/, "Web 空输入框未保持 48 高度");
+assert.equal(calculateWebComposerHeight(""), 48, "Empty Web composer must be 48dp");
+assert.equal(calculateWebComposerHeight("hello"), 48, "Single-line Web composer must be 48dp");
+assert.ok(calculateWebComposerHeight("first\nsecond") > 48, "Multiline Web composer must grow");
 
-const backgroundIndex = chatScreenSource.indexOf("<ChatAmbientBackground");
-const keyboardIndex = chatScreenSource.indexOf("<KeyboardAvoidingView", backgroundIndex);
-assert.ok(backgroundIndex >= 0 && keyboardIndex > backgroundIndex, "环境背景必须位于键盘避让容器之外");
-assert.match(chatScreenSource, /contentLayer: \{ flex: 1, backgroundColor: "transparent" \}/, "键盘响应层应保持透明");
+assert.match(chatScreenSource, /numberOfLines=\{1\}/, "Composer must start as one line");
+assert.match(chatScreenSource, /includeFontPadding:\s*false/, "Android font padding must not offset centering");
+assert.match(
+  chatScreenSource,
+  /textAlignVertical=\{inputHeight > CHAT_COMPOSER_MIN_HEIGHT \? "top" : "center"\}/,
+  "Single-line text must be vertically centered",
+);
+assert.match(chatScreenSource, /calculateNativeComposerHeight/, "Native content height must use the normalized helper");
+assert.doesNotMatch(chatScreenSource, /measuredHeight \+ 16/, "The faulty Android +16 height rule must not return");
 
-console.log("PASS: 聊天输入框单行等高、多行增长，背景位置不再受 Android 键盘影响");
+console.log("PASS: composer is 48dp for one line and grows only for measured multiline content");

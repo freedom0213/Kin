@@ -26,7 +26,14 @@ import { webrtcService } from "../services/webrtc";
 import {
   isMessageListNearBottom,
   shouldAutoScrollAfterContentChange,
+  shouldStickToBottomAfterViewportResize,
 } from "../services/chatScrollPolicy";
+import {
+  calculateNativeComposerHeight,
+  calculateWebComposerHeight,
+  CHAT_COMPOSER_MAX_HEIGHT,
+  CHAT_COMPOSER_MIN_HEIGHT,
+} from "../services/chatComposerLayout";
 import {
   GRAPHITE_COLORS,
   GRAPHITE_INPUT_COLORS,
@@ -54,9 +61,6 @@ type InputMode = "text" | "voice";
 const EMOJIS = ["😀", "😂", "🥹", "😊", "😍", "🤔", "👍", "👏", "❤️", "🎉", "🌙", "✨"];
 const WEB_SCROLL_TRACK_INSET = 8;
 const WEB_SCROLL_THUMB_HEIGHT = 42;
-const COMPOSER_MIN_HEIGHT = 48;
-const COMPOSER_MAX_HEIGHT = 112;
-const COMPOSER_SINGLE_LINE_CONTENT_MAX = 32;
 
 function formatMessageTime(value: string): string {
   const date = new Date(value);
@@ -74,14 +78,6 @@ function getEncryptionIssueCopy(state: EncryptionState): string {
   if (state === "missing_local_key") return "当前设备缺少加密密钥，暂时不能发送新消息";
   if (state === "error") return "无法读取本机加密密钥，请重新进入会话";
   return "";
-}
-
-function getWebComposerHeight(value: string): number {
-  if (!value) return 48;
-  const visualLines = value.split("\n").reduce((total, line) => (
-    total + Math.max(1, Math.ceil(Array.from(line).length / 18))
-  ), 0);
-  return Math.min(112, 48 + Math.max(0, visualLines - 1) * 22);
 }
 
 function LockMark() {
@@ -447,10 +443,13 @@ export default function ChatScreen({ route }: any) {
   const webScrollThumbY = useRef(new Animated.Value(0)).current;
   const webScrollMetricsRef = useRef({ contentHeight: 0, viewportHeight: 0, offsetY: 0 });
   const webScrollVisibleRef = useRef(false);
+  const singleLineContentHeightRef = useRef<number | null>(null);
+  const messageViewportHeightRef = useRef(0);
+  const stickToBottomOnViewportResizeRef = useRef(false);
 
   const [mySecretKey, setMySecretKey] = useState<string | null>(null);
   const [localKeyState, setLocalKeyState] = useState<"loading" | "ready" | "missing" | "error">("loading");
-  const [inputHeight, setInputHeight] = useState(48);
+  const [inputHeight, setInputHeight] = useState(CHAT_COMPOSER_MIN_HEIGHT);
   const [showWebScrollIndicator, setShowWebScrollIndicator] = useState(false);
   const friendPublicKey: string | null = friend.public_key || null;
   const [loadingHistory, setLoadingHistory] = useState(true);
@@ -536,6 +535,7 @@ export default function ChatScreen({ route }: any) {
       offsetY: contentOffset.y,
     });
     userNearBottomRef.current = isNearBottom;
+    if (!isNearBottom) stickToBottomOnViewportResizeRef.current = false;
     if (isNearBottom) setHasNewMessages(false);
   };
 
@@ -601,6 +601,36 @@ export default function ChatScreen({ route }: any) {
     flatListRef.current?.scrollToEnd({ animated: true });
     userNearBottomRef.current = true;
     setHasNewMessages(false);
+  };
+
+  const handleMessageViewportLayout = (nextHeight: number) => {
+    const previousHeight = messageViewportHeightRef.current;
+    const userWasNearBottom = (
+      stickToBottomOnViewportResizeRef.current
+      || userNearBottomRef.current
+    );
+    messageViewportHeightRef.current = nextHeight;
+    updateWebScrollIndicator({ viewportHeight: nextHeight });
+
+    const shouldStick = shouldStickToBottomAfterViewportResize({
+      previousHeight,
+      nextHeight,
+      userWasNearBottom,
+      explicitScrollPending: explicitScrollPendingRef.current,
+    });
+    if (!shouldStick) return;
+
+    stickToBottomOnViewportResizeRef.current = false;
+    requestAnimationFrame(() => {
+      flatListRef.current?.scrollToEnd({ animated: false });
+      userNearBottomRef.current = true;
+      setHasNewMessages(false);
+    });
+  };
+
+  const handleComposerFocus = () => {
+    setShowEmojiPanel(false);
+    stickToBottomOnViewportResizeRef.current = userNearBottomRef.current;
   };
 
   useEffect(() => {
@@ -802,7 +832,7 @@ export default function ChatScreen({ route }: any) {
     setMessages((prev) => [...prev, msg]);
     triggerBackgroundPulse("mine");
     setInputText("");
-    setInputHeight(48);
+    setInputHeight(CHAT_COMPOSER_MIN_HEIGHT);
     try {
       await saveMessage(myId, {
         id: msg.id, chat_id: friend.user_id, sender_id: myId,
@@ -908,7 +938,11 @@ export default function ChatScreen({ route }: any) {
 
   const handleInputChange = (text: string) => {
     setInputText(text);
-    if (Platform.OS === "web") setInputHeight(getWebComposerHeight(text));
+    if (Platform.OS === "web") {
+      setInputHeight(calculateWebComposerHeight(text));
+    } else if (!text) {
+      setInputHeight(CHAT_COMPOSER_MIN_HEIGHT);
+    }
     if (text.trim()) notifyTyping();
   };
 
@@ -924,7 +958,11 @@ export default function ChatScreen({ route }: any) {
 
   const appendEmoji = (emoji: string) => {
     setInputMode("text");
-    setInputText((current) => `${current}${emoji}`);
+    setInputText((current) => {
+      const next = `${current}${emoji}`;
+      if (Platform.OS === "web") setInputHeight(calculateWebComposerHeight(next));
+      return next;
+    });
     notifyTyping();
   };
 
@@ -1206,7 +1244,7 @@ export default function ChatScreen({ route }: any) {
       <View
         style={styles.messageViewport}
         onLayout={({ nativeEvent }) => {
-          updateWebScrollIndicator({ viewportHeight: nativeEvent.layout.height });
+          handleMessageViewportLayout(nativeEvent.layout.height);
         }}
       >
         {isEncryptionReady ? (
@@ -1226,7 +1264,7 @@ export default function ChatScreen({ route }: any) {
           maxToRenderPerBatch={12}
           updateCellsBatchingPeriod={32}
           windowSize={7}
-          removeClippedSubviews={Platform.OS === "android"}
+          removeClippedSubviews={false}
           keyExtractor={(item) => item.id}
           renderItem={renderMessage}
           style={[styles.messageList, !initialHistoryReady && styles.messageListPreparing]}
@@ -1306,18 +1344,25 @@ export default function ChatScreen({ route }: any) {
             selectionColor={GRAPHITE_INPUT_COLORS.selection}
             multiline
             numberOfLines={1}
-            textAlignVertical={inputHeight > 52 ? "top" : "center"}
+            textAlignVertical={inputHeight > CHAT_COMPOSER_MIN_HEIGHT ? "top" : "center"}
             onContentSizeChange={({ nativeEvent }) => {
               if (Platform.OS === "web") return;
               const measuredHeight = Math.ceil(nativeEvent.contentSize.height);
-              const nextHeight = measuredHeight <= COMPOSER_SINGLE_LINE_CONTENT_MAX
-                ? COMPOSER_MIN_HEIGHT
-                : Math.min(COMPOSER_MAX_HEIGHT, measuredHeight + 16);
+              if (
+                singleLineContentHeightRef.current === null
+                || measuredHeight < singleLineContentHeightRef.current
+              ) {
+                singleLineContentHeightRef.current = measuredHeight;
+              }
+              const nextHeight = calculateNativeComposerHeight({
+                contentHeight: measuredHeight,
+                singleLineContentHeight: singleLineContentHeightRef.current,
+              });
               setInputHeight((current) => current === nextHeight ? current : nextHeight);
             }}
             maxLength={2000}
             accessibilityLabel="消息输入框"
-            onFocus={() => setShowEmojiPanel(false)}
+            onFocus={handleComposerFocus}
           />
         ) : (
           <VoiceRecorder
@@ -1587,7 +1632,9 @@ const styles = StyleSheet.create({
   input: {
     flex: 1, minWidth: 0, minHeight: 48, borderWidth: 1, borderColor: GRAPHITE_COLORS.lineStrong, borderRadius: 24,
     paddingHorizontal: 15, paddingVertical: 10, fontSize: 16, lineHeight: 22,
-    maxHeight: 112, backgroundColor: GRAPHITE_COLORS.surfacePressed, color: GRAPHITE_INPUT_COLORS.text,
+    includeFontPadding: false,
+    maxHeight: CHAT_COMPOSER_MAX_HEIGHT,
+    backgroundColor: GRAPHITE_COLORS.surfacePressed, color: GRAPHITE_INPUT_COLORS.text,
   },
   inputIconButton: {
     width: 46, height: 48, borderRadius: 24,

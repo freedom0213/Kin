@@ -11,6 +11,13 @@ interface MessageListPosition {
   threshold?: number;
 }
 
+interface ViewportResizeIntent {
+  previousHeight: number;
+  nextHeight: number;
+  userWasNearBottom: boolean;
+  explicitScrollPending?: boolean;
+}
+
 export const CHAT_BOTTOM_THRESHOLD = 120;
 
 export function shouldAutoScrollAfterContentChange(intent: ChatScrollIntent): boolean {
@@ -27,4 +34,15 @@ export function isMessageListNearBottom({
 }: MessageListPosition): boolean {
   const distanceFromBottom = contentHeight - viewportHeight - offsetY;
   return distanceFromBottom <= threshold;
+}
+
+export function shouldStickToBottomAfterViewportResize({
+  previousHeight,
+  nextHeight,
+  userWasNearBottom,
+  explicitScrollPending = false,
+}: ViewportResizeIntent): boolean {
+  return previousHeight > 0
+    && nextHeight < previousHeight
+    && (userWasNearBottom || explicitScrollPending);
 }
