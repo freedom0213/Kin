@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="440" viewBox="0 0 1200 440" role="img" aria-labelledby="title desc">
+  <title id="title">Kin — 现实相遇之后，继续保持联系</title>
+  <desc id="desc">黑色 Graphite Flow 风格的 Kin 项目标题图，两台设备通过绿色连接轨迹建立关系。</desc>
+  <defs>
+    <linearGradient id="trace" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#69C8A4" stop-opacity="0"/>
+      <stop offset="0.35" stop-color="#69C8A4"/>
+      <stop offset="0.68" stop-color="#69C8A4"/>
+      <stop offset="1" stop-color="#55D5D8" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="1200" height="440" rx="36" fill="#000000"/>
+  <rect x="1" y="1" width="1198" height="438" rx="35" fill="none" stroke="#242927"/>
+
+  <g transform="translate(72 66)">
+    <text x="0" y="32" fill="#69C8A4" font-family="Arial, sans-serif" font-size="18" font-weight="700" letter-spacing="4">KIN · GRAPHITE FLOW</text>
+    <text x="0" y="132" fill="#F5F7F6" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="82" font-weight="800">现实相遇之后，</text>
+    <text x="0" y="222" fill="#F5F7F6" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="82" font-weight="800">继续保持联系。</text>
+    <text x="4" y="284" fill="#9AA39F" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="22">双方靠近 · 双方确认 · 加密聊天与语音通话</text>
+  </g>
+
+  <g transform="translate(835 63)">
+    <rect x="0" y="28" width="118" height="242" rx="30" fill="#0B0D0C" stroke="#303633" stroke-width="2"/>
+    <rect x="176" y="28" width="118" height="242" rx="30" fill="#0B0D0C" stroke="#303633" stroke-width="2"/>
+    <rect x="40" y="47" width="38" height="5" rx="2.5" fill="#59605D"/>
+    <rect x="216" y="47" width="38" height="5" rx="2.5" fill="#59605D"/>
+    <circle cx="59" cy="238" r="5" fill="#69C8A4"/>
+    <circle cx="235" cy="238" r="5" fill="#69C8A4"/>
+    <path d="M92 145 C130 110 164 110 202 145" fill="none" stroke="url(#trace)" stroke-width="5" stroke-linecap="round" filter="url(#glow)"/>
+    <circle cx="147" cy="132" r="26" fill="#06110D" stroke="#69C8A4" stroke-width="2"/>
+    <path d="M136 132l8 8 16-18" fill="none" stroke="#69C8A4" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="147" y="316" text-anchor="middle" fill="#E9EFEC" font-family="Arial, 'Microsoft YaHei', sans-serif" font-size="17" font-weight="700">MEET · CONFIRM · CONNECT</text>
+  </g>
+</svg>

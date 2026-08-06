@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="300" viewBox="0 0 1200 300" role="img" aria-labelledby="title desc">
+  <title id="title">Kin 碰一碰建立好友流程</title>
+  <desc id="desc">双方开启碰一碰、近距离发现、核对名片并分别确认、建立好友关系，随后进行加密聊天和语音通话。</desc>
+  <rect width="1200" height="300" rx="28" fill="#000000"/>
+  <rect x="1" y="1" width="1198" height="298" rx="27" fill="none" stroke="#242927"/>
+  <path d="M170 142H1030" stroke="#25302C" stroke-width="3"/>
+  <path d="M170 142H1030" stroke="#69C8A4" stroke-width="3" stroke-dasharray="9 18"/>
+  <g font-family="Arial, 'Microsoft YaHei', sans-serif" text-anchor="middle">
+    <g transform="translate(135 142)"><circle r="42" fill="#07130F" stroke="#69C8A4" stroke-width="2"/><text y="7" fill="#69C8A4" font-size="24" font-weight="700">01</text><text y="82" fill="#F4F6F5" font-size="18" font-weight="700">双方开启</text><text y="108" fill="#8D9692" font-size="14">发起 / 接收</text></g>
+    <g transform="translate(365 142)"><circle r="42" fill="#07130F" stroke="#69C8A4" stroke-width="2"/><text y="7" fill="#69C8A4" font-size="24" font-weight="700">02</text><text y="82" fill="#F4F6F5" font-size="18" font-weight="700">近距离发现</text><text y="108" fill="#8D9692" font-size="14">Android NFC / 配对码</text></g>
+    <g transform="translate(600 142)"><circle r="42" fill="#07130F" stroke="#69C8A4" stroke-width="2"/><text y="7" fill="#69C8A4" font-size="24" font-weight="700">03</text><text y="82" fill="#F4F6F5" font-size="18" font-weight="700">核对并确认</text><text y="108" fill="#8D9692" font-size="14">双方都确认才继续</text></g>
+    <g transform="translate(835 142)"><circle r="42" fill="#07130F" stroke="#69C8A4" stroke-width="2"/><text y="7" fill="#69C8A4" font-size="24" font-weight="700">04</text><text y="82" fill="#F4F6F5" font-size="18" font-weight="700">建立好友</text><text y="108" fill="#8D9692" font-size="14">后端确认关系</text></g>
+    <g transform="translate(1065 142)"><circle r="42" fill="#07130F" stroke="#55D5D8" stroke-width="2"/><text y="7" fill="#55D5D8" font-size="24" font-weight="700">05</text><text y="82" fill="#F4F6F5" font-size="18" font-weight="700">加密通信</text><text y="108" fill="#8D9692" font-size="14">消息 · 语音 · 通话</text></g>
+  </g>
+</svg>

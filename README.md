@@ -1,305 +1,157 @@
-# Kin — 只和见过的人聊天
-
 <p align="center">
-  <img src="mobile/assets/icon.png" width="120" alt="Kin Logo" />
+  <img src="assets/readme/hero.svg" alt="Kin — 现实相遇之后，继续保持联系" width="100%" />
 </p>
 
 <p align="center">
-  <strong>用物理距离定义社交距离。</strong><br />
-  没有陌生人、没有算法推荐、没有群发广播。<br />
-  只有在现实世界中见过面的人，才能在这里聊天。
+  <strong>Kin 是一款以现实相遇为起点的私密通讯实验。</strong><br />
+  两台设备靠近、双方核对并确认后，才建立好友关系；随后可以进行端到端加密聊天、语音消息与 WebRTC 语音通话。
 </p>
 
----
+<p align="center">
+  <img alt="Expo SDK 57" src="https://img.shields.io/badge/Expo-SDK%2057-000000?style=flat-square&logo=expo&logoColor=white" />
+  <img alt="React Native 0.86" src="https://img.shields.io/badge/React%20Native-0.86-000000?style=flat-square&logo=react&logoColor=69C8A4" />
+  <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-WebSocket-000000?style=flat-square&logo=fastapi&logoColor=69C8A4" />
+  <img alt="Android Development APK" src="https://img.shields.io/badge/Android-Development%20APK-000000?style=flat-square&logo=android&logoColor=69C8A4" />
+</p>
 
-## 为什么是 Kin？
+## 当前界面
 
-大多数社交 App 都在追求「连接更多人」。Kin 反其道而行——**加好友的唯一方式是和对方手机碰一碰（NFC）**。
+以下截图直接来自当前 Kin 前端预览，不使用旧版设计稿或历史 Bug 截图。
 
-- 你的好友列表里不会有没见过面的人
-- 不会被算法推送给陌生人
-- 不会收到骚扰消息
-- 每一个联系人背后都有一个真实的物理相遇
+<table>
+  <tr>
+    <td align="center"><img src="assets/readme/source/sessions.png" alt="Kin 会话页" width="230" /><br /><sub>会话 · 在线状态与最近会话</sub></td>
+    <td align="center"><img src="assets/readme/source/contacts.png" alt="Kin 通讯录" width="230" /><br /><sub>通讯录 · 本地好友与在线状态</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="assets/readme/source/profile.png" alt="Kin 我的页面" width="230" /><br /><sub>我的 · 名片、资料与独立设置入口</sub></td>
+    <td align="center"><img src="assets/readme/source/pairing.png" alt="Kin 碰一碰页面" width="230" /><br /><sub>碰一碰 · NFC 与配对码降级路径</sub></td>
+  </tr>
+</table>
 
-## 核心特性
+## Kin 在做什么
 
-| 特性 | 说明 |
-|------|------|
-| 🤝 **NFC 碰一碰加好友** | 唯一加好友方式，物理见面才能建立连接 |
-| 🔒 **端到端加密（E2E）** | NaCl crypto_box（Curve25519 + XSalsa20-Poly1305），服务器无法解密消息 |
-| ⚡ **同步聊天** | 双方在线才能收发消息——不囤积离线消息 |
-| 📞 **语音通话** | WebRTC P2P 加密语音，不经过服务器、零流量费 |
-| 🎤 **语音消息** | 按住录制语音气泡，长按即说 |
-| 📱 **本地优先** | 消息存储在手机本地 SQLite，服务器不保存消息内容 |
-| 📦 **消息导出/导入** | 一键导出备份，换手机无忧 |
-| 👥 **好友上限 100 人** | 设计上限，防止社交膨胀 |
+Kin 不把“发现更多陌生人”作为目标。它把好友关系拆成一个可验证的过程：现实中靠近、看到对方资料、双方分别确认，最后才允许建立连接。
 
-## 技术栈
+| 能力 | 当前实现 |
+| --- | --- |
+| 碰一碰加好友 | Android HCE 发起 + IsoDep Reader Mode 接收；NFC 不可用时可使用临时配对码 |
+| 双方确认 | 发现对方后显示头像、昵称、用户名和名片背景；双方都确认后后端才建立好友关系 |
+| 加密聊天 | 使用 TweetNaCl `box`；客户端持有私钥，服务端转发密文并支持有限期离线投递 |
+| 语音消息 | 基于 `expo-audio` 录制与播放，本地 SQLite 保存会话数据 |
+| 语音通话 | 基于 `react-native-webrtc`；后端只负责 WebRTC 信令和通话状态协调 |
+| 本地数据 | SQLite 保存聊天记录，SecureStore 保存敏感凭据，支持聊天数据导出与导入 |
+| Graphite Flow | 全局纯黑背景，Kin Green 用于在线状态、确认动作与连接轨迹 |
 
-### 后端
+## 从碰一碰到加密通信
 
-| 组件 | 技术 |
-|------|------|
-| 框架 | Python 3.x + FastAPI + Uvicorn |
-| 数据库 | SQLite（SQLAlchemy Core） |
-| 认证 | JWT（HS256，7 天有效）+ bcrypt 密码哈希 |
-| 实时通信 | FastAPI WebSocket |
-| 通话信令 | WebSocket 转发 WebRTC SDP/ICE |
+<p align="center">
+  <img src="assets/readme/workflow.svg" alt="Kin 碰一碰建立好友流程" width="100%" />
+</p>
 
-### 移动端
+1. 一台 Android 手机点击“发起碰一碰”，另一台点击“接收附近设备”。
+2. 两台设备的 NFC 天线区域靠近；NFC 只传递短期配对凭证，不传输密码、私钥或聊天记录。
+3. 双方分别核对对方名片并确认。任何一方取消、超时或不确认，都不会成为好友。
+4. 建立好友关系后，双方交换用于加密的公钥。发送方使用自己的私钥和接收方公钥加密，接收方使用自己的私钥和发送方公钥解密。
+5. 消息密文和 WebRTC 信令会经过 FastAPI 后端；私钥不上传，服务端不负责解密消息内容。
 
-| 组件 | 技术 |
-|------|------|
-| 框架 | React Native 0.86（Expo SDK 57） |
-| 导航 | @react-navigation/native-stack |
-| 本地存储 | expo-sqlite + expo-secure-store |
-| NFC | react-native-nfc-manager v3 |
-| 语音通话 | react-native-webrtc（P2P） |
-| 语音消息 | expo-av（录制 + 播放） |
-| E2E 加密 | tweetnacl（NaCl crypto_box） |
-| 消息导出 | expo-file-system + expo-sharing |
-
-## 架构
-
-```
-┌─────────────────────────────────────────────────┐
-│                   手机端                          │
-│  ┌──────────┐  ┌──────────┐  ┌───────────────┐  │
-│  │ E2E 加密  │  │ SQLite   │  │ SecureStore   │  │
-│  │ 加解密    │  │ 本地消息  │  │ 密钥存储      │  │
-│  └──────────┘  └──────────┘  └───────────────┘  │
-│         │              │              │          │
-│  ┌──────┴──────────────┴──────────────┴───────┐  │
-│  │           WebSocket + REST API             │  │
-│  └──────────────────────┬─────────────────────┘  │
-└─────────────────────────┼────────────────────────┘
-                          │
-              HTTPS/WSS   │
-                          ▼
-┌─────────────────────────────────────────────────┐
-│                  FastAPI 服务器                    │
-│  ┌──────────┐  ┌──────────┐  ┌───────────────┐  │
-│  │ 认证鉴权  │  │ 好友管理  │  │ 在线状态      │  │
-│  │ JWT+bcrypt│  │ NFC配对  │  │ 心跳+上下线   │  │
-│  └──────────┘  └──────────┘  └───────────────┘  │
-│  ┌──────────────────────────────────────────┐   │
-│  │    WebSocket 消息路由（不解密、不存储）    │   │
-│  │    文字/语音消息转发 + WebRTC 信令转发     │   │
-│  └──────────────────────────────────────────┘   │
-│                       │                          │
-│              ┌────────┴────────┐                 │
-│              │    SQLite       │                 │
-│              │ 用户/好友/token │                 │
-│              └─────────────────┘                 │
-└─────────────────────────────────────────────────┘
-```
-
-## 项目结构
-
-```
-Kin/
-├── README.md
-├── backend/                        # FastAPI 后端
-│   ├── main.py                     # 应用入口 + WebSocket 路由
-│   ├── config.py                   # JWT/密码规则/NFC token 配置
-│   ├── database.py                 # SQLite 连接 + 建表（用户/好友/token）
-│   ├── requirements.txt            # Python 依赖
-│   ├── routers/
-│   │   ├── auth.py                 # 注册 / 登录 / 用户信息
-│   │   ├── friends.py              # NFC token / 添加好友 / 好友列表 / 删除
-│   │   ├── status.py               # 好友在线状态查询
-│   │   └── _auth_helper.py         # JWT Bearer token 提取
-│   ├── services/
-│   │   ├── auth_service.py         # 用户名密码校验 / bcrypt / JWT
-│   │   ├── friend_service.py       # NFC token 生成/验证/防重放 / 双向好友关系
-│   │   └── status_service.py       # 在线状态（内存 dict）
-│   └── websocket/
-│       └── handler.py              # WebSocket 连接管理 + 消息/信令路由
-│
-└── mobile/                         # React Native 前端
-    ├── App.tsx                     # 应用入口 + 导航结构
-    ├── package.json                # 依赖声明
-    └── src/
-        ├── api/
-        │   ├── client.ts           # REST API 请求封装 + 类型定义
-        │   └── ws.ts               # WebSocket 客户端（消息/通话信令）
-        ├── screens/
-        │   ├── LoginScreen.tsx      # 登录页面
-        │   ├── RegisterScreen.tsx   # 注册页面（生成 E2E 密钥）
-        │   ├── FriendListScreen.tsx # 好友列表（在线状态/导出/来电监听）
-        │   ├── ChatScreen.tsx       # 聊天页面（E2E 加解密/文字/语音/通话入口）
-        │   ├── AddFriendScreen.tsx  # NFC 碰一碰（发送/接收双模式 + 手动输入）
-        │   └── VoiceCallScreen.tsx  # 语音通话页面（呼叫/接听/挂断）
-        ├── components/
-        │   └── VoiceMessage.tsx     # 语音录制按钮 + 语音消息气泡
-        ├── services/
-        │   ├── encryption.ts       # NaCl crypto_box E2E 加解密
-        │   ├── keys.ts            # SecureStore 密钥持久化
-        │   ├── nfc.ts             # react-native-nfc-manager 封装
-        │   ├── webrtc.ts          # WebRTC 通话管理
-        │   ├── db.ts             # 本地 SQLite 消息存储
-        │   └── export.ts         # 消息导出/导入
-        ├── stores/
-        │   └── AuthContext.tsx    # 认证状态管理（Context + useReducer）
-        └── config.ts             # API/WS 地址配置
-```
-
-## 快速开始
-
-### 前提条件
-
-- Python 3.11+
-- Node.js 20+
-- Expo CLI（`npm install -g expo-cli`）
-- **NFC 功能需要真机**（模拟器不支持 NFC）
-- **语音通话需要真机**（WebRTC + 音频采集）
+## 最短启动方式
 
 ### 1. 启动后端
 
-```bash
-cd backend
-pip install -r requirements.txt
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```powershell
+python -m pip install -r backend/requirements.txt
+python -m uvicorn main:app --app-dir backend --host 0.0.0.0 --port 8000
 ```
 
-访问 [http://localhost:8000/docs](http://localhost:8000/docs) 查看 Swagger API 文档。
+健康检查：`http://127.0.0.1:8000/api/health`
 
-### 2. 启动前端
+### 2. 启动 Development Client
 
-```bash
+```powershell
 cd mobile
 npm install
-npx expo start
+npx expo start --dev-client --lan --port 4182
 ```
 
-- Android 模拟器：按 `a`
-- iOS 模拟器：按 `i`
-- 真机调试：复制 `mobile/.env.example` 为 `mobile/.env.local`，通过
-  `EXPO_PUBLIC_KIN_API_BASE` 配置电脑局域网 IP
+Development APK 需要 Metro 提供 JavaScript Bundle；Metro 与 FastAPI 后端是两个独立进程，都需要保持运行。
 
-### 3. 服务器端配套
+### 3. 配置真机后端地址
 
-```bash
-# 启用局域网访问
-uvicorn backend.main:app --host 0.0.0.0 --port 8000
+在 `mobile/.env.local` 中使用电脑当前 Wi-Fi IPv4，而不是手机自己的 `127.0.0.1`：
 
-# mobile/.env.local
-EXPO_PUBLIC_KIN_API_BASE=http://192.168.x.x:8000
+```env
+EXPO_PUBLIC_KIN_API_BASE=http://192.168.1.20:8000
 ```
 
-两台 Android 真机的完整检查顺序见
-[`codex/kin-two-device-testing.md`](codex/kin-two-device-testing.md)。
+修改会被写入构建产物的环境配置后，需要重新构建 APK。手机、电脑和第二台测试手机应连接同一局域网，并确保 Windows 防火墙允许 Python/Uvicorn 在专用网络通信。
 
-## API 概览
+## 双设备验收
 
-### REST API
+推荐使用两台 Android 真机，并安装同一版本的 Development APK：
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/auth/register` | 注册（可上传 E2E 公钥） |
-| POST | `/api/auth/login` | 登录（返回 JWT） |
-| GET | `/api/auth/me` | 获取当前用户信息 |
-| POST | `/api/friends/nfc-token` | 生成 NFC token（60 秒有效） |
-| POST | `/api/friends/request` | 通过 token 添加好友 |
-| GET | `/api/friends/list` | 好友列表（含在线状态 + E2E 公钥） |
-| DELETE | `/api/friends/{id}` | 删除好友 |
-| GET | `/api/status/friends` | 好友在线状态 |
-| GET | `/api/health` | 健康检查 |
+1. 分别登录两个测试账号，确认双方 Online、头像与名片资料一致。
+2. 测试 HCE 发起 / Reader 接收，并交换两台设备的角色重复一次。
+3. 验证双方确认前不会成为好友；确认完成后通讯录仅新增一次。
+4. 互发短文本、长文本、表情和语音消息，检查送达、已读、离线恢复与本地记录。
+5. 测试呼叫、来电头像、接听、拒绝、活动通话卡片、静音、扬声器、挂断和网络恢复。
+6. 检查 Android 桌面和应用抽屉中的自适应图标，确认不同蒙版不会裁掉人物主体。
 
-### WebSocket (`/ws?token={jwt}`)
+完整步骤和设备记录表见 [`codex/kin-two-device-testing.md`](codex/kin-two-device-testing.md)。
 
-| 消息类型 | 方向 | 说明 |
-|----------|------|------|
-| `chat_message` / `voice_message` | C→S→C | 转发聊天/语音消息（E2E 加密） |
-| `read_receipt` | C→S→C | 已读回执 |
-| `typing` | C→S→C | 正在输入 |
-| `call_request` / `call_accepted` / `call_rejected` / `ice_candidate` / `call_end` | C→S→C | WebRTC 信令（纯转发） |
-| `friend_status` | S→C | 好友上线/离线通知 |
-| `friend_added` / `friend_removed` | S→C | 好友关系变化通知 |
-| `heartbeat` / `heartbeat_ack` | C↔S | 30 秒心跳保活 |
+## 技术架构
 
-## E2E 加密原理
-
-```
-注册时                             聊天时
-  手机A                               手机A
-  ┌─────────────────┐                ┌─────────────────┐
-  │ 生成密钥对       │                │ 明文: "你好"     │
-  │ 私钥A ← SecureStore              │       ↓         │
-  │ 公钥A → 上传服务器│                │ NaCl box 加密   │
-  └─────────────────┘                │ 用: 公钥B + 私钥A│
-                                     │       ↓         │
-  服务器                              │ 密文（仅密文传输）│
-  ┌─────────────────┐                └────────┬────────┘
-  │ users 表         │                         │
-  │ id │ public_key │                ┌────────▼────────┐
-  │ A  │ 公钥A      │                │    服务器(转发)   │
-  │ B  │ 公钥B      │                │  无法解密 ✓      │
-  └────┴────────────┘                └────────┬────────┘
-                                              │
- 加好友时                              ┌────────▼────────┐
-  手机A ◄─ 对方公钥B                  │  手机B           │
-                                     │       ↓         │
-                                     │ NaCl box 解密   │
-                                     │ 用: 公钥A + 私钥B│
-                                     │       ↓         │
-                                     │ 明文: "你好"     │
-                                     └─────────────────┘
+```text
+Android / Web Preview
+├─ React Native 0.86 + Expo SDK 57
+├─ React Navigation
+├─ SQLite / SecureStore
+├─ TweetNaCl box
+├─ expo-audio
+├─ react-native-webrtc
+└─ Android NFC: HCE + IsoDep Reader Mode
+          │
+          ├─ REST: 认证、资料、好友、配对、Push 注册
+          └─ WebSocket: 在线状态、密文消息、离线同步、通话信令
+          │
+FastAPI Backend
+├─ JWT + bcrypt
+├─ SQLAlchemy Core + SQLite
+├─ 配对会话与双方确认状态机
+├─ 有限期离线密文投递
+└─ WebRTC 信令与忙线状态协调
 ```
 
-- 密钥算法：Ed25519（Curve25519）
-- 加密算法：NaCl crypto_box（Curve25519 + XSalsa20-Poly1305）
-- 客户端使用 [tweetnacl](https://github.com/dchest/tweetnacl-js) 实现
-- 服务器零知识——只看到密文，无法解密任何消息
+```text
+Kin/
+├─ backend/                 FastAPI、数据库、配对、消息与通话信令
+├─ mobile/                  Expo / React Native 应用与 Android 原生模块
+├─ codex/                   设计决策和双设备验收文档
+├─ assets/readme/           README Hero、流程图与当前产品截图
+└─ README.md
+```
 
-## 设计哲学
+## 当前状态与边界
 
-| 原则 | 解释 |
-|------|------|
-| **物理优先** | NFC 碰一碰是唯一加好友方式，物理距离定义社交距离 |
-| **同步聊天** | 双方在线才能收发消息——聊天是你来我往的对话，不是留言板 |
-| **100 人上限** | 邓巴数（Dunbar's Number）——人类能维持稳定社交关系的人数上限 |
-| **服务器零知识** | E2E 加密 + 消息不落盘 + 通话 P2P 直连 |
-| **数据自主** | 消息在本地 SQLite，随时可导出备份 |
+- 项目处于开发与双机验收阶段，不代表已完成生产环境安全审计或应用商店发布。
+- 物理碰一碰当前以 Android 为主要目标。发起方需要 HCE，接收方需要 NFC Reader Mode；iOS 和不支持 HCE 的设备使用配对码降级。
+- Web 预览用于界面和普通业务检查，不能代替 NFC、系统通知、麦克风、音频路由和 WebRTC 真机验收。
+- 当前 WebRTC 配置没有部署 TURN。复杂 NAT、公司网络、校园网或跨运营商环境可能无法建立稳定媒体连接。
+- 消息内容以密文形式经过后端，并支持有限期离线投递；这不等同于“服务端完全不接触任何消息数据”。
+- 仓库当前没有 `LICENSE` 文件，因此未声明开源许可证。
 
-### 永远不做
+## 验证命令
 
-- ❌ 搜索/推荐加好友
-- ❌ 二维码/链接加好友
-- ❌ 陌生人消息
-- ❌ 朋友圈/动态/广场
-- ❌ 群发/广播
-- ❌ 算法推荐
-- ❌ 广告
+```powershell
+cd mobile
+npx tsc --noEmit
+Get-ChildItem scripts/check_*.mjs | ForEach-Object { node $_.FullName }
 
-## 部署
-
-目前为开发阶段。推荐部署方案：
-
-| 服务 | 平台 | 预估成本 |
-|------|------|----------|
-| 后端 | Railway / Fly.io | ¥200-400/年 |
-| 前端静态资源 | EAS Build（Expo） | 免费额度 |
-| 数据库 | 服务器本地 SQLite | ¥0 |
-
-## 开发进度
-
-- [x] 阶段 1 — 后端基础（认证/JWT/WebSocket）
-- [x] 阶段 2 — 好友系统（NFC token/添加/删除/列表）
-- [x] 阶段 3 — 消息系统（WebSocket 转发/已读回执）
-- [x] 阶段 4 — RN 前端骨架（登录/注册/好友/聊天页面）
-- [x] 阶段 5 — E2E 加密集成（NaCl crypto_box）
-- [x] 阶段 6 — NFC 碰一碰（react-native-nfc-manager，需真机验证）
-- [x] 阶段 7 — 语音消息/通话（expo-av + WebRTC，需真机验证）
-- [x] 阶段 8 — SQLite 本地存储 + 消息导出/导入
-- [ ] 阶段 9 — 真机测试 + APK 打包 + 上线
-
-## 许可证
-
-本项目仅供学习交流使用。
-
----
+cd ..
+python -m unittest discover -s backend/tests -v
+```
 
 <p align="center">
-  <strong>Kin</strong> — 真正的社交，从见面开始。
+  <strong>Kin</strong><br />
+  <sub>Meet nearby. Confirm together. Keep the connection private.</sub>
 </p>
