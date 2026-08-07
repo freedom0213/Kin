@@ -3,6 +3,10 @@
 </p>
 
 <p align="center">
+  <img src="mobile/assets/icon.png" alt="Kin App 图标" width="128" />
+</p>
+
+<p align="center">
   <strong>Kin 是一款以现实相遇为起点的私密通讯实验。</strong><br />
   两台设备靠近、双方核对并确认后，才建立好友关系；随后可以进行端到端加密聊天、语音消息与 WebRTC 语音通话。
 </p>
